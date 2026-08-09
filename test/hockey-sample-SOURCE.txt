@@ -1,0 +1,15 @@
+test/hockey-sample.mp4 - source and license
+
+Downloaded from Pixabay, 2026-08-08:
+  https://pixabay.com/videos/hockey-sport-game-ice-team-puck-14156/
+  Direct file: https://cdn.pixabay.com/video/2018/02/06/14156-685293304_large.mp4
+
+Licensed under the Pixabay Content License (free for commercial and
+non-commercial use, no attribution required):
+  https://pixabay.com/service/license-summary/
+
+Generic hockey action footage - NOT NHL/Montreal Canadiens game footage.
+Real NHL broadcast footage is copyrighted and was deliberately not used;
+this clip exists to give the transcode pipeline real-world motion
+complexity (skating, fast camera pans, puck tracking) that the project's
+synthetic generate_test_input() gradient clips don't have.

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+  <!--
+    Phase 4 demo page (see ffmpeg-openh264-wasm-dcp.md and the
+    original handoff doc's "Phase 4: Demo front end" section): drop a
+    video, watch it race locally (in-page wasm) against the DCP fleet,
+    watch a liveness grid fill in as results land, watch a live cost
+    counter, then play the assembled HLS ladder back in-page. No server
+    anywhere in this page - static files only.
+
+    UNVERIFIED (see the how-to doc's Phase 4 section for the full list):
+    this is the first time job.requires() and the identity/wallet setup
+    used by every other job script in this project have been driven from
+    an actual browser tab instead of Node. The API is the same
+    (window.dcp mirrors dcp-client's Node exports per dcp-client's own
+    examples/vanilla-web/*.html), but that equivalence hasn't been
+    exercised end-to-end from a real browser yet.
+  -->
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FFmpeg + WASM on DCP: live transcode race</title>
+
+    <!-- dcp-client's hosted browser build - exposes window.dcp -->
+    <script src="https://scheduler.distributed.computer/dcp-client/dcp-client.js"></script>
+    <!-- hls.js for in-page playback of the assembled ladder -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+    <!-- QR code rendering for the join-the-fleet panel -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+    <!-- Same wasm module the sandbox work function uses, loaded the
+         browser-native way (fetch, not base64) - runs inside
+         ffmpeg-worker.js (a real Web Worker, off the main thread) so a
+         long encode doesn't freeze the page; ffmpeg-browser.js is the
+         thin main-thread RPC client for it. -->
+    <script src="ffmpeg-browser.js"></script>
+
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, system-ui, sans-serif;
+        background: #0b0f14; color: #e6edf3;
+        margin: 0; padding: 24px; max-width: 980px; margin-inline: auto;
+      }
+      h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+      .subtitle { color: #9aa7b2; margin-top: 0; margin-bottom: 1.5rem; }
+      section {
+        background: #111823; border: 1px solid #1e2b3a; border-radius: 10px;
+        padding: 1.25rem; margin-bottom: 1.25rem;
+      }
+      section h2 { font-size: 1rem; margin: 0 0 0.75rem; color: #d7dee5; }
+
+      #dropzone {
+        border: 2px dashed #2d3f52; border-radius: 10px; padding: 2.5rem;
+        text-align: center; cursor: pointer; transition: border-color 0.15s, background 0.15s;
+      }
+      #dropzone.dragover { border-color: #58a6ff; background: #0f1a26; }
+      #dropzone p { margin: 0.25rem 0; color: #9aa7b2; }
+      #fileInput { display: none; }
+      #demoClipBtn {
+        margin-top: 0.75rem; background: #1c2733; color: #e6edf3; border: 1px solid #2d3f52;
+        border-radius: 6px; padding: 0.4rem 0.9rem; cursor: pointer; font-size: 0.85rem;
+      }
+
+      .race-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.85rem; }
+      .race-label { width: 70px; font-size: 0.85rem; color: #9aa7b2; }
+      .race-bar-track { flex: 1; height: 18px; background: #1c2733; border-radius: 9px; overflow: hidden; }
+      .race-bar-fill { height: 100%; width: 0%; transition: width 0.2s ease; }
+      .race-bar-fill.local { background: linear-gradient(90deg, #58a6ff, #388bfd); }
+      .race-bar-fill.fleet { background: linear-gradient(90deg, #3fb950, #2ea043); }
+      .race-time { width: 70px; text-align: right; font-variant-numeric: tabular-nums; font-size: 0.85rem; color: #9aa7b2; }
+      #speedup {
+        text-align: center; font-size: 2.4rem; font-weight: 700; margin-top: 0.5rem;
+        color: #7ee787; min-height: 2.8rem;
+      }
+      #speedup .unit { font-size: 1.1rem; color: #9aa7b2; }
+
+      /* Column count, cell size, and gap are all set inline by
+         setupGrid() in app.js, computed per-run so the grid always tiles
+         within a fixed-size reserved block (see GRID_MAX_HEIGHT) instead
+         of growing forever for large chunk x rendition counts. */
+      #grid { display: grid; overflow: hidden; align-content: start; }
+      .grid-cell {
+        aspect-ratio: 1; border-radius: 3px; background: #1c2733;
+        transition: background 0.25s ease;
+      }
+      .grid-cell.done { background: #2ea043; }
+      .grid-cell.local-only { background: #388bfd; }
+      .grid-legend { display: flex; gap: 1.25rem; margin-top: 0.6rem; font-size: 0.8rem; color: #9aa7b2; }
+      .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+
+      .stat-row { display: flex; gap: 2rem; flex-wrap: wrap; margin-top: 0.5rem; }
+      .stat { }
+      .stat .value { font-size: 1.4rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+      .stat .label { font-size: 0.78rem; color: #9aa7b2; }
+
+      #costCounter { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+      #costDetail { font-size: 0.8rem; color: #9aa7b2; margin-top: 0.25rem; }
+
+      .cost-row { display: flex; align-items: center; gap: 0.65rem; }
+      .provider-badge {
+        display: inline-block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
+        text-transform: uppercase; padding: 0.18rem 0.5rem; border-radius: 4px; line-height: 1.3;
+      }
+      .provider-badge.aws { background: rgba(240,136,62,0.15); color: #f0883e; border: 1px solid rgba(240,136,62,0.4); }
+      .provider-badge.dcp { background: rgba(188,140,255,0.15); color: #bc8cff; border: 1px solid rgba(188,140,255,0.4); }
+      .dcp-stat-row { border-left: 2px solid rgba(188,140,255,0.4); padding-left: 0.85rem; margin-top: 0.6rem; }
+
+      video { width: 100%; border-radius: 8px; background: #000; }
+
+      .join-split { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
+      .join-split > * { flex: 1 1 300px; min-width: 260px; }
+      .join-panel { display: flex; align-items: center; gap: 1.5rem; }
+      #qrcode { background: #fff; padding: 8px; border-radius: 6px; }
+      .join-panel p { color: #9aa7b2; font-size: 0.9rem; line-height: 1.5; }
+
+      .hidden { display: none !important; }
+      #log {
+        font-family: monospace; font-size: 0.78rem; color: #6e7681;
+        height: 140px; overflow-y: auto; background: #0d1117;
+        padding: 0.5rem; border-radius: 6px;
+      }
+
+      /* dcp-client auto-injects a passphrase/wallet dialog (dialog#dcp-modal)
+         after wallet.get(), styled by its own dcp-client.css/dcp-modal.css,
+         both loaded inside CSS layers (@layer dcp-style, dcp-client,
+         dcp-modal, dcp-auth). Unlayered rules always win over layered ones
+         regardless of specificity or source order, so these overrides just
+         need to exist, not be more specific or !important. */
+      dialog#dcp-modal {
+        background: #111823; color: #e6edf3;
+        border: 1px solid #1e2b3a; border-radius: 10px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        max-width: 420px; width: 90%; font-family: -apple-system, system-ui, sans-serif;
+      }
+      dialog#dcp-modal::backdrop { background: rgba(5,8,12,0.75); }
+      dialog#dcp-modal h3#dcp-modal-title {
+        background: #1c2733; color: #e6edf3;
+        padding: 0.9em 1.1em; font-size: 1rem; border-bottom: 1px solid #1e2b3a;
+      }
+      dialog#dcp-modal #dcp-modal-close-x { filter: invert(70%); }
+      dialog#dcp-modal #dcp-modal-icon { filter: invert(85%); }
+      dialog#dcp-modal #dcp-modal-body,
+      dialog#dcp-modal #dcp-modal-content-area { color: #c9d1d9; font-size: 0.9rem; }
+      dialog#dcp-modal #dcp-modal-error { color: #f85149; }
+      dialog#dcp-modal input[type="text"],
+      dialog#dcp-modal input[type="password"],
+      dialog#dcp-modal input[type="number"] {
+        background: #0d1117; border: 1px solid #2d3f52; color: #e6edf3;
+        border-radius: 6px; padding: 0.4rem 0.6rem;
+      }
+      dialog#dcp-modal button {
+        background: #1c2733; color: #e6edf3; border: 1px solid #2d3f52;
+        border-radius: 6px; padding: 0.4rem 0.9rem; cursor: pointer; font-size: 0.85rem;
+      }
+      dialog#dcp-modal button:hover { border-color: #58a6ff; }
+      dialog#dcp-modal button[primary] { background: #388bfd; border-color: #388bfd; color: #fff; }
+      dialog#dcp-modal button[primary]:hover { background: #58a6ff; }
+
+      /* Every dcp-client modal type (alert/confirm/prompt/passwordPrompt/
+         upload/uploadKeystore) clones the same dialog#dcp-modal template,
+         so the rules above already theme all of them - these two are the
+         only type-specific bits dcp-modal.css hardcodes light-theme
+         colors for: the upload drop-zone label and the password eye
+         toggle icon. */
+      dialog#dcp-modal.dcp-modal-upload #dcp-modal-drop-target { border-color: #2d3f52; }
+      dialog#dcp-modal.dcp-modal-upload[drag-state="over"] #dcp-modal-drop-target { border-color: #58a6ff; }
+      dialog#dcp-modal.dcp-modal-upload #dcp-modal-drop-label { background: #111823; color: #9aa7b2; }
+      dialog#dcp-modal input.dcp-show-eye + span { filter: invert(70%); }
+
+      #scrubBar {
+        position: relative; height: 28px; background: #1c2733;
+        border-radius: 6px; cursor: pointer;
+      }
+      #scrubPreview {
+        position: absolute; bottom: 36px; left: 0;
+        border: 1px solid #2d3f52; border-radius: 4px; background: #000;
+        display: none; pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>FFmpeg + OpenH264/x264/SVT-AV1 on WASM, on DCP</h1>
+    <p class="subtitle">Drop a video. Watch it transcode locally vs. a real DCP worker fleet, live. A real AV1 rendition rides alongside H.264, so you can watch AV1 cost more compute per encode and land noticeably smaller.</p>
+
+    <section id="dropSection">
+      <h2>1. Drop a video</h2>
+      <div id="dropzone">
+        <p><strong>Drag a video file here</strong>, or click to choose one.</p>
+        <p>H.264/AAC MP4 works best (matches this project's tested decode path).</p>
+        <input type="file" id="fileInput" accept="video/*" />
+        <button id="demoClipBtn" type="button">No file handy? Use a generated demo clip</button>
+      </div>
+    </section>
+
+    <section id="raceSection" class="hidden">
+      <h2>2. The race</h2>
+      <div class="race-row">
+        <div class="race-label">Local</div>
+        <div class="race-bar-track"><div id="localBar" class="race-bar-fill local"></div></div>
+        <div id="localTime" class="race-time">0.0s</div>
+      </div>
+      <div class="race-row">
+        <div class="race-label">DCP</div>
+        <div class="race-bar-track"><div id="fleetBar" class="race-bar-fill fleet"></div></div>
+        <div id="fleetTime" class="race-time">0.0s</div>
+      </div>
+      <div id="speedup"></div>
+    </section>
+
+    <section id="joinSection">
+      <h2>Join the fleet</h2>
+      <div class="join-split">
+        <div class="join-panel">
+          <div id="qrcode"></div>
+          <p>Scan to turn your phone or laptop into a worker for this demo's compute group (via <code>dcp.live</code>, pre-filled with the group's join key/secret). More workers join mid-race, and the DCP bar visibly speeds up.</p>
+        </div>
+        <div id="log"></div>
+      </div>
+    </section>
+
+    <section id="liveSection" class="hidden">
+      <h2>3. DCP Progress</h2>
+      <div id="grid"></div>
+      <div class="grid-legend">
+        <span><span class="legend-swatch" style="background:#1c2733"></span>pending</span>
+        <span><span class="legend-swatch" style="background:#2ea043"></span>fleet result landed</span>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><div id="statConcurrent" class="value">0</div><div class="label">approx. concurrent workers*</div></div>
+        <div class="stat"><div id="statThroughput" class="value">0.0</div><div class="label">results/sec (rolling)</div></div>
+        <div class="stat"><div id="statCompleted" class="value">0 / 0</div><div class="label">units complete</div></div>
+      </div>
+      <p style="font-size:0.75rem;color:#6e7681;margin-top:0.5rem;margin-bottom:0">
+        *approximated from concurrently in-flight slices, not a directly reported metric.
+      </p>
+    </section>
+
+    <section id="costSection" class="hidden">
+      <h2>4. Cost comparison</h2>
+      <div class="cost-row">
+        <span class="provider-badge aws">AWS</span>
+        <div id="costCounter">$0.0000</div>
+      </div>
+      <div id="costDetail">AWS MediaConvert-equivalent rates: real published on-demand rates, first pricing tier, SD bucket (simplified, not a full quote)</div>
+      <p style="font-size:0.75rem;color:#6e7681;margin-top:0.5rem;margin-bottom:0">
+        Real rates from AWS's pricing page (aws.amazon.com/mediaconvert/pricing/): H.264 uses the Basic tier ($0.0075/min at SD). AV1 needs the Professional tier (Basic doesn't support it) at $0.0120/min base × a 3.5x SD multiplier = $0.042/min. AV1 costs more for two independent reasons, not just the encode itself.
+      </p>
+
+      <div class="cost-row" style="margin-top:1.25rem">
+        <span class="provider-badge dcp">DCP</span>
+      </div>
+      <div class="stat-row dcp-stat-row">
+        <div class="stat"><div id="statDcpRaw" class="value">$0.0000</div><div class="label">raw DCP cost, this run</div></div>
+        <div class="stat"><div id="statDcpInternal" class="value">$0.0000</div><div class="label">Bell net cost (internal use)</div></div>
+        <div class="stat"><div id="statDcpExternal" class="value">$0.0000</div><div class="label">Bell revenue (resold externally)</div></div>
+      </div>
+      <div id="dcpDetail" style="font-size:0.8rem;color:#9aa7b2;margin-top:0.25rem">0/0 fleet slices: priced from each slice's own real compute time</div>
+      <p style="font-size:0.75rem;color:#6e7681;margin-top:0.5rem;margin-bottom:0">
+        DCP prices compute at 1.000 ⊇ (one DCP credit) = $0.0003171 USD per 100 vCPU-seconds. "Raw DCP cost" is priced from each fleet slice's own real compute time, so it reflects whatever hardware actually ran it. Bell's internal fleet runs at roughly 38% the per-core speed of AWS's, so the same output can cost proportionally more real vCPU-seconds than a same-hardware comparison to AWS would suggest. Two numbers follow: run internally, Bell earns back 80% of its compute spend, netting about 1/5 (20%) of the raw DCP cost. Resold externally, Distributive keeps 20% of what the customer pays and Bell keeps the other 80% as revenue.
+      </p>
+    </section>
+
+    <section id="codecSection" class="hidden">
+      <h2>Same resolution, two encoders: H.264 vs. AV1</h2>
+      <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0">
+        Two extra renditions ride along in every job, outside the real ABR ladder above: 320×240 via <code>libopenh264</code> and via <code>libsvtav1</code>, both in each encoder's own quality mode (not a bitrate cap, which would make both converge to the same size regardless of efficiency). AV1 costs meaningfully more compute per encode; watch the size difference land as results come in. Neither is included in playback below: this pair exists purely for comparison, and MPEG-TS (this pipeline's segment container) isn't reliably supported for AV1 across hls.js/browsers.
+      </p>
+      <div class="stat-row">
+        <div class="stat"><div id="statH264Bytes" class="value">0 MB</div><div class="label">H.264 (quality mode) total</div></div>
+        <div class="stat"><div id="statAv1Bytes" class="value">0 MB</div><div class="label">AV1 (quality mode) total</div></div>
+        <div class="stat"><div id="statAv1Savings" class="value">—</div><div class="label">AV1 size vs. H.264</div></div>
+      </div>
+    </section>
+
+    <section id="playerSection" class="hidden">
+      <h2>5. Playback</h2>
+      <video id="player" controls></video>
+      <div id="rungButtons" style="margin-top:0.75rem;"></div>
+    </section>
+
+    <section id="thumbSection" class="hidden">
+      <h2>6. Scrubbing preview</h2>
+      <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0">
+        A real sprite sheet + WebVTT map generated from the original upload, via a new <code>generate_thumbnails()</code> C function: standalone MJPEG frames sampled evenly across the source, composited into one image client-side (the same split a real CDN pipeline would make - server-side frame extraction, edge-side sprite assembly). This is the same sprite-sheet format hls.js/video.js scrubbing-preview plugins consume. Hover the bar below to scrub.
+      </p>
+      <div id="scrubBar"><canvas id="scrubPreview"></canvas></div>
+      <div id="thumbDetail" style="font-size:0.8rem;color:#9aa7b2;margin-top:0.5rem"></div>
+    </section>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,41 @@
+diff --git a/configure b/configure
+index 1759694..914b754 100755
+--- a/configure
++++ b/configure
+@@ -7150,22 +7150,20 @@ fi
+ # check for some common methods of building with pthread support
+ # do this before the optional library checks as some of them require pthreads
+ if ! disabled pthreads && ! enabled w32threads && ! enabled os2threads; then
+-    if check_lib pthreads pthread.h pthread_join   -pthread &&
+-       check_lib pthreads pthread.h pthread_create -pthread; then
+-        add_allcflags -pthread
+-    elif check_lib pthreads pthread.h pthread_join   -pthreads &&
+-         check_lib pthreads pthread.h pthread_create -pthreads; then
+-        add_allcflags -pthreads
+-    elif check_lib pthreads pthread.h pthread_join   -ldl -pthread &&
+-         check_lib pthreads pthread.h pthread_create -ldl -pthread; then
+-        add_allcflags -ldl -pthread
+-    elif check_lib pthreads pthread.h pthread_join   -lpthreadGC2 &&
+-         check_lib pthreads pthread.h pthread_create -lpthreadGC2; then
+-        :
+-    elif check_lib pthreads pthread.h pthread_join   -lpthread &&
+-         check_lib pthreads pthread.h pthread_create -lpthread; then
+-        :
+-    elif check_func pthread_join && check_func pthread_create; then
++    # DCP/wasm patch: skip straight to the flag-free check_func fallback.
++    # The -pthread/-pthreads/-ldl branches below all "succeed" under emcc
++    # (it happily compiles+links -pthread test programs), which normally
++    # would be correct - but it also silently switches emcc into real
++    # Emscripten multi-threading (--shared-memory, atomics, -mt runtime
++    # libs), which requires spawning actual Worker/worker_threads. The
++    # DCP sandbox exposes no such capability to a work function (single
++    # V8 isolate, no Worker constructor) regardless of SharedArrayBuffer
++    # being allow-listed, so a real-threaded build would link fine and
++    # then fail at runtime. musl's pthread_join/pthread_create exist
++    # and are usable (synchronous, single-thread stubs) without -pthread
++    # at all - check_func finds them with no special flag added, which
++    # is the only backend choice that's actually safe on this target.
++    if check_func pthread_join && check_func pthread_create; then
+         enable pthreads
+     fi
+     check_cc pthreads "pthread.h" "static pthread_mutex_t atomic_lock = PTHREAD_MUTEX_INITIALIZER"
