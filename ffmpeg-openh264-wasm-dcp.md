@@ -1719,3 +1719,306 @@ before:
   `grep` build's `--include` gap entirely. Verified the whole patch
   pipeline standalone against synthetic test files (confirmed exit 0,
   correct output) before trusting it inside the real build again.
+
+## Resolution stress test, then Phases 2-6 of the six-flow plan
+
+With Phase 1 (thumbnails) shipped, `generate_test_input()` was
+parameterized with `width`/`height` (defaulting to the original
+320x240 when unset - every existing test and call site stays
+unaffected) and pointed at a ramping stress test across SD/HD/FHD/4K/8K
+before committing to the remaining five flows, on the theory that a
+resolution ceiling would be a more interesting and more likely failure
+mode for this pipeline than a duration one (every encoder here already
+processes video frame-by-frame regardless of length; resolution is what
+actually stresses per-frame buffer sizing).
+
+**Finding: OpenH264 hard-rejects `width * height > 9,437,184` pixels** -
+a real, permanent codec-level validation limit (not a bug, not a wasm
+memory ceiling), hit cleanly at the 8K step. Documented as a known
+ceiling for the `libopenh264` renditions specifically; SVT-AV1/x264/x265
+were not tested against the same ceiling since the stress test's purpose
+was finding *a* real ceiling to document, not exhaustively characterizing
+every encoder's own limit.
+
+The remaining five flows from the original plan were then implemented in
+order (thumbnails was Phase 1; multi-audio, loudness, HDR10, low-latency
+dispatch, and HEVC were Phases 2-6):
+
+### Phase 2: multi-audio-track passthrough
+
+`do_transcode()`, `probe_streams()`, and `slice()` each picked audio via
+`else if (t == AVMEDIA_TYPE_AUDIO && audio_idx < 0) audio_idx = i` -
+first stream only, in three separate places. Replaced with
+`MAX_AUDIO_STREAMS`-sized (`8`) arrays and loops in all three, following
+the exact per-stream copy/rescale pattern the single-track code already
+used, just repeated per index instead of hardcoded once.
+`generate_test_input()` gained an `extra_audio_track` flag (a second
+880Hz tone alongside the default 440Hz one, standing in for a Fr/En
+dual-track source - no real bilingual fixture needed to prove the
+mechanism) via a `write_tone_track()` helper factored out of the
+previous single-track inline code. `probe_streams()` now decodes from
+every audio track (not just the first) and exposes two new getters,
+`get_last_probe_audio_tracks()`/`get_last_probe_min_decoded_audio_frames()`,
+so `test/test-multi-audio.js` can assert both tracks survive the source,
+a whole-file transcode, and every sliced chunk independently - not just
+that the container has two streams, but that both actually decode.
+**Verified, all green, no regressions to the existing suite.**
+
+### Phase 3: EBU R128 loudness normalization
+
+The first real `avfilter` graph anywhere in this codebase - audio
+previously always stream-copied; this flow needs a genuine decode ->
+filter -> re-encode chain (`abuffer` -> `loudnorm` -> `abuffersink`).
+New build flags: `--enable-filter=abuffer,abuffersink,loudnorm`. Three
+real bugs found and fixed while building the graph, all from the same
+underlying gotcha:
+
+- **Bug 1**: used `avfilter_graph_create_filter()` for `abuffer`, then
+  tried to set its sample-format option afterward - that function inits
+  the filter immediately with no format, so it failed with "Sample
+  format was not set or was invalid". **Fixed**: the two-step pattern
+  instead - `avfilter_graph_alloc_filter()` (allocate only) +
+  `av_buffersrc_parameters_set()` + `avfilter_init_str(ctx, NULL)`
+  (init after options are set).
+- **Bug 2**: same root cause for `abuffersink`'s `sample_fmts` option -
+  "not a runtime option and so cannot be set after the object has been
+  initialized". **Fixed**: same two-step pattern.
+- **Bug 3**: `loudnorm` doesn't preserve AAC's fixed 1024-sample frame
+  size - it emitted arbitrarily-sized chunks (19200/2304/556800 samples
+  seen across one run), which `avcodec_send_frame()` then rejected.
+  **Fixed**: `av_buffersink_set_frame_size(norm_sink_ctx,
+  norm_enc_ctx->frame_size)` forces fixed-size output chunks matching
+  the AAC encoder's own frame size.
+
+`test/test-loudnorm.js` verifies the filtered audio survives as real,
+independently decodable audio end to end - it does **not** verify the
+actual LUFS value lands at the target, which is out of scope (would
+need a real loudness-measurement tool in the test itself, not just
+ffmpeg). Also worth flagging as a real, honest architectural tension for
+this doc rather than hiding it: `loudnorm`'s single-pass mode is what's
+usable per-chunk in this architecture, but that doesn't guarantee
+consistent loudness *across* chunks the way a whole-file two-pass
+analysis would.
+
+### Phase 4: HDR10 metadata passthrough
+
+Two layers of HDR metadata, handled differently:
+
+- **Container/codec-level** (`color_primaries`/`color_trc`/`colorspace`/
+  `chroma_sample_location`): copied straight from `dec_ctx` to
+  `enc_ctx` right after encoder framerate setup in `do_transcode()`.
+  Note the naming trap here - `AVCodecParameters` calls this field
+  `color_space`, but `AVCodecContext` calls the *same concept*
+  `colorspace` (no underscore) - easy to typo past the compiler since
+  both are valid identifiers, just on different structs.
+- **Frame-level side data** (`AVMasteringDisplayMetadata`/
+  `AVContentLightMetadata`, via `av_frame_get_side_data()`/
+  `av_*_create_side_data()`): copied frame-by-frame in the decode loop,
+  with `av_frame_remove_side_data()` called first since the `scaled`
+  frame is reused across iterations and stale side data would otherwise
+  leak into subsequent frames that shouldn't carry it.
+
+**A real use-after-free bug**, found and fixed in the new `probe_hdr()`
+verification function: the original code called
+`avformat_close_input(&fmt)` (which frees the `AVFormatContext` and
+every `AVStream`/`AVCodecParameters` hanging off it) *before*
+`return cp->color_primaries`, reading already-freed memory - confirmed
+by comparing a pre-close `fprintf` (correct value, 9) against the
+post-close return (garbage). **Fixed**: capture the value into a local
+before closing.
+
+**Honestly documented gap, not a bug**: `test-hdr.js` confirms
+`color_primaries` (container-level) survives `do_transcode()` end to
+end, but mastering-display/content-light *side data* does not -
+`has_mastering_display_metadata=0` on both the source and the
+transcoded output. Root-caused to `generate_test_input()`'s own
+OpenH264-based encode step never serializing attached `AVFrame` side
+data into the H.264 bitstream at encode time in the first place (the
+fixture never carries it to begin with), not a bug in the passthrough
+code itself - confirmed by swapping in `libx264` as the transcode-step
+encoder and seeing the identical result either way, ruling out
+`do_transcode()`'s own encoder choice as the cause.
+
+### Phase 5: low-latency chunked dispatch
+
+JS-only, no wasm rebuild. `runFleetRace()` in `app.js` previously
+dispatched one `compute.for()` job covering every chunk in the video;
+refactored to group `units` by `chunkIndex` and dispatch one job *per
+chunk*, back to back, not awaited between dispatches
+(`chunkJobPromises.push(job.exec(...).catch(...))`, `await
+Promise.all(chunkJobPromises)` at the end) - each chunk gets its own
+`job.on('result'/'error'/'nofunds')` wiring, feeding a shared
+`handleResult()` keyed by `(chunkIndex, label)` so it doesn't matter
+which job a given result actually came from. Real, disclosed limitation
+worth stating plainly: `slice()` (the C function) still processes the
+whole input file in one call, so this demo's own chunks all become
+available at roughly the same moment regardless of this change - what
+actually changes is that the *dispatch* code no longer needs the full
+chunk count up front before it can start submitting jobs, which is
+exactly the part that would need to be true for a genuinely
+live/incrementally-arriving source. Not tested against a live DCP
+fleet in this session (acknowledged limitation, consistent with this
+project's pattern of flagging what's verified vs. not).
+
+### Phase 6: HEVC via libx265 - a build/link saga, then a real runtime hang, then a real fix
+
+Same shape as the x264/SVT-AV1 additions before it: clone `../../x265`
+as a sibling checkout, add a wasm build stage to `build.sh`, `emcmake
+cmake` (not `emconfigure`/`make` - x265 is CMake-based, source lives in
+a `source/` subdirectory, not the repo root), `--enable-libx265
+--enable-encoder=libx265`. Unlike x264/openh264/SVT-AV1, x265 has no
+compile-time single-thread build toggle - single-threadedness has to
+come from the `x265-params` AVOption passthrough at runtime
+(`pools=none:frame-threads=1`, mirroring the `svtav1-params lp=1`
+pattern already established for SVT-AV1). Three real build/link bugs,
+then a genuine runtime hang that turned out to need actual source
+patching to fix - by far the longest single item in this project's
+build history.
+
+**Build/link bugs (all three fixed, all three now committed patches
+under `patches/`, applied idempotently by `build.sh`):**
+
+- **`-march=i686` under Emscripten**: x265's `source/CMakeLists.txt`
+  detects "X86" purely from `CMAKE_SYSTEM_PROCESSOR` matching an alias
+  list (`x86`/`i386`/`i686`/`x86_64`/`amd64`) - Emscripten's toolchain
+  file reports one of these, so x265 unconditionally injected
+  `-march=i686` (a real x86 CPU flag), which clang rejects outright for
+  `wasm32-unknown-emscripten` ("unsupported option '-march=' for
+  target"). **Fixed**: `patches/x265-no-march-under-emscripten.patch`,
+  one line (`elseif(X86 AND NOT X64)` -> `elseif(X86 AND NOT X64 AND
+  NOT EMSCRIPTEN)` - CMake auto-defines `EMSCRIPTEN=TRUE` under
+  Emscripten's own toolchain file, so this excludes exactly the one
+  case that needs excluding).
+- **pkg-config shim misnamed**: ffmpeg's configure calls
+  `require_pkg_config libx265 x265 x265.h x265_api_get`. First guess
+  was that arg 1 (`libx265`) was the real pkg-config package name -
+  wrong. Traced through configure's own `test_pkg_config()` (`pkg="${2%%
+  *}"`) and confirmed arg 2 (`x265`) is what's actually searched for;
+  arg 1 is just ffmpeg's internal component name. **Fixed**: the shim
+  file is `Bell/tools/pkgconfig-shim/x265.pc` with `Name: x265` inside,
+  not `libx265.pc`.
+- **`x265_config.h` not found**: this header is CMake-*generated*, and
+  lands in `build-wasm/`, not `source/` - the shim's `Cflags` only
+  pointed at `source/`. **Fixed**: added `-I${libdir}` (already =
+  `build-wasm/`) alongside the existing `-I${includedir}`.
+- **`sem_close`/`sem_unlink` undefined symbols** at link time, from
+  `ringmem.cpp.o`: x265's `NamedSemaphore` class (an optional feature
+  for sharing CTU-info analysis data *across processes*) uses real
+  POSIX named semaphores in its non-`_WIN32` branch. Emscripten's libc
+  implements pthread mutex/cond as real (if single-threaded) stubs, but
+  doesn't implement named semaphores at all. **Fixed**:
+  `patches/x265-emscripten-namedsemaphore-stub.patch` - a no-op stub
+  under `#ifdef __EMSCRIPTEN__` (`create()`/`give()`/`take()` always
+  report success, `release()` does nothing), architecturally correct
+  since a single-process wasm module has no other process to
+  synchronize with, and this feature is never invoked by this project's
+  basic encode call regardless.
+
+With all four fixed, the build succeeded cleanly (`ffmpeg_g` linked,
+`wasm-bytes.js` grew to ~14.4MB base64) and x265's own init logging
+showed exactly the intended configuration (`No thread pool allocated,
+--wpp disabled` / `frame threads / pool features: 1 / none`) - and then
+a smoke-test encode hung indefinitely with zero further output.
+
+**Confirming it was a real hang, not just slow encoding**: checked the
+stuck process's actual start time against wall-clock time (~14 minutes
+elapsed with zero progress, versus low-single-digit seconds for
+comparable jobs on every other encoder) before killing it. Investigated
+locally and via web search for known Emscripten-threading footguns
+before finding the exact mechanism in x265's own source:
+
+- `Encoder::init()` (`encoder.cpp:513-514`) does
+  `m_frameEncoder[i]->start(); m_frameEncoder[i]->m_done.wait();` - the
+  calling thread creates a `FrameEncoder` worker thread, then
+  *immediately blocks* waiting for an event only that new thread can
+  signal (`Thread::start()` -> `pthread_create()`;
+  `FrameEncoder::threadMain()` -> `m_done.trigger()` after its own
+  setup, `frameencoder.cpp`).
+- `frameNumThreads` (and therefore at least one `FrameEncoder` thread)
+  is **never zero** - `pools=none:frame-threads=1` only disables the
+  *optional* extra thread pool (`m_numPools == 0`, confirmed both from
+  the log output and from `encoder.cpp`'s `if (m_numPools) { ...
+  m_threadPool[j].start() ... }` being correctly skipped), not this
+  always-present worker.
+- This sandbox has no real second thread of execution available to a
+  DCP work function (single V8 isolate, no Worker constructor - already
+  documented in `patches/ffmpeg-single-thread-pthread-detection.patch`'s
+  own comment, written for an earlier encoder). `pthread_create()`
+  "succeeding" without real concurrency behind it, followed by an
+  immediate blocking wait for a signal only the uncreated thread can
+  send, is the textbook Emscripten single-thread-build deadlock shape.
+
+**The fix that actually worked**: rather than trying to make
+`pthread_create()`/`pthread_join()` behave like real threads (not
+possible in this sandbox), traced whether x265's own call pattern at
+`frameNumThreads=1` was actually using real concurrency at all. It
+isn't: `Encoder::encode()` (`encoder.cpp:1991-2032`) already calls
+`getEncodedPicture()` (blocks for the *previous* frame) before
+`startCompressFrame()` (kicks off the *next* frame) - strictly
+sequential, never two frames in flight. The thread/event handshake
+wasn't buying any real concurrency in this configuration; it was a
+synchronous function call wearing a threaded costume. That makes
+replacing it with a direct synchronous call architecturally sound, not
+a hack.
+
+`patches/x265-emscripten-synchronous-frameencoder.patch`
+(`source/encoder/frameencoder.h`/`.cpp`): under `#ifdef __EMSCRIPTEN__`,
+`FrameEncoder` declares its own non-virtual `start()`/`stop()` that
+*shadow* (hide, not override - `Thread::start()`/`stop()` aren't
+virtual) the base `Thread` class's versions for any call through a
+`FrameEncoder*`-typed pointer (confirmed via `grep` that both real call
+sites in the whole x265 tree - `encoder.cpp:513` and `:648` - go through
+exactly such a pointer). `threadMain()`'s body was split into two
+reusable pieces: `runThreadInit()` (the one-time per-NUMA-node/TLD
+setup) and `runFrameCompress()` (wait-for-reference-data, compress,
+signal done) - both still used by the real (non-Emscripten) threaded
+path via `threadMain()` unchanged, and both called directly, inline, by
+the new synchronous path:
+
+- `FrameEncoder::start()` calls `runThreadInit()` then
+  `m_done.trigger()` synchronously, so `encoder.cpp:514`'s
+  `m_done.wait()` returns immediately (`Event` is a real counting
+  semaphore - `trigger()` before `wait()` leaves the counter
+  incremented, so a later `wait()` doesn't block; verified by reading
+  `Event`'s implementation in `threading.h`, not assumed).
+- `startCompressFrame()` calls `runFrameCompress()` directly instead of
+  `m_enable.trigger()` under `__EMSCRIPTEN__`.
+- `FrameEncoder::stop()` is a no-op - nothing was ever spawned to join
+  (the base `Thread`'s private `thread` handle stays `0` since the base
+  `Thread::start()` is never called).
+- The generic `Thread`/`ThreadPool` machinery elsewhere in x265 is
+  untouched - safe specifically because this project always sets
+  `pools=none`, so no other code path ever calls `ThreadPool::start()`.
+
+Result: the same 30-frame smoke test that hung for 14+ minutes completed
+in 827ms after the patch. Full `test/test-codec-bakeoff.js` re-run
+against all four encoders confirms real, working numbers (100-frame
+chunk-sized clip, quality mode): `libopenh264` 104703 bytes,
+`libx264` 61324 bytes, `libsvtav1` 50517 bytes, `libx265` 58882 bytes -
+and at 400kbps ABR: `libopenh264` 103729, `libx264` 208185,
+`libsvtav1` 133684, `libx265` 212269 bytes. All 8 pre-existing Node
+tests still pass with zero regressions.
+
+### Browser demo wiring for Phases 2-6
+
+HEVC (Phase 6) rides alongside the existing H.264/AV1 pair in the
+codec-comparison section (`hevc-240p` rendition, `RENDITIONS` in
+`app.js`) - same quality-mode-not-bitrate-cap comparison methodology
+already established for AV1. Low-latency dispatch (Phase 5) is already
+the shape of `runFleetRace()` itself, not a separate toggle. Loudness
+normalization (Phase 3) got a real UI toggle ("Normalize loudness (EBU
+R128) on every rendition") wired through to both the local race
+(`transcodeSegment` params) and the fleet race (`unit.normalizeLoudness`
+on each dispatched job unit, read by the existing `workFunction`).
+Multi-audio-track (Phase 2) and HDR10 (Phase 4) passthrough are both
+**transparent** - a real upload with its own multiple audio tracks or
+HDR10 metadata already passes through automatically, with no toggle
+needed, since the underlying `do_transcode()` change isn't
+user-selectable behavior in a real pipeline either. A second checkbox
+("Demo clip: dual-language audio + HDR10 tags") only affects the
+*generated* demo clip, since the synthetic generator needs an explicit
+flag to fabricate a second track/HDR metadata to demonstrate the
+passthrough against - real uploads need no such flag. Syntax-checked
+and DOM-cross-referenced; not exercised in a live browser in this
+session (no browser-automation tool available), consistent with this
+project's established pattern for browser-only surfaces.

@@ -53,15 +53,15 @@ function getModule() {
 
 async function transcodeSegment(chunkBytes, params = {}) {
   const Module = await getModule();
-  const { width = 0, height = 0, bitrateKbps = 0, encoder = 'libopenh264' } = params;
+  const { width = 0, height = 0, bitrateKbps = 0, encoder = 'libopenh264', normalizeLoudness = 0 } = params;
   const inPath = `/chunk-in-${Math.random().toString(36).slice(2)}.ts`;
   const outPath = `/chunk-out-${Math.random().toString(36).slice(2)}.ts`;
 
   Module.FS.writeFile(inPath, chunkBytes);
   const ret = Module.ccall(
     'transcode_segment', 'number',
-    ['string', 'string', 'number', 'number', 'number', 'string'],
-    [inPath, outPath, width, height, bitrateKbps, encoder],
+    ['string', 'string', 'number', 'number', 'number', 'string', 'number'],
+    [inPath, outPath, width, height, bitrateKbps, encoder, normalizeLoudness ? 1 : 0],
   );
   if (ret !== 0) {
     Module.FS.unlink(inPath);
@@ -212,13 +212,13 @@ async function sliceVideoAdaptive(inputBytes, targetChunkFrames, outWidth = 0, o
   return { chunks, durations, fps: initial.fps };
 }
 
-async function generateTestClip(numFrames, gopSize) {
+async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extraAudioTrack = 0, hdr = 0) {
   const Module = await getModule();
   const path = '/gen-test.mp4';
   const ret = Module.ccall(
     'generate_test_input', 'number',
-    ['string', 'number', 'number'],
-    [path, numFrames, gopSize],
+    ['string', 'number', 'number', 'number', 'number', 'number', 'number'],
+    [path, numFrames, gopSize, width, height, extraAudioTrack ? 1 : 0, hdr ? 1 : 0],
   );
   if (ret !== 0) throw new Error(`generate_test_input() failed with code ${ret}`);
   const bytes = Module.FS.readFile(path);

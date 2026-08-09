@@ -43,6 +43,7 @@ EMSDK="$(cd ../../emsdk && pwd)"
 OPENH264_SRC="$(cd ../../openh264 && pwd -W)"
 X264_SRC="$(cd ../../x264 && pwd -W)"
 SVTAV1_SRC="$(cd ../../SVT-AV1 && pwd -W)"
+X265_SRC="$(cd ../../x265 && pwd -W)"
 FFMPEG_SRC="$(cd ../../ffmpeg && pwd -W)"
 # MSYS-style form of the same directory, captured directly (not derived
 # by string-transforming FFMPEG_SRC - simpler and can't drift out of sync)
@@ -55,10 +56,15 @@ PKGCONFIG_SHIM="$(cd ../tools/pkgconfig-shim && pwd)"
 MAKE_PORTABLE="$(cd ../../make-portable/bin && pwd)"
 STRINGS_SHIM="$(cd ../tools/strings-shim && pwd)"
 
-# cmake/ninja (used by the SVT-AV1 step below) aren't bundled here - see
-# SETUP.md's "pip install cmake ninja" note; adjust PATH if yours live
-# somewhere pip didn't put on it automatically.
-export PATH="$MAKE_PORTABLE:$STRINGS_SHIM:$EMSDK:$EMSDK/upstream/emscripten:$EMSDK/upstream/bin:$PKGCONFIG_SHIM:$PATH"
+# cmake/ninja (used by the SVT-AV1 and x265 steps below) aren't bundled
+# here - see SETUP.md's "pip install cmake ninja" note; adjust PATH if
+# yours live somewhere pip didn't put them on automatically. `pip install`
+# defaulted to a per-user install (not on PATH by default on Windows) -
+# confirmed live via `python -m site --user-base`, same hardcoded-version-
+# segment style as EMSDK_NODE/EMSDK_PYTHON below since this whole PATH
+# setup already accepts that tradeoff for this machine's toolchain.
+PIP_USER_SCRIPTS="$(python -m site --user-base 2>/dev/null)/Python314/Scripts"
+export PATH="$MAKE_PORTABLE:$STRINGS_SHIM:$EMSDK:$EMSDK/upstream/emscripten:$EMSDK/upstream/bin:$PKGCONFIG_SHIM:$PIP_USER_SCRIPTS:$PATH"
 export EMSDK_NODE="$EMSDK/node/24.19.0_64bit/node.exe"
 export EMSDK_PYTHON="$EMSDK/python/3.13.3_64bit/python.exe"
 
@@ -108,6 +114,73 @@ if [ ! -f "$SVTAV1_SRC/Bin/Release/libSvtAv1Enc.a" ]; then
     cmake --build build-wasm --target SvtAv1Enc -j4 )
 fi
 
+# --- 1d. x265 (GPL HEVC encoder), no compile-time single-thread toggle.
+# CMakeLists.txt lives in source/, not the repo root (confirmed via
+# x265's own build/linux/make-Makefiles.bash reference script). Unlike
+# x264/openh264, there's no --disable-thread-style flag here - x265's
+# frame/wavefront parallelism is threaded by design, not optional at
+# build time. Disabling it (pools=none) happens at RUNTIME instead, via
+# ffmpeg's "x265-params" AVOption passthrough in dcp-transcode.c (same
+# pattern as SVT-AV1's "svtav1-params lp=1" elsewhere in this project).
+# ENABLE_ASSEMBLY=OFF for the same reason as every other encoder here
+# (no x86/NASM under wasm32).
+#
+# Idempotent, same as the ffmpeg patch below: only apply if not already
+# applied. Real bug this patches around, found live: x265's own
+# CMakeLists.txt detects "X86" purely from CMAKE_SYSTEM_PROCESSOR
+# matching an alias list (x86/i386/i686/x86_64/amd64) - Emscripten's
+# toolchain reports one of these, so x265 unconditionally injects
+# `-march=i686` (a real x86 CPU flag) into the compile command, which
+# clang rejects outright for the wasm32-unknown-emscripten target
+# ("unsupported option '-march=' for target ..."). CMake automatically
+# defines EMSCRIPTEN=TRUE under Emscripten's own toolchain file - the
+# patch just excludes that case from the existing X86-detection branch,
+# one line changed.
+if ! grep -q "NOT EMSCRIPTEN" "$X265_SRC/source/CMakeLists.txt"; then
+  git -C "$X265_SRC" apply "$(cd "$(dirname "$0")" && pwd)/patches/x265-no-march-under-emscripten.patch"
+fi
+
+# x265's optional external CTU-info sharing feature (ringmem.cpp) uses real
+# POSIX named semaphores for cross-process sync - meaningless in a single-
+# process wasm module, and unlike pthread mutex/cond (which Emscripten's
+# libc does stub for single-threaded builds), sem_open/sem_close/sem_unlink
+# aren't implemented at all, so this is a real link-time undefined-symbol
+# error without the stub below, even though the feature itself is never
+# invoked by this project's basic encode call.
+if ! grep -q "__EMSCRIPTEN__" "$X265_SRC/source/common/threading.h"; then
+  git -C "$X265_SRC" apply "$(cd "$(dirname "$0")" && pwd)/patches/x265-emscripten-namedsemaphore-stub.patch"
+fi
+
+# x265's FrameEncoder always spawns at least one real OS thread (frame-
+# threads=1 only disables the *optional* extra thread pool, not this one),
+# synchronized with the main encoder thread via blocking events - the
+# calling thread signals "start a frame" and immediately blocks waiting
+# for "frame done", a signal only the spawned thread can send. This sandbox
+# has no real second thread of execution (no -pthread, no Worker), so that
+# wait hangs forever. With frame-threads=1, x265's own call pattern already
+# never overlaps two frames (Encoder::encode() waits for the previous frame
+# before starting the next), so the thread was never buying real
+# concurrency here - this patch replaces the thread+event handshake with a
+# direct synchronous call for FrameEncoder specifically, leaving the
+# generic Thread/ThreadPool machinery (unused when x265-params sets
+# pools=none, as this project always does) untouched.
+if ! grep -q "__EMSCRIPTEN__" "$X265_SRC/source/encoder/frameencoder.h"; then
+  git -C "$X265_SRC" apply "$(cd "$(dirname "$0")" && pwd)/patches/x265-emscripten-synchronous-frameencoder.patch"
+fi
+
+if [ ! -f "$X265_SRC/build-wasm/libx265.a" ]; then
+  echo "Building x265 for wasm..."
+  ( cd "$X265_SRC" && \
+    emcmake cmake -S source -B build-wasm -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DENABLE_SHARED=OFF \
+      -DENABLE_CLI=OFF \
+      -DENABLE_ASSEMBLY=OFF \
+      -DCMAKE_C_FLAGS="-O3 -msimd128 -mbulk-memory" \
+      -DCMAKE_CXX_FLAGS="-O3 -msimd128 -mbulk-memory" && \
+    cmake --build build-wasm -j4 )
+fi
+
 # --- 2. ffmpeg n8.1.1: patch configure, then configure+build ---
 if [ ! -f "$FFMPEG_BUILD/libavcodec/libavcodec.a" ]; then
   echo "Building ffmpeg for wasm (this is the long one)..."
@@ -136,8 +209,9 @@ if [ ! -f "$FFMPEG_BUILD/libavcodec/libavcodec.a" ]; then
     --enable-libopenh264 --enable-encoder=libopenh264 \
     --enable-gpl --enable-libx264 --enable-encoder=libx264 \
     --enable-libsvtav1 --enable-encoder=libsvtav1 \
+    --enable-libx265 --enable-encoder=libx265 \
     --enable-parser=h264,hevc,aac,av1 \
-    --enable-filter=scale,fps,aresample,anull,null,setpts,testsrc,color \
+    --enable-filter=scale,fps,aresample,anull,null,setpts,testsrc,color,abuffer,abuffersink,loudnorm \
     --enable-indev=lavfi \
     --disable-network --disable-autodetect \
     --nm=emnm --ar=emar --ranlib=emranlib --cc=emcc --cxx=em++ \
@@ -177,13 +251,14 @@ emcc src/dcp-transcode.c -O3 -msimd128 -mbulk-memory \
   -I "$FFMPEG_BUILD" -I "$FFMPEG_SRC" \
   -L "$FFMPEG_BUILD/libavformat" -L "$FFMPEG_BUILD/libavcodec" \
   -L "$FFMPEG_BUILD/libavutil" -L "$FFMPEG_BUILD/libswscale" \
-  -L "$FFMPEG_BUILD/libswresample" -L "$OPENH264_SRC" -L "$X264_SRC" \
-  -L "$SVTAV1_SRC/Bin/Release" \
-  -lavformat -lavcodec -lavutil -lswscale -lswresample -lopenh264 -lx264 -lSvtAv1Enc \
+  -L "$FFMPEG_BUILD/libswresample" -L "$FFMPEG_BUILD/libavfilter" \
+  -L "$OPENH264_SRC" -L "$X264_SRC" \
+  -L "$SVTAV1_SRC/Bin/Release" -L "$X265_SRC/build-wasm" \
+  -lavfilter -lavformat -lavcodec -lavutil -lswscale -lswresample -lopenh264 -lx264 -lSvtAv1Enc -lx265 \
   -sDEFAULT_TO_CXX=1 \
   -sMODULARIZE=1 -sEXPORT_NAME=createFfmpegModule \
   -sENVIRONMENT=web,worker \
-  -sEXPORTED_FUNCTIONS="['_transcode','_transcode_segment','_slice','_reencode_for_chunking','_generate_thumbnails','_get_chunk_frame_count','_get_source_fps','_generate_test_input','_probe_streams','_main']" \
+  -sEXPORTED_FUNCTIONS="['_transcode','_transcode_segment','_slice','_reencode_for_chunking','_generate_thumbnails','_get_chunk_frame_count','_get_source_fps','_generate_test_input','_probe_streams','_probe_hdr','_get_last_probe_audio_tracks','_get_last_probe_min_decoded_audio_frames','_main']" \
   -sEXPORTED_RUNTIME_METHODS="['ccall','cwrap','FS']" \
   -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=0 -sINVOKE_RUN=0 \
   -sALLOW_MEMORY_GROWTH=1 \

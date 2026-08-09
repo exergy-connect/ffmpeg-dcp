@@ -56,16 +56,19 @@ function getModule() {
 /**
  * Transcodes a video slice.
  * @param {Uint8Array} sliceBytes - input video bytes (e.g. an MPEG-TS/MP4 chunk)
- * @param {{width?: number, height?: number, bitrateKbps?: number, encoder?: string}} params
+ * @param {{width?: number, height?: number, bitrateKbps?: number, encoder?: string, normalizeLoudness?: boolean|number}} params
  *   width/height: output rendition size (0/omitted = keep source size)
  *   bitrateKbps: target bitrate (0/omitted = quality mode - see the how-to
  *     doc's bake-off section for what that means per encoder)
  *   encoder: 'libopenh264' (default), 'libx264', or 'libsvtav1'
+ *   normalizeLoudness: EBU R128 single-pass loudness normalization on the
+ *     first audio track (see do_transcode()'s doc comment in
+ *     dcp-transcode.c for the two-pass-vs-single-pass tradeoff)
  * @returns {Promise<Uint8Array>} transcoded output bytes (MP4)
  */
 async function transcodeSlice(sliceBytes, params = {}) {
   const Module = await getModule();
-  const { width = 0, height = 0, bitrateKbps = 0, encoder = 'libopenh264' } = params;
+  const { width = 0, height = 0, bitrateKbps = 0, encoder = 'libopenh264', normalizeLoudness = 0 } = params;
 
   const inPath = '/slice-in.mp4';
   const outPath = '/slice-out.mp4';
@@ -74,8 +77,8 @@ async function transcodeSlice(sliceBytes, params = {}) {
 
   const ret = Module.ccall(
     'transcode', 'number',
-    ['string', 'string', 'number', 'number', 'number', 'string'],
-    [inPath, outPath, width, height, bitrateKbps, encoder],
+    ['string', 'string', 'number', 'number', 'number', 'string', 'number'],
+    [inPath, outPath, width, height, bitrateKbps, encoder, normalizeLoudness ? 1 : 0],
   );
   if (ret !== 0) {
     Module.FS.unlink(inPath);
@@ -94,12 +97,12 @@ async function transcodeSlice(sliceBytes, params = {}) {
  * transcodeSlice, different container - this is the function the DCP
  * work function actually calls per (chunk, rendition) unit.
  * @param {Uint8Array} chunkBytes
- * @param {{width?: number, height?: number, bitrateKbps?: number, encoder?: string}} params
+ * @param {{width?: number, height?: number, bitrateKbps?: number, encoder?: string, normalizeLoudness?: boolean|number}} params
  * @returns {Promise<Uint8Array>}
  */
 async function transcodeSegment(chunkBytes, params = {}) {
   const Module = await getModule();
-  const { width = 0, height = 0, bitrateKbps = 0, encoder = 'libopenh264' } = params;
+  const { width = 0, height = 0, bitrateKbps = 0, encoder = 'libopenh264', normalizeLoudness = 0 } = params;
 
   const inPath = '/chunk-in.ts';
   const outPath = '/chunk-out.ts';
@@ -107,8 +110,8 @@ async function transcodeSegment(chunkBytes, params = {}) {
   Module.FS.writeFile(inPath, chunkBytes);
   const ret = Module.ccall(
     'transcode_segment', 'number',
-    ['string', 'string', 'number', 'number', 'number', 'string'],
-    [inPath, outPath, width, height, bitrateKbps, encoder],
+    ['string', 'string', 'number', 'number', 'number', 'string', 'number'],
+    [inPath, outPath, width, height, bitrateKbps, encoder, normalizeLoudness ? 1 : 0],
   );
   if (ret !== 0) {
     Module.FS.unlink(inPath);
@@ -247,15 +250,23 @@ async function generateThumbnails(inputBytes, maxThumbnails, thumbWidth, thumbHe
  * clip. Not part of the work-function API.
  * @param {number} numFrames
  * @param {number} gopSize - keyframe interval, in frames
+ * @param {number} [width=320] - 0/omitted keeps the 320x240 default; must be even (YUV420P)
+ * @param {number} [height=240]
+ * @param {boolean|number} [extraAudioTrack=0] - adds a second 880Hz mono
+ *   track alongside the default 440Hz one (standing in for a Fr/En-style
+ *   dual-track source) - see generate_test_input()'s doc comment
+ * @param {boolean|number} [hdr=0] - tags BT.2020/PQ color info plus real
+ *   HDR10 static metadata (mastering display + content light level) on
+ *   every frame - see generate_test_input()'s doc comment
  * @returns {Promise<Uint8Array>}
  */
-async function generateTestClip(numFrames, gopSize) {
+async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extraAudioTrack = 0, hdr = 0) {
   const Module = await getModule();
   const path = '/gen-test.mp4';
   const ret = Module.ccall(
     'generate_test_input', 'number',
-    ['string', 'number', 'number'],
-    [path, numFrames, gopSize],
+    ['string', 'number', 'number', 'number', 'number', 'number', 'number'],
+    [path, numFrames, gopSize, width, height, extraAudioTrack ? 1 : 0, hdr ? 1 : 0],
   );
   if (ret !== 0) throw new Error(`generate_test_input() failed with code ${ret}`);
   const bytes = Module.FS.readFile(path);
@@ -263,4 +274,50 @@ async function generateTestClip(numFrames, gopSize) {
   return bytes;
 }
 
-module.exports = { transcodeSlice, transcodeSegment, sliceVideo, reencodeForChunking, generateTestClip, generateThumbnails };
+/**
+ * Debug/verification helper: reports whether a file has video/audio,
+ * and - each independently decoded, not just checked for presence -
+ * how many audio tracks and the minimum number of frames successfully
+ * decoded across all of them (a real multi-track passthrough assertion
+ * needs every track to have actually decoded something, not just the
+ * best one). See probe_streams()'s own doc comment in dcp-transcode.c;
+ * also logs a fuller per-track breakdown to stderr.
+ * @param {Uint8Array} bytes
+ * @returns {Promise<{hasVideo: boolean, hasAudio: boolean, audioTracks: number, minDecodedAudioFrames: number}>}
+ */
+async function probeStreams(bytes) {
+  const Module = await getModule();
+  const path = '/probe-in.mp4';
+  Module.FS.writeFile(path, bytes);
+  const ret = Module.ccall('probe_streams', 'number', ['string'], [path]);
+  Module.FS.unlink(path);
+  return {
+    hasVideo: !!((ret >> 1) & 1),
+    hasAudio: !!(ret & 1),
+    audioTracks: Module.ccall('get_last_probe_audio_tracks', 'number', [], []),
+    minDecodedAudioFrames: Module.ccall('get_last_probe_min_decoded_audio_frames', 'number', [], []),
+  };
+}
+
+/**
+ * Debug/verification helper for HDR10 passthrough: reports the video
+ * stream's color_primaries/color_trc/color_space plus whether the first
+ * decoded frame carries HDR10 static side data, via stderr - see
+ * probe_hdr()'s own doc comment in dcp-transcode.c. Returns
+ * color_primaries (AVColorPrimaries enum value; 9 = BT.2020).
+ * @param {Uint8Array} bytes
+ * @returns {Promise<number>}
+ */
+async function probeHdr(bytes) {
+  const Module = await getModule();
+  const path = '/probe-hdr-in.mp4';
+  Module.FS.writeFile(path, bytes);
+  const ret = Module.ccall('probe_hdr', 'number', ['string'], [path]);
+  Module.FS.unlink(path);
+  return ret;
+}
+
+module.exports = {
+  transcodeSlice, transcodeSegment, sliceVideo, reencodeForChunking, generateTestClip, generateThumbnails,
+  probeStreams, probeHdr,
+};

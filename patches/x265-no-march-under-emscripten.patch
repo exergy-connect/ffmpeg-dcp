@@ -1,0 +1,13 @@
+diff --git a/source/CMakeLists.txt b/source/CMakeLists.txt
+index 06924e9..bb4741f 100755
+--- a/source/CMakeLists.txt
++++ b/source/CMakeLists.txt
+@@ -309,7 +309,7 @@ if(GCC)
+         else()
+             add_definitions(-march=native)
+         endif()
+-    elseif(X86 AND NOT X64)
++    elseif(X86 AND NOT X64 AND NOT EMSCRIPTEN)
+         string(FIND "${CMAKE_CXX_FLAGS}" "-march" marchPos)
+         if(marchPos LESS "0")
+             add_definitions(-march=i686)

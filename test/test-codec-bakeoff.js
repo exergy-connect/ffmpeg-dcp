@@ -1,5 +1,5 @@
 'use strict';
-// Compares all three encoders (libopenh264, libx264, libsvtav1) at
+// Compares all four encoders (libopenh264, libx264, libsvtav1, libx265) at
 // matching settings: same input, same rendition, same target bitrate
 // (and separately, each encoder's own real-CRF-equivalent quality mode)
 // - output size is a rough quality/efficiency proxy at fixed bitrate,
@@ -7,7 +7,7 @@
 const { transcodeSlice, generateTestClip } = require('../ffmpeg-wasm/ffmpeg-wrapper');
 const fs = require('fs');
 
-const ENCODERS = ['libopenh264', 'libx264', 'libsvtav1'];
+const ENCODERS = ['libopenh264', 'libx264', 'libsvtav1', 'libx265'];
 
 async function runComparison(label, inputBytes) {
   console.log(`\n${label}: input = ${inputBytes.length} bytes`);

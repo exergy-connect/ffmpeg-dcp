@@ -54,8 +54,8 @@ async function reencodeForChunking(inputBytes, gopSize, outWidth = 0, outHeight 
 async function sliceVideoAdaptive(inputBytes, targetChunkFrames, outWidth = 0, outHeight = 0, onProgress) {
   return call('sliceVideoAdaptive', [inputBytes, targetChunkFrames, outWidth, outHeight], onProgress);
 }
-async function generateTestClip(numFrames, gopSize) {
-  return call('generateTestClip', [numFrames, gopSize]);
+async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extraAudioTrack = 0, hdr = 0) {
+  return call('generateTestClip', [numFrames, gopSize, width, height, extraAudioTrack, hdr]);
 }
 async function generateThumbnails(inputBytes, maxThumbnails, thumbWidth, thumbHeight) {
   return call('generateThumbnails', [inputBytes, maxThumbnails, thumbWidth, thumbHeight]);

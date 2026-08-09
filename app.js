@@ -40,6 +40,14 @@ const RENDITIONS = [
   // stream and may not be recognized upon reading"), not just theorized.
   { label: 'h264-240p-quality', width: 320, height: 240, bitrateKbps: 0, encoder: 'libopenh264', playable: false },
   { label: 'av1-240p', width: 320, height: 240, bitrateKbps: 0, encoder: 'libsvtav1', playable: false },
+  // Third leg of the codec-efficiency comparison, same resolution/quality
+  // mode as the two above - HEVC via libx265 (see build.sh and
+  // do_transcode()'s own comments on why it has no compile-time
+  // single-thread build toggle, unlike the other two). `playable: false`
+  // for the same reason as av1-240p: HEVC-in-MPEG-TS is not a
+  // combination this pipeline has confirmed hls.js/browsers reliably
+  // support either, and this trio exists purely for the size comparison.
+  { label: 'hevc-240p', width: 320, height: 240, bitrateKbps: 0, encoder: 'libx265', playable: false },
 ];
 // ~3s at a typical 30fps source - chosen to land near common real-world
 // GOP sizes (2-10s is typical for web video) so sliceVideoAdaptive()'s
@@ -161,8 +169,9 @@ fileInput.addEventListener('change', () => {
   if (fileInput.files[0]) handleFile(fileInput.files[0]);
 });
 el('demoClipBtn').addEventListener('click', async () => {
-  log('Generating a synthetic demo clip in-browser (150 frames, 15s @ 10fps)...');
-  const bytes = await window.ffmpegBrowser.generateTestClip(150, 20);
+  const extras = el('demoClipExtrasToggle').checked;
+  log(`Generating a synthetic demo clip in-browser (150 frames, 15s @ 10fps${extras ? ', dual-language audio + HDR10 tags' : ''})...`);
+  const bytes = await window.ffmpegBrowser.generateTestClip(150, 20, 0, 0, extras ? 1 : 0, extras ? 1 : 0);
   runWithBytes(bytes);
 });
 
@@ -224,9 +233,12 @@ async function runWithBytes(inputBytes) {
     if (thumbData) finishScrubPreview(thumbData.sprite, thumbData.thumbCount, totalDurationSec);
   });
 
+  const normalizeLoudness = el('normalizeLoudnessToggle').checked;
+  if (normalizeLoudness) log('Loudness normalization enabled: audio on every rendition runs a real decode -> loudnorm filter -> re-encode pass.');
+
   const units = [];
   for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-    for (const rendition of RENDITIONS) units.push({ chunkIndex, rendition });
+    for (const rendition of RENDITIONS) units.push({ chunkIndex, rendition, normalizeLoudness });
   }
   setupGrid(chunks.length, RENDITIONS);
 
@@ -285,6 +297,8 @@ function resetUi() {
   el('statH264Bytes').textContent = '0 MB';
   el('statAv1Bytes').textContent = '0 MB';
   el('statAv1Savings').textContent = '—';
+  el('statHevcBytes').textContent = '0 MB';
+  el('statHevcSavings').textContent = '—';
   el('playerSection').classList.add('hidden');
   el('thumbSection').classList.add('hidden');
   el('thumbDetail').textContent = '';
@@ -307,6 +321,7 @@ async function runLocalRace(chunks, units) {
         height: unit.rendition.height,
         bitrateKbps: unit.rendition.bitrateKbps,
         encoder: unit.rendition.encoder,
+        normalizeLoudness: unit.normalizeLoudness,
       });
     } catch (err) {
       log(`Local encode failed for chunk ${unit.chunkIndex} @ ${unit.rendition.label}: ${err.message}`);
@@ -356,6 +371,17 @@ async function getWasmBase64() {
   return wasmBase64Promise;
 }
 
+// Dispatches one small DCP job PER CHUNK, back to back, instead of one
+// big job covering every chunk in the video - see runFleetRace()'s own
+// comment for why. Real, disclosed limitation: slice() (dcp-transcode.c)
+// processes the whole input file in one C call - there's no way for this
+// browser page to get chunk 0 before chunk N has ALSO finished slicing,
+// so this demo's own chunks all become available at roughly the same
+// moment regardless. What changes is the DISPATCH code itself: it no
+// longer needs to know the full chunk count up front to start
+// submitting jobs, which is the part that would need to be true for a
+// genuinely live-incrementally-arriving source, and is exactly the part
+// this refactor makes true now, without needing further changes later.
 async function runFleetRace({ compute }, chunks, units, durations) {
   // No job.requires() on this job at all, unlike every Node job script
   // in this project - confirmed live that the browser build's
@@ -376,15 +402,15 @@ async function runFleetRace({ compute }, chunks, units, durations) {
   log('Fetching wasm module + glue for fleet dispatch (bound arguments, not job.requires - see the how-to doc)...');
   const [glueSource, wasmBase64] = await Promise.all([getGlueSource(), getWasmBase64()]);
 
-  const jobUnits = units.map((u) => ({
-    chunkIndex: u.chunkIndex,
-    label: u.rendition.label,
-    width: u.rendition.width,
-    height: u.rendition.height,
-    bitrateKbps: u.rendition.bitrateKbps,
-    encoder: u.rendition.encoder,
-    chunkBase64: bytesToBase64(chunks[u.chunkIndex]),
-  }));
+  // One entry per chunk, not one flat list - each becomes its own job
+  // below, dispatched as soon as it's built, not gated on any other
+  // chunk's job existing yet.
+  const unitsByChunk = new Map();
+  for (const u of units) {
+    if (!unitsByChunk.has(u.chunkIndex)) unitsByChunk.set(u.chunkIndex, []);
+    unitsByChunk.get(u.chunkIndex).push(u);
+  }
+  const totalUnits = units.length;
 
   async function workFunction(unit, glueSourceArg, wasmBase64Arg) {
     progress();
@@ -419,8 +445,8 @@ async function runFleetRace({ compute }, chunks, units, durations) {
     const computeT0 = Date.now();
     const ret = Module.ccall(
       'transcode_segment', 'number',
-      ['string', 'string', 'number', 'number', 'number', 'string'],
-      [inPath, outPath, unit.width, unit.height, unit.bitrateKbps, unit.encoder],
+      ['string', 'string', 'number', 'number', 'number', 'string', 'number'],
+      [inPath, outPath, unit.width, unit.height, unit.bitrateKbps, unit.encoder, unit.normalizeLoudness ? 1 : 0],
     );
     const computeSeconds = (Date.now() - computeT0) / 1000;
     if (ret !== 0) throw new Error(`transcode_segment() failed with code ${ret}`);
@@ -434,15 +460,6 @@ async function runFleetRace({ compute }, chunks, units, durations) {
     }
     return { chunkIndex: unit.chunkIndex, label: unit.label, segmentBase64: btoa(binary), computeSeconds };
   }
-
-  const job = compute.for(jobUnits, workFunction, [glueSource, wasmBase64]);
-
-  job.computeGroups = [COMPUTE_GROUP];
-  job.public = {
-    name: 'Bell FFmpeg+WASM live demo (browser)',
-    description: 'Browser-dispatched chunked ABR transcode race vs. in-page local encoding',
-    link: 'https://bell.ca',
-  };
 
   const t0 = performance.now();
   const timer = setInterval(() => {
@@ -461,15 +478,14 @@ async function runFleetRace({ compute }, chunks, units, durations) {
     renditionBytes[r.label] = 0;
   }
 
-  job.on('readystatechange', (ev) => log(`DCP job: ${ev}`));
-  job.on('accepted', () => log(`Job accepted: ${job.id}`));
-  job.on('error', (err) => log(`Job error: ${err.message || err}`));
-  job.on('nofunds', (ev) => log(`Nofunds: ${JSON.stringify(ev)}`));
-  job.on('result', (ev) => {
+  // Shared across every chunk-job below - all of them feed the same
+  // grid/cost/codec-comparison UI, keyed by ev.result.chunkIndex/label,
+  // regardless of which job a given result actually came from.
+  function handleResult(ev) {
     completed += 1;
     resultTimestamps.push(Date.now());
-    el('fleetBar').style.width = `${(completed / jobUnits.length) * 100}%`;
-    el('statCompleted').textContent = `${completed} / ${jobUnits.length}`;
+    el('fleetBar').style.width = `${(completed / totalUnits) * 100}%`;
+    el('statCompleted').textContent = `${completed} / ${totalUnits}`;
     markGridCell(ev.result.chunkIndex, ev.result.label);
     byRendition[ev.result.label][ev.result.chunkIndex] = ev.result.segmentBase64;
     renditionBytes[ev.result.label] += atob(ev.result.segmentBase64).length;
@@ -481,32 +497,60 @@ async function runFleetRace({ compute }, chunks, units, durations) {
     const rendition = renditionByLabel.get(ev.result.label);
     const chunkDurationMin = (durations[ev.result.chunkIndex] || 0) / 60;
     totalCost += chunkDurationMin * awsRatePerMinute(rendition);
-    updateCostCounter(totalCost, completed, jobUnits.length);
+    updateCostCounter(totalCost, completed, totalUnits);
     // Priced from this slice's own real measured compute time
     // (ev.result.computeSeconds, timed inside workFunction on whichever
     // worker actually ran it) - ticks live from the same event AWS's
     // cost does, not gated on the separate (and much slower, single-
     // threaded) local race finishing.
     totalDcpRawCost += dcpRawCostForSeconds(ev.result.computeSeconds || 0);
-    updateDcpCostComparison(totalDcpRawCost, completed, jobUnits.length);
+    updateDcpCostComparison(totalDcpRawCost, completed, totalUnits);
     updateCodecComparison(renditionBytes);
-  });
+  }
 
-  log(`Dispatching ${jobUnits.length} unit(s) to the DCP fleet (computeGroup: ${COMPUTE_GROUP.joinKey})...`);
-  try {
+  log(`Dispatching ${unitsByChunk.size} chunk-job(s), ${totalUnits} unit(s) total, to the DCP fleet - one job per chunk, back to back, not one job for the whole video (computeGroup: ${COMPUTE_GROUP.joinKey})...`);
+  const chunkJobPromises = [];
+  for (const [chunkIndex, chunkUnits] of unitsByChunk) {
+    const jobUnits = chunkUnits.map((u) => ({
+      chunkIndex: u.chunkIndex,
+      label: u.rendition.label,
+      width: u.rendition.width,
+      height: u.rendition.height,
+      bitrateKbps: u.rendition.bitrateKbps,
+      encoder: u.rendition.encoder,
+      normalizeLoudness: u.normalizeLoudness,
+      chunkBase64: bytesToBase64(chunks[u.chunkIndex]),
+    }));
+
+    const job = compute.for(jobUnits, workFunction, [glueSource, wasmBase64]);
+    job.computeGroups = [COMPUTE_GROUP];
+    job.public = {
+      name: `Bell FFmpeg+WASM live demo (browser) - chunk ${chunkIndex}`,
+      description: 'Browser-dispatched chunked ABR transcode race vs. in-page local encoding, one job per chunk (low-latency dispatch)',
+      link: 'https://bell.ca',
+    };
+    job.on('error', (err) => log(`Chunk ${chunkIndex} job error: ${err.message || err}`));
+    job.on('nofunds', (ev) => log(`Chunk ${chunkIndex} nofunds: ${JSON.stringify(ev)}`));
+    job.on('result', handleResult);
     job.greedyEstimation = true;             // to force an even slice distribution
     job.estimationSlices = jobUnits.length;  // to force an even slice distribution
-    await job.exec(compute.marketRate);
-  } catch (err) {
-    clearInterval(timer);
-    log(`Fleet job failed: ${err.message || err}`);
-    return null;
+
+    log(`  chunk ${chunkIndex}: dispatching ${jobUnits.length} unit(s) at T+${((performance.now() - t0) / 1000).toFixed(2)}s`);
+    // Not awaited here - the next chunk's job goes out immediately,
+    // not gated on this one completing (or even finishing dispatch).
+    chunkJobPromises.push(
+      job.exec(compute.marketRate).catch((err) => {
+        log(`Chunk ${chunkIndex} job failed: ${err.message || err}`);
+        return null;
+      }),
+    );
   }
+  await Promise.all(chunkJobPromises);
 
   clearInterval(timer);
   const elapsedSec = (performance.now() - t0) / 1000;
   el('fleetTime').textContent = `${elapsedSec.toFixed(1)}s`;
-  log(`Fleet race done in ${elapsedSec.toFixed(1)}s`);
+  log(`Fleet race done in ${elapsedSec.toFixed(1)}s (${unitsByChunk.size} chunk-job(s) dispatched incrementally)`);
   maybeShowSpeedup(elapsedSec, 'fleet');
   return { byRendition };
 }
@@ -641,11 +685,17 @@ function updateDcpCostComparison(totalRawCost, completed, totalUnits) {
 function updateCodecComparison(renditionBytes) {
   const h264Bytes = renditionBytes['h264-240p-quality'] || 0;
   const av1Bytes = renditionBytes['av1-240p'] || 0;
+  const hevcBytes = renditionBytes['hevc-240p'] || 0;
   el('statH264Bytes').textContent = `${(h264Bytes / (1024 * 1024)).toFixed(2)} MB`;
   el('statAv1Bytes').textContent = `${(av1Bytes / (1024 * 1024)).toFixed(2)} MB`;
+  el('statHevcBytes').textContent = `${(hevcBytes / (1024 * 1024)).toFixed(2)} MB`;
   if (h264Bytes > 0 && av1Bytes > 0) {
     const pct = (1 - av1Bytes / h264Bytes) * 100;
     el('statAv1Savings').textContent = `${pct.toFixed(0)}% smaller`;
+  }
+  if (h264Bytes > 0 && hevcBytes > 0) {
+    const pct = (1 - hevcBytes / h264Bytes) * 100;
+    el('statHevcSavings').textContent = `${pct.toFixed(0)}% smaller`;
   }
 }
 

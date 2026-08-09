@@ -192,6 +192,19 @@
         <input type="file" id="fileInput" accept="video/*" />
         <button id="demoClipBtn" type="button">No file handy? Use a generated demo clip</button>
       </div>
+      <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input type="checkbox" id="normalizeLoudnessToggle" />
+          Normalize loudness (EBU R128) on every rendition
+        </label>
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input type="checkbox" id="demoClipExtrasToggle" />
+          Demo clip: dual-language audio + HDR10 tags
+        </label>
+      </div>
+      <p style="font-size:0.75rem;color:#6e7681;margin-top:0.4rem;margin-bottom:0">
+        Loudness normalization runs a real decode &rarr; avfilter (<code>loudnorm</code>) &rarr; re-encode pass on the audio track (any source). The dual-language/HDR10 option only affects the generated demo clip: a second synthetic audio track (dual-track passthrough) and BT.2020/PQ color metadata (HDR10 passthrough) tagged onto every frame, both preserved end-to-end through the transcode - a real upload with its own multiple audio tracks or HDR10 metadata is already passed through automatically, with no toggle needed.
+      </p>
     </section>
 
     <section id="raceSection" class="hidden">
@@ -263,14 +276,16 @@
     </section>
 
     <section id="codecSection" class="hidden">
-      <h2>Same resolution, two encoders: H.264 vs. AV1</h2>
+      <h2>Same resolution, three encoders: H.264 vs. AV1 vs. HEVC</h2>
       <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0">
-        Two extra renditions ride along in every job, outside the real ABR ladder above: 320×240 via <code>libopenh264</code> and via <code>libsvtav1</code>, both in each encoder's own quality mode (not a bitrate cap, which would make both converge to the same size regardless of efficiency). AV1 costs meaningfully more compute per encode; watch the size difference land as results come in. Neither is included in playback below: this pair exists purely for comparison, and MPEG-TS (this pipeline's segment container) isn't reliably supported for AV1 across hls.js/browsers.
+        Three extra renditions ride along in every job, outside the real ABR ladder above: 320×240 via <code>libopenh264</code>, <code>libsvtav1</code>, and <code>libx265</code>, each in its own encoder's quality mode (not a bitrate cap, which would make all three converge to the same size regardless of efficiency). AV1 and HEVC both cost meaningfully more compute per encode than H.264; watch the size differences land as results come in. None of the three are included in playback below: this trio exists purely for comparison, and MPEG-TS (this pipeline's segment container) isn't reliably supported for AV1 or HEVC across hls.js/browsers.
       </p>
       <div class="stat-row">
         <div class="stat"><div id="statH264Bytes" class="value">0 MB</div><div class="label">H.264 (quality mode) total</div></div>
         <div class="stat"><div id="statAv1Bytes" class="value">0 MB</div><div class="label">AV1 (quality mode) total</div></div>
         <div class="stat"><div id="statAv1Savings" class="value">—</div><div class="label">AV1 size vs. H.264</div></div>
+        <div class="stat"><div id="statHevcBytes" class="value">0 MB</div><div class="label">HEVC (quality mode) total</div></div>
+        <div class="stat"><div id="statHevcSavings" class="value">—</div><div class="label">HEVC size vs. H.264</div></div>
       </div>
     </section>
 
