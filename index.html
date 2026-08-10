@@ -1,20 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
   <!--
-    Phase 4 demo page (see ffmpeg-openh264-wasm-dcp.md and the
-    original handoff doc's "Phase 4: Demo front end" section): drop a
-    video, watch it race locally (in-page wasm) against the DCP fleet,
-    watch a liveness grid fill in as results land, watch a live cost
-    counter, then play the assembled HLS ladder back in-page. No server
-    anywhere in this page - static files only.
-
-    UNVERIFIED (see the how-to doc's Phase 4 section for the full list):
-    this is the first time job.requires() and the identity/wallet setup
-    used by every other job script in this project have been driven from
-    an actual browser tab instead of Node. The API is the same
-    (window.dcp mirrors dcp-client's Node exports per dcp-client's own
-    examples/vanilla-web/*.html), but that equivalence hasn't been
-    exercised end-to-end from a real browser yet.
+    Drop a video, watch it race locally (in-page wasm) against the DCP
+    fleet, watch a liveness grid fill in as results land, watch a live
+    cost counter, then play the assembled HLS ladder back in-page. No
+    server anywhere in this page - static files only. See
+    ../ffmpeg-dcp-deploy/ffmpeg-openh264-wasm-dcp.md for the full
+    build/architecture history.
   -->
   <head>
     <meta charset="utf-8" />
@@ -27,13 +19,6 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
     <!-- QR code rendering for the join-the-fleet panel -->
     <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
-
-    <!-- Same wasm module the sandbox work function uses, loaded the
-         browser-native way (fetch, not base64) - runs inside
-         ffmpeg-worker.js (a real Web Worker, off the main thread) so a
-         long encode doesn't freeze the page; ffmpeg-browser.js is the
-         thin main-thread RPC client for it. -->
-    <script src="ffmpeg-browser.js"></script>
 
     <style>
       :root { color-scheme: dark; }
@@ -62,6 +47,16 @@
         margin-top: 0.75rem; background: #1c2733; color: #e6edf3; border: 1px solid #2d3f52;
         border-radius: 6px; padding: 0.4rem 0.9rem; cursor: pointer; font-size: 0.85rem;
       }
+      #dropzoneLoaded { color: #9aa7b2; font-size: 0.95rem; }
+      #dropzoneCheck {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 1.4em; height: 1.4em; border-radius: 50%;
+        background: rgba(63,185,80,0.15); color: #3fb950; font-weight: 700;
+        margin-right: 0.5rem; vertical-align: middle;
+      }
+
+      #preprocessingStatus { color: #9aa7b2; font-size: 0.9rem; margin-bottom: 0.75rem; }
+      #preprocessingStatus .dots { display: inline-block; width: 1.5em; text-align: left; }
 
       .race-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.85rem; }
       .race-label { width: 70px; font-size: 0.85rem; color: #9aa7b2; }
@@ -168,29 +163,40 @@
       dialog#dcp-modal.dcp-modal-upload[drag-state="over"] #dcp-modal-drop-target { border-color: #58a6ff; }
       dialog#dcp-modal.dcp-modal-upload #dcp-modal-drop-label { background: #111823; color: #9aa7b2; }
       dialog#dcp-modal input.dcp-show-eye + span { filter: invert(70%); }
-
-      #scrubBar {
-        position: relative; height: 28px; background: #1c2733;
-        border-radius: 6px; cursor: pointer;
-      }
-      #scrubPreview {
-        position: absolute; bottom: 36px; left: 0;
-        border: 1px solid #2d3f52; border-radius: 4px; background: #000;
-        display: none; pointer-events: none;
-      }
     </style>
   </head>
   <body>
-    <h1>FFmpeg + OpenH264/x264/SVT-AV1 on WASM, on DCP</h1>
-    <p class="subtitle">Drop a video. Watch it transcode locally vs. a real DCP worker fleet, live. A real AV1 rendition rides alongside H.264, so you can watch AV1 cost more compute per encode and land noticeably smaller.</p>
+    <h1>FFmpeg + OpenH264/x264/SVT-AV1/x265 on WASM, on DCP</h1>
+    <p class="subtitle">Drop a video. Watch it transcode locally vs. a real DCP worker fleet, live. Real AV1 and HEVC renditions ride alongside H.264, so you can watch each cost more compute per encode and land noticeably smaller. Optional real-decode passes along the way: EBU R128 loudness normalization, multi-audio-track passthrough, and HDR10 color-metadata passthrough.</p>
+
+    <section style="border-color:#2d3f52;">
+      <h2 style="color:#9aa7b2;">Proof-of-concept, not a production pipeline</h2>
+      <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0">
+        This demonstrates the mechanism - real FFmpeg encoders compiled to WebAssembly, dispatched as chunked DCP work units - not a production-ready service. A production build would differ in real ways:
+      </p>
+      <ul style="font-size:0.85rem;color:#9aa7b2;margin:0.4rem 0 0;padding-left:1.3rem;">
+        <li><strong>Server-side dispatch.</strong> This page is both the job deployer and one racer (in-browser wasm) - convenient for a live demo, not the production shape. A server-side orchestrator could dispatch instead, and each encoder could then run its own multi-threaded build rather than the single-threaded wasm every encoder here uses (no real OS threads available in WebAssembly here, by design).</li>
+        <li><strong>Data off the scheduler.</strong> This demo ships every chunk's raw bytes as bound <code>compute.for()</code> arguments, so they transit the scheduler both to workers and back as results. DCP's <a href="https://docs.dcp.dev/advanced/data-uri.html" style="color:#58a6ff;">remote data</a> (<code>RemoteDataSet</code>, <code>job.setResultStorage()</code>) lets workers fetch input from a URL and push results to one instead, so the real bytes never transit DCP's infrastructure at all - meaningful for large media files, and for keeping data on a private network instead of routing it through a public scheduler.</li>
+      </ul>
+      <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0.6rem;margin-bottom:0">
+        Concrete constraints of this demo build: single video track only (no multi-angle, no subtitles/captions); containers limited to MP4/MOV, MKV, MPEG-TS, and WAV; video decodable as H.264, HEVC, or AV1, audio as AAC or PCM only; up to 8 audio tracks; HDR10 passthrough only (no Dolby Vision - needs a licensed SDK this project doesn't have); and <code>libopenh264</code> itself hard-caps at 4096&times;2304 (DCI 4K) - doesn't affect this demo's own renditions (always &le;320&times;240), but would matter at higher output resolutions. Documented scope, not a bug list.
+      </p>
+    </section>
 
     <section id="dropSection">
       <h2>1. Drop a video</h2>
       <div id="dropzone">
-        <p><strong>Drag a video file here</strong>, or click to choose one.</p>
-        <p>H.264/AAC MP4 works best (matches this project's tested decode path).</p>
-        <input type="file" id="fileInput" accept="video/*" />
-        <button id="demoClipBtn" type="button">No file handy? Use a generated demo clip</button>
+        <div id="dropzoneChooser">
+          <p><strong>Drag a video file here</strong>, or click to choose one.</p>
+          <p>H.264/AAC MP4 works best (matches this project's tested decode path).</p>
+          <input type="file" id="fileInput" accept="video/*" />
+          <button id="demoClipBtn" type="button">No file handy? Use a generated demo clip</button>
+        </div>
+        <div id="dropzoneLoaded" class="hidden">
+          <span id="dropzoneCheck">&#10003;</span>
+          <span id="fileInfo"></span>
+          <p style="font-size:0.78rem;color:#6e7681;margin:0.5rem 0 0;">Click, or drop another file, to replace it.</p>
+        </div>
       </div>
       <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
         <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
@@ -203,12 +209,31 @@
         </label>
       </div>
       <p style="font-size:0.75rem;color:#6e7681;margin-top:0.4rem;margin-bottom:0">
-        Loudness normalization runs a real decode &rarr; avfilter (<code>loudnorm</code>) &rarr; re-encode pass on the audio track (any source). The dual-language/HDR10 option only affects the generated demo clip: a second synthetic audio track (dual-track passthrough) and BT.2020/PQ color metadata (HDR10 passthrough) tagged onto every frame, both preserved end-to-end through the transcode - a real upload with its own multiple audio tracks or HDR10 metadata is already passed through automatically, with no toggle needed.
+        Loudness normalization runs a real decode &rarr; avfilter (<code>loudnorm</code>) &rarr; re-encode pass on the audio track. The dual-language/HDR10 option only affects the generated demo clip - a real upload's own multiple audio tracks or HDR10 metadata already pass through automatically, no toggle needed.
+      </p>
+      <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
+        <span>Bake-off comparison renditions to run (section 4):</span>
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input type="checkbox" id="bakeoffH264Toggle" checked />
+          H.264 (quality mode)
+        </label>
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input type="checkbox" id="bakeoffAv1Toggle" checked />
+          AV1
+        </label>
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input type="checkbox" id="bakeoffHevcToggle" checked />
+          HEVC
+        </label>
+      </div>
+      <p style="font-size:0.75rem;color:#6e7681;margin-top:0.4rem;margin-bottom:0">
+        Each is real extra dispatch/compute cost on top of the ABR ladder - uncheck any to skip it entirely for this run (no job units, no cost). Doesn't affect the ABR ladder or the race itself.
       </p>
     </section>
 
     <section id="raceSection" class="hidden">
       <h2>2. The race</h2>
+      <div id="preprocessingStatus" class="hidden"></div>
       <div class="race-row">
         <div class="race-label">Local</div>
         <div class="race-bar-track"><div id="localBar" class="race-bar-fill local"></div></div>
@@ -227,7 +252,7 @@
       <div class="join-split">
         <div class="join-panel">
           <div id="qrcode"></div>
-          <p>Scan to turn your phone or laptop into a worker for this demo's compute group (via <code>dcp.live</code>, pre-filled with the group's join key/secret). More workers join mid-race, and the DCP bar visibly speeds up.</p>
+          <p>Scan to turn your phone or laptop into a worker for this demo's compute group. More workers join mid-race, and the DCP bar visibly speeds up.</p>
         </div>
         <div id="log"></div>
       </div>
@@ -241,13 +266,9 @@
         <span><span class="legend-swatch" style="background:#2ea043"></span>fleet result landed</span>
       </div>
       <div class="stat-row">
-        <div class="stat"><div id="statConcurrent" class="value">0</div><div class="label">approx. concurrent workers*</div></div>
         <div class="stat"><div id="statThroughput" class="value">0.0</div><div class="label">results/sec (rolling)</div></div>
         <div class="stat"><div id="statCompleted" class="value">0 / 0</div><div class="label">units complete</div></div>
       </div>
-      <p style="font-size:0.75rem;color:#6e7681;margin-top:0.5rem;margin-bottom:0">
-        *approximated from concurrently in-flight slices, not a directly reported metric.
-      </p>
     </section>
 
     <section id="costSection" class="hidden">
@@ -258,7 +279,7 @@
       </div>
       <div id="costDetail">AWS MediaConvert-equivalent rates: real published on-demand rates, first pricing tier, SD bucket (simplified, not a full quote)</div>
       <p style="font-size:0.75rem;color:#6e7681;margin-top:0.5rem;margin-bottom:0">
-        Real rates from AWS's pricing page (aws.amazon.com/mediaconvert/pricing/): H.264 uses the Basic tier ($0.0075/min at SD). AV1 needs the Professional tier (Basic doesn't support it) at $0.0120/min base × a 3.5x SD multiplier = $0.042/min. AV1 costs more for two independent reasons, not just the encode itself.
+        This number is <strong>not</strong> derived from running anything on AWS, or from this demo's own encode time. AWS bills MediaConvert per minute of <em>output video duration</em> (a 45-second output bills as 0.75 minutes), not per minute of processing time - so this multiplies each chunk's real duration by AWS's published rate, the same quantity AWS itself bills on, regardless of the hardware underneath. AWS doesn't publicly disclose that hardware (CPU/GPU/custom silicon) - it's an intentionally opaque managed service - which is exactly why a duration-based rate-card comparison is fair here: whatever AWS's hardware costs them is already priced into the published rate. Rates from aws.amazon.com/mediaconvert/pricing/: H.264 uses the Basic tier ($0.0075/min at SD). AV1 and HEVC both need the Professional tier at $0.0120/min base × a 3.5x multiplier for AV1 ($0.042/min) or 2x for HEVC ($0.024/min).
       </p>
 
       <div class="cost-row" style="margin-top:1.25rem">
@@ -271,14 +292,14 @@
       </div>
       <div id="dcpDetail" style="font-size:0.8rem;color:#9aa7b2;margin-top:0.25rem">0/0 fleet slices: priced from each slice's own real compute time</div>
       <p style="font-size:0.75rem;color:#6e7681;margin-top:0.5rem;margin-bottom:0">
-        DCP prices compute at 1.000 ⊇ (one DCP credit) = $0.0003171 USD per 100 vCPU-seconds. "Raw DCP cost" is priced from each fleet slice's own real compute time, so it reflects whatever hardware actually ran it. Bell's internal fleet runs at roughly 38% the per-core speed of AWS's, so the same output can cost proportionally more real vCPU-seconds than a same-hardware comparison to AWS would suggest. Two numbers follow: run internally, Bell earns back 80% of its compute spend, netting about 1/5 (20%) of the raw DCP cost. Resold externally, Distributive keeps 20% of what the customer pays and Bell keeps the other 80% as revenue.
+        DCP prices compute at 1.000 ⊇ (one DCP credit) = $0.0003171 USD per 100 vCPU-seconds. "Raw DCP cost" is priced from each slice's own real compute time, reflecting whatever hardware actually ran it - Bell's internal fleet runs at roughly 38% the per-core speed of AWS's, so real vCPU-seconds can cost proportionally more than a same-hardware comparison would suggest. Run internally, Bell earns back 80% of its compute spend, netting 20% of the raw cost. Resold externally, Bell keeps 80% as revenue and Distributive keeps the other 20%.
       </p>
     </section>
 
     <section id="codecSection" class="hidden">
       <h2>Same resolution, three encoders: H.264 vs. AV1 vs. HEVC</h2>
       <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0">
-        Three extra renditions ride along in every job, outside the real ABR ladder above: 320×240 via <code>libopenh264</code>, <code>libsvtav1</code>, and <code>libx265</code>, each in its own encoder's quality mode (not a bitrate cap, which would make all three converge to the same size regardless of efficiency). AV1 and HEVC both cost meaningfully more compute per encode than H.264; watch the size differences land as results come in. None of the three are included in playback below: this trio exists purely for comparison, and MPEG-TS (this pipeline's segment container) isn't reliably supported for AV1 or HEVC across hls.js/browsers.
+        Three extra renditions ride along in every job, outside the ABR ladder above: 320×240 via <code>libopenh264</code>, <code>libsvtav1</code>, and <code>libx265</code>, each in its own encoder's quality mode (not a bitrate cap, which would make all three converge to the same size regardless of efficiency). AV1 and HEVC both cost meaningfully more compute per encode than H.264. None of the three are in the playback below - comparison only, not delivery: AV1 hits a real ffmpeg muxer warning in MPEG-TS ("muxed as a private data stream"); HEVC muxes cleanly but is excluded anyway since browser HEVC decode support (via MSE) still varies by platform.
       </p>
       <div class="stat-row">
         <div class="stat"><div id="statH264Bytes" class="value">0 MB</div><div class="label">H.264 (quality mode) total</div></div>
@@ -291,17 +312,20 @@
 
     <section id="playerSection" class="hidden">
       <h2>5. Playback</h2>
-      <video id="player" controls></video>
-      <div id="rungButtons" style="margin-top:0.75rem;"></div>
-    </section>
-
-    <section id="thumbSection" class="hidden">
-      <h2>6. Scrubbing preview</h2>
       <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0">
-        A real sprite sheet + WebVTT map generated from the original upload, via a new <code>generate_thumbnails()</code> C function: standalone MJPEG frames sampled evenly across the source, composited into one image client-side (the same split a real CDN pipeline would make - server-side frame extraction, edge-side sprite assembly). This is the same sprite-sheet format hls.js/video.js scrubbing-preview plugins consume. Hover the bar below to scrub.
+        This plays the real ABR ladder from section 1's job (240p/160p/120p, H.264) as one adaptive stream - not a single fixed output. The AV1/HEVC/quality-mode renditions from section 4 are comparison-only and aren't part of this ladder (see that section's note on why).
       </p>
-      <div id="scrubBar"><canvas id="scrubPreview"></canvas></div>
-      <div id="thumbDetail" style="font-size:0.8rem;color:#9aa7b2;margin-top:0.5rem"></div>
+      <video id="player" controls></video>
+      <div id="nowPlayingLabel" style="margin-top:0.6rem;font-size:0.8rem;color:#9aa7b2;"></div>
+      <div style="margin-top:0.85rem;">
+        <button id="saveOutputsBtn" type="button" class="hidden" style="background:#1c2733;color:#e6edf3;border:1px solid #2d3f52;border-radius:6px;padding:0.4rem 0.9rem;cursor:pointer;font-size:0.85rem;">
+          Save all outputs to disk&hellip;
+        </button>
+        <div id="saveOutputsStatus" style="margin-top:0.4rem;font-size:0.78rem;color:#9aa7b2;"></div>
+        <p style="font-size:0.72rem;color:#6e7681;margin-top:0.3rem;margin-bottom:0">
+          Writes one complete video per rendition (the ABR ladder above, plus the AV1/HEVC/quality-mode comparison renditions from section 4) into <code>&lt;run-timestamp&gt;/&lt;input-name&gt;-&lt;rendition&gt;.ts</code>, under a folder you pick - stitched from that rendition's chunks in order. Needs the File System Access API (Chrome/Edge).
+        </p>
+      </div>
     </section>
 
     <script src="app.js"></script>

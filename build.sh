@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# Builds openh264, x264, SVT-AV1, and ffmpeg for wasm if not already
-# built, applies the required ffmpeg configure patch, compiles
-# src/dcp-transcode.c against all three encoders, and regenerates
-# ffmpeg-wasm/wasm-bytes.js. See ffmpeg-openh264-wasm-dcp.md for the
-# reasoning behind every flag/patch here - this script captures the
-# *what*, the doc has the *why*.
+# Builds openh264, x264, SVT-AV1, x265, and ffmpeg for wasm if not
+# already built, applies the required patches, and compiles
+# src/dcp-transcode.c against all four encoders into
+# ffmpeg-wasm/dcp-transcode-glue.js + .wasm (fetched directly by the
+# browser demo - no wasm-bytes.js base64 step needed here, unlike the
+# Node-deployer copy of this script). See
+# ../ffmpeg-dcp-deploy/ffmpeg-openh264-wasm-dcp.md for the reasoning
+# behind every flag/patch - this script captures the *what*, the doc has
+# the *why*.
 #
 # Assumes sibling checkouts two levels up (see ../../../SETUP.md):
 #   ../../emsdk        - emscripten SDK
 #   ../../openh264      - github.com/cisco/openh264, git-cloned directly
 #   ../../x264           - code.videolan.org/videolan/x264, git-cloned directly
 #   ../../SVT-AV1        - gitlab.com/AOMediaCodec/SVT-AV1, git-cloned directly
+#   ../../x265           - x265 source, git-cloned directly
 #   ../../ffmpeg         - ffmpeg n8.1.1, git-cloned directly (tag n8.1.1)
 #   ../../ffmpeg-build-wasm - empty dir, out-of-tree ffmpeg build output
 set -euo pipefail
@@ -266,5 +270,3 @@ emcc src/dcp-transcode.c -O3 -msimd128 -mbulk-memory \
   -o ffmpeg-wasm/dcp-transcode-glue.js
 
 mv ffmpeg-wasm/dcp-transcode-glue.wasm ffmpeg-wasm/dcp-transcode.wasm
-
-node ffmpeg-wasm/generate-wasm-base64.js
