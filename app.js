@@ -38,21 +38,28 @@ const TARGET_CHUNK_FRAMES = 90;
 // Real AWS MediaConvert rate card (aws.amazon.com/mediaconvert/pricing/),
 // not derived from running anything on AWS or from this demo's encode
 // time - AWS bills per minute of OUTPUT video, so this multiplies real
-// chunk duration by the published rate for the codec/tier:
-//   Basic tier (AVC only): $0.0075/min, single-pass.
-//   Professional tier (required for AV1/HEVC): $0.0120/min base,
-//     x3.5 for AV1 or x2 for HEVC at SD/<=30fps single-pass.
+// chunk duration by the published rate for the codec/resolution tier.
+// SD = <720p, HD = 720-1080p (AWS's own boundary) - this ladder tops out
+// at 1080p, so 4K/8K multipliers aren't needed here.
+//   Basic tier (H.264/AVC): 1x SD, 2x HD, <=30fps single-pass.
+//   Professional tier (AV1/HEVC): $0.0120/min base, then AV1 3.5x SD /
+//     7x HD, HEVC 2x SD / 4x HD, <=30fps single-pass.
 const AWS_BASIC_TIER_RATE_PER_MIN = 0.0075; // H.264/AVC, Basic tier, SD, 1x
 const AWS_PROFESSIONAL_TIER_RATE_PER_MIN = 0.0120; // base rate, SD, before codec multiplier
-const AWS_AV1_SD_SINGLEPASS_MULTIPLIER = 3.5; // Professional tier, AV1, SD, <=30fps
-const AWS_HEVC_SD_SINGLEPASS_MULTIPLIER = 2; // Professional tier, HEVC, SD, <=30fps
-const AWS_AV1_RATE_PER_MIN = AWS_PROFESSIONAL_TIER_RATE_PER_MIN * AWS_AV1_SD_SINGLEPASS_MULTIPLIER; // $0.042/min
-const AWS_HEVC_RATE_PER_MIN = AWS_PROFESSIONAL_TIER_RATE_PER_MIN * AWS_HEVC_SD_SINGLEPASS_MULTIPLIER; // $0.024/min
+const AWS_AV1_SD_SINGLEPASS_MULTIPLIER = 3.5;
+const AWS_AV1_HD_SINGLEPASS_MULTIPLIER = 7;
+const AWS_HEVC_SD_SINGLEPASS_MULTIPLIER = 2;
+const AWS_HEVC_HD_SINGLEPASS_MULTIPLIER = 4;
+const AWS_HD_MIN_HEIGHT = 720; // AWS's own SD/HD boundary
+const AWS_AV1_RATE_PER_MIN = AWS_PROFESSIONAL_TIER_RATE_PER_MIN * AWS_AV1_SD_SINGLEPASS_MULTIPLIER; // $0.042/min - bake-off trio is always SD (240p)
+const AWS_HEVC_RATE_PER_MIN = AWS_PROFESSIONAL_TIER_RATE_PER_MIN * AWS_HEVC_SD_SINGLEPASS_MULTIPLIER; // $0.024/min - bake-off trio is always SD (240p)
+const AWS_H264_HD_RATE_PER_MIN = AWS_BASIC_TIER_RATE_PER_MIN * 2; // $0.015/min
 
 function awsRatePerMinute(rendition) {
-  if (rendition.encoder === 'libsvtav1') return AWS_AV1_RATE_PER_MIN;
-  if (rendition.encoder === 'libx265') return AWS_HEVC_RATE_PER_MIN;
-  return AWS_BASIC_TIER_RATE_PER_MIN;
+  const isHd = rendition.height >= AWS_HD_MIN_HEIGHT;
+  if (rendition.encoder === 'libsvtav1') return AWS_PROFESSIONAL_TIER_RATE_PER_MIN * (isHd ? AWS_AV1_HD_SINGLEPASS_MULTIPLIER : AWS_AV1_SD_SINGLEPASS_MULTIPLIER);
+  if (rendition.encoder === 'libx265') return AWS_PROFESSIONAL_TIER_RATE_PER_MIN * (isHd ? AWS_HEVC_HD_SINGLEPASS_MULTIPLIER : AWS_HEVC_SD_SINGLEPASS_MULTIPLIER);
+  return AWS_BASIC_TIER_RATE_PER_MIN * (isHd ? 2 : 1);
 }
 
 // DCP's market rate: 1.000 ⊇ per 100 vCPU-seconds = $0.0003171 USD -
@@ -775,8 +782,9 @@ function updateCostCounter(totalCost, completed, totalUnits) {
   el('costDetail').textContent =
     `${completed}/${totalUnits} units, real minutes x AWS's published rate card (not run on AWS, not this demo's encode time): ` +
     `$${AWS_BASIC_TIER_RATE_PER_MIN.toFixed(4)}/min (H.264, Basic tier, SD) / ` +
-    `$${AWS_AV1_RATE_PER_MIN.toFixed(4)}/min (AV1, Professional tier, ${AWS_AV1_SD_SINGLEPASS_MULTIPLIER}x SD multiplier) / ` +
-    `$${AWS_HEVC_RATE_PER_MIN.toFixed(4)}/min (HEVC, Professional tier, ${AWS_HEVC_SD_SINGLEPASS_MULTIPLIER}x SD multiplier)`;
+    `$${AWS_H264_HD_RATE_PER_MIN.toFixed(4)}/min (H.264, Basic tier, HD) / ` +
+    `$${AWS_AV1_RATE_PER_MIN.toFixed(4)}/min (AV1, Professional tier, SD - bake-off trio only) / ` +
+    `$${AWS_HEVC_RATE_PER_MIN.toFixed(4)}/min (HEVC, Professional tier, SD - bake-off trio only)`;
 }
 
 function updateDcpCostComparison(totalRawCost, completed, totalUnits) {

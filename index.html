@@ -4,8 +4,8 @@
     Drop a video, watch it race locally (in-page wasm) against the DCP
     fleet, watch a liveness grid fill in as results land, watch a live
     cost counter, then play the assembled HLS ladder back in-page. No
-    server anywhere in this page - static files only. See
-    ../ffmpeg-dcp-deploy/ffmpeg-openh264-wasm-dcp.md for the full
+    server anywhere in this page - static files only. See the separate
+    ffmpeg-dcp-node repo's ffmpeg-openh264-wasm-dcp.md for the full
     build/architecture history.
   -->
   <head>
@@ -167,7 +167,7 @@
   </head>
   <body>
     <h1>FFmpeg + OpenH264/x264/SVT-AV1/x265 on WASM, on DCP</h1>
-    <p class="subtitle">Drop a video. Watch it transcode locally vs. a real DCP worker fleet, live. Real AV1 and HEVC renditions ride alongside H.264, so you can watch each cost more compute per encode and land noticeably smaller. Optional real-decode passes along the way: EBU R128 loudness normalization, multi-audio-track passthrough, and HDR10 color-metadata passthrough.</p>
+    <p class="subtitle">Drop a video. Watch it transcode locally vs. a real DCP worker fleet, live, into a real 1080p/720p/480p/240p ABR ladder. Real AV1 and HEVC renditions ride alongside H.264, so you can watch each cost more compute per encode and land noticeably smaller. Optional real-decode passes along the way: EBU R128 loudness normalization, multi-audio-track passthrough, and HDR10 color-metadata passthrough.</p>
 
     <section style="border-color:#2d3f52;">
       <h2 style="color:#9aa7b2;">Proof-of-concept, not a production pipeline</h2>
@@ -179,7 +179,7 @@
         <li><strong>Data off the scheduler.</strong> This demo ships every chunk's raw bytes as bound <code>compute.for()</code> arguments, so they transit the scheduler both to workers and back as results. DCP's <a href="https://docs.dcp.dev/advanced/data-uri.html" style="color:#58a6ff;">remote data</a> (<code>RemoteDataSet</code>, <code>job.setResultStorage()</code>) lets workers fetch input from a URL and push results to one instead, so the real bytes never transit DCP's infrastructure at all - meaningful for large media files, and for keeping data on a private network instead of routing it through a public scheduler.</li>
       </ul>
       <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0.6rem;margin-bottom:0">
-        Concrete constraints of this demo build: single video track only (no multi-angle, no subtitles/captions); containers limited to MP4/MOV, MKV, MPEG-TS, and WAV; video decodable as H.264, HEVC, or AV1, audio as AAC or PCM only; up to 8 audio tracks; HDR10 passthrough only (no Dolby Vision - needs a licensed SDK this project doesn't have); and <code>libopenh264</code> itself hard-caps at 4096&times;2304 (DCI 4K) - doesn't affect this demo's own renditions (always &le;320&times;240), but would matter at higher output resolutions. Documented scope, not a bug list.
+        Concrete constraints of this demo build: single video track only (no multi-angle, no subtitles/captions); containers limited to MP4/MOV, MKV, MPEG-TS, and WAV; video decodable as H.264, HEVC, or AV1, audio as AAC or PCM only; up to 8 audio tracks; HDR10 passthrough only (no Dolby Vision - needs a licensed SDK this project doesn't have); and <code>libopenh264</code> itself hard-caps at 4096&times;2304 (DCI 4K, 9,437,184px) - this demo's own renditions top out at 1920&times;1080 (2,073,600px), well under that, but it would matter at true 4K+ output. Documented scope, not a bug list.
       </p>
     </section>
 
@@ -231,7 +231,7 @@
         </label>
       </div>
       <p style="font-size:0.75rem;color:#6e7681;margin-top:0.4rem;margin-bottom:0">
-        Higher renditions cost real extra dispatch/compute - uncheck any to skip it for this run. At least one needs to stay checked for playback in section 5.
+        Higher renditions cost real extra dispatch/compute - uncheck any to skip it for this run. Uncheck all of them and there's nothing for section 5 to play back.
       </p>
       <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
         <span>Bake-off comparison renditions to run (section 4):</span>
@@ -308,9 +308,9 @@
         <span class="provider-badge aws">AWS</span>
         <div id="costCounter">$0.0000</div>
       </div>
-      <div id="costDetail">AWS MediaConvert-equivalent rates: real published on-demand rates, first pricing tier, SD bucket (simplified, not a full quote)</div>
+      <div id="costDetail">AWS MediaConvert-equivalent rates: real published on-demand rates, first pricing tier, resolution-aware SD/HD rate per rendition (simplified, not a full quote)</div>
       <p style="font-size:0.75rem;color:#6e7681;margin-top:0.5rem;margin-bottom:0">
-        This number is <strong>not</strong> derived from running anything on AWS, or from this demo's own encode time. AWS bills MediaConvert per minute of <em>output video duration</em> (a 45-second output bills as 0.75 minutes), not per minute of processing time - so this multiplies each chunk's real duration by AWS's published rate, the same quantity AWS itself bills on, regardless of the hardware underneath. AWS doesn't publicly disclose that hardware (CPU/GPU/custom silicon) - it's an intentionally opaque managed service - which is exactly why a duration-based rate-card comparison is fair here: whatever AWS's hardware costs them is already priced into the published rate. Rates from aws.amazon.com/mediaconvert/pricing/: H.264 uses the Basic tier ($0.0075/min at SD). AV1 and HEVC both need the Professional tier at $0.0120/min base × a 3.5x multiplier for AV1 ($0.042/min) or 2x for HEVC ($0.024/min).
+        This number is <strong>not</strong> derived from running anything on AWS, or from this demo's own encode time. AWS bills MediaConvert per minute of <em>output video duration</em> (a 45-second output bills as 0.75 minutes), not per minute of processing time - so this multiplies each chunk's real duration by AWS's published rate, the same quantity AWS itself bills on, regardless of the hardware underneath. AWS doesn't publicly disclose that hardware (CPU/GPU/custom silicon) - it's an intentionally opaque managed service - which is exactly why a duration-based rate-card comparison is fair here: whatever AWS's hardware costs them is already priced into the published rate. Rates from aws.amazon.com/mediaconvert/pricing/, AWS's own SD/HD split (SD &lt;720p, HD 720-1080p): H.264 uses the Basic tier, $0.0075/min at SD or $0.015/min at HD (this ladder's 1080p/720p rungs). AV1 and HEVC (bake-off comparison only, always 240p/SD) both need the Professional tier at $0.0120/min base × a 3.5x multiplier for AV1 ($0.042/min) or 2x for HEVC ($0.024/min).
       </p>
 
       <div class="cost-row" style="margin-top:1.25rem">
@@ -330,7 +330,7 @@
     <section id="codecSection" class="hidden">
       <h2>Same resolution, three encoders: H.264 vs. AV1 vs. HEVC</h2>
       <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0">
-        Three extra renditions ride along in every job, outside the ABR ladder above: 320×240 via <code>libopenh264</code>, <code>libsvtav1</code>, and <code>libx265</code>, each in its own encoder's quality mode (not a bitrate cap, which would make all three converge to the same size regardless of efficiency). AV1 and HEVC both cost meaningfully more compute per encode than H.264. None of the three are in the playback below - comparison only, not delivery: AV1 hits a real ffmpeg muxer warning in MPEG-TS ("muxed as a private data stream"); HEVC muxes cleanly but is excluded anyway since browser HEVC decode support (via MSE) still varies by platform.
+        Three extra renditions ride along in every job, outside the ABR ladder above: 426×240 (matching the ladder's bottom rung) via <code>libopenh264</code>, <code>libsvtav1</code>, and <code>libx265</code>, each in its own encoder's quality mode (not a bitrate cap, which would make all three converge to the same size regardless of efficiency). AV1 and HEVC both cost meaningfully more compute per encode than H.264. None of the three are in the playback below - comparison only, not delivery: AV1 hits a real ffmpeg muxer warning in MPEG-TS ("muxed as a private data stream"); HEVC muxes cleanly but is excluded anyway since browser HEVC decode support (via MSE) still varies by platform.
       </p>
       <div class="stat-row">
         <div class="stat"><div id="statH264Bytes" class="value">0 MB</div><div class="label">H.264 (quality mode) total</div></div>
@@ -344,7 +344,7 @@
     <section id="playerSection" class="hidden">
       <h2>5. Playback</h2>
       <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0">
-        This plays the real ABR ladder from section 1's job (240p/160p/120p, H.264) as one adaptive stream - not a single fixed output. The AV1/HEVC/quality-mode renditions from section 4 are comparison-only and aren't part of this ladder (see that section's note on why).
+        This plays the real ABR ladder from section 1's job (1080p/720p/480p/240p, H.264) as one adaptive stream - not a single fixed output. The AV1/HEVC/quality-mode renditions from section 4 are comparison-only and aren't part of this ladder (see that section's note on why).
       </p>
       <video id="player" controls></video>
       <div id="nowPlayingLabel" style="margin-top:0.6rem;font-size:0.8rem;color:#9aa7b2;"></div>
