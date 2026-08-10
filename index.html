@@ -212,6 +212,28 @@
         Loudness normalization runs a real decode &rarr; avfilter (<code>loudnorm</code>) &rarr; re-encode pass on the audio track. The dual-language/HDR10 option only affects the generated demo clip - a real upload's own multiple audio tracks or HDR10 metadata already pass through automatically, no toggle needed.
       </p>
       <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
+        <span>ABR ladder renditions to encode:</span>
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input type="checkbox" id="ladder1080pToggle" checked />
+          1080p
+        </label>
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input type="checkbox" id="ladder720pToggle" checked />
+          720p
+        </label>
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input type="checkbox" id="ladder480pToggle" checked />
+          480p
+        </label>
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input type="checkbox" id="ladder240pToggle" checked />
+          240p
+        </label>
+      </div>
+      <p style="font-size:0.75rem;color:#6e7681;margin-top:0.4rem;margin-bottom:0">
+        Higher renditions cost real extra dispatch/compute - uncheck any to skip it for this run. At least one needs to stay checked for playback in section 5.
+      </p>
+      <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
         <span>Bake-off comparison renditions to run (section 4):</span>
         <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
           <input type="checkbox" id="bakeoffH264Toggle" checked />
@@ -228,6 +250,15 @@
       </div>
       <p style="font-size:0.75rem;color:#6e7681;margin-top:0.4rem;margin-bottom:0">
         Each is real extra dispatch/compute cost on top of the ABR ladder - uncheck any to skip it entirely for this run (no job units, no cost). Doesn't affect the ABR ladder or the race itself.
+      </p>
+      <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
+        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+          <input type="checkbox" id="maxDistributionToggle" checked />
+          Max distribution: one DCP slice per chunk&times;rendition
+        </label>
+      </div>
+      <p style="font-size:0.75rem;color:#6e7681;margin-top:0.4rem;margin-bottom:0">
+        Checked: more, smaller slices, so more fleet workers can pick up pieces of this job at once - each chunk's bytes get re-transmitted once per rendition instead of once per chunk. Unchecked: one slice per chunk, looping every rendition inside the sandbox - less data transmitted, less available parallelism.
       </p>
     </section>
 
@@ -328,6 +359,11 @@
       </div>
     </section>
 
+    <!-- Loads createFfmpegModule onto window - used directly on the main
+         thread for slicing/demo-clip generation (see app.js), separately
+         from the copy ffmpeg-worker.js importScripts()'s into its own
+         Worker scope for the local-race encoder. -->
+    <script src="./ffmpeg-wasm/dcp-transcode-glue.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

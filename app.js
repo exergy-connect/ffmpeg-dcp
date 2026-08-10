@@ -3,25 +3,34 @@
 // Page controller for index.html: dispatches to DCP (runFleetRace) and
 // races it against a local encode using the same wasm module.
 
+// 16:9 throughout - the scaler (sws_getContext in dcp-transcode.c)
+// stretches to the exact width/height given, no letterbox/pillarbox, so
+// a mismatched aspect ratio would distort the picture against a 16:9
+// source. Every rendition here (ladder and bake-off) is individually
+// skippable via a checkbox in section 1, checked by default -
+// toggleId is what wires that up in runOnce().
 const RENDITIONS = [
-  { label: '240p', width: 320, height: 240, bitrateKbps: 500, encoder: 'libopenh264', playable: true },
-  { label: '160p', width: 240, height: 160, bitrateKbps: 300, encoder: 'libopenh264', playable: true },
-  { label: '120p', width: 160, height: 120, bitrateKbps: 150, encoder: 'libopenh264', playable: true },
-  // Codec-comparison trio, quality mode (not a bitrate cap, which would
-  // make all three converge to the same size). playable: false - not
-  // part of the ABR ladder, and AV1/HEVC in MPEG-TS isn't reliably
-  // playable in hls.js/browsers.
-  { label: 'h264-240p-quality', width: 320, height: 240, bitrateKbps: 0, encoder: 'libopenh264', playable: false },
-  { label: 'av1-240p', width: 320, height: 240, bitrateKbps: 0, encoder: 'libsvtav1', playable: false },
-  { label: 'hevc-240p', width: 320, height: 240, bitrateKbps: 0, encoder: 'libx265', playable: false },
+  { label: '1080p', width: 1920, height: 1080, bitrateKbps: 5000, encoder: 'libopenh264', playable: true, toggleId: 'ladder1080pToggle' },
+  { label: '720p', width: 1280, height: 720, bitrateKbps: 2500, encoder: 'libopenh264', playable: true, toggleId: 'ladder720pToggle' },
+  { label: '480p', width: 854, height: 480, bitrateKbps: 1200, encoder: 'libopenh264', playable: true, toggleId: 'ladder480pToggle' },
+  { label: '240p', width: 426, height: 240, bitrateKbps: 400, encoder: 'libopenh264', playable: true, toggleId: 'ladder240pToggle' },
+  // Codec-comparison trio, same resolution as the ladder's bottom rung,
+  // quality mode (not a bitrate cap, which would make all three
+  // converge to the same size). playable: false - not part of the ABR
+  // ladder, and AV1/HEVC in MPEG-TS isn't reliably playable in
+  // hls.js/browsers.
+  { label: 'h264-240p-quality', width: 426, height: 240, bitrateKbps: 0, encoder: 'libopenh264', playable: false, toggleId: 'bakeoffH264Toggle' },
+  { label: 'av1-240p', width: 426, height: 240, bitrateKbps: 0, encoder: 'libsvtav1', playable: false, toggleId: 'bakeoffAv1Toggle' },
+  { label: 'hevc-240p', width: 426, height: 240, bitrateKbps: 0, encoder: 'libx265', playable: false, toggleId: 'bakeoffHevcToggle' },
 ];
-// Individually skippable via checkboxes in section 1, checked by default.
+// The bake-off trio's byte-count stat boxes (section 4) need their own
+// wiring beyond the shared skip mechanism above.
 const BAKEOFF_RENDITIONS = [
-  { label: 'h264-240p-quality', toggleId: 'bakeoffH264Toggle', statBytesId: 'statH264Bytes', statSavingsId: null },
-  { label: 'av1-240p', toggleId: 'bakeoffAv1Toggle', statBytesId: 'statAv1Bytes', statSavingsId: 'statAv1Savings' },
-  { label: 'hevc-240p', toggleId: 'bakeoffHevcToggle', statBytesId: 'statHevcBytes', statSavingsId: 'statHevcSavings' },
+  { label: 'h264-240p-quality', statBytesId: 'statH264Bytes', statSavingsId: null },
+  { label: 'av1-240p', statBytesId: 'statAv1Bytes', statSavingsId: 'statAv1Savings' },
+  { label: 'hevc-240p', statBytesId: 'statHevcBytes', statSavingsId: 'statHevcSavings' },
 ];
-let skippedBakeoffLabels = new Set();
+let skippedLabels = new Set();
 // ~3s at 30fps - near typical real-world GOP sizes, so sliceVideoAdaptive()
 // (ffmpeg-worker.js) rarely needs to re-encode a chunk to hit this target.
 const TARGET_CHUNK_FRAMES = 90;
@@ -143,12 +152,140 @@ async function handleFile(file) {
   runWithBytes(buf, baseName);
 }
 
-// ---- ffmpeg-worker.js RPC client ----
-// The actual wasm work (transcoding, slicing) runs in ffmpeg-worker.js, a
-// real Web Worker, off the main thread - a single Module.ccall (especially
-// a full-source re-encode) is one uninterruptible synchronous block, long
-// enough to freeze the tab and trigger the browser's own "Page
-// Unresponsive" warning.
+// ---- Local wasm execution: slicing + demo-clip generation ----
+// Runs on the main thread (createFfmpegModule is on window via a
+// <script> tag in index.html) so this has zero dependency on the
+// local-race-only Worker below - the DCP fleet path needs the chunk
+// set this produces. Cost accepted: reencodeForChunking() is a real
+// re-encode and can briefly freeze the tab, same risk the Worker below
+// exists to avoid for the local race.
+let modulePromise = null;
+function getModule() {
+  if (!modulePromise) {
+    modulePromise = createFfmpegModule({
+      instantiateWasm(imports, successCallback) {
+        fetch('./ffmpeg-wasm/dcp-transcode.wasm')
+          .then((r) => r.arrayBuffer())
+          .then((bytes) => WebAssembly.instantiate(bytes, imports))
+          .then((result) => successCallback(result.instance));
+      },
+      print: (text) => console.log('[wasm main]', text),
+      // console.warn not console.error: ffmpeg's stderr mixes real errors
+      // with expected diagnostics (e.g. OpenH264's "N frames skipped");
+      // genuine failures surface separately via thrown errors/ccall codes.
+      printErr: (text) => console.warn('[wasm main]', text),
+    });
+  }
+  return modulePromise;
+}
+
+async function sliceVideo(inputBytes, targetChunkFrames) {
+  const Module = await getModule();
+  const inPath = '/slicer-in.mp4';
+  const prefix = '/slicer-chunk-';
+
+  Module.FS.writeFile(inPath, inputBytes);
+  const chunkCount = Module.ccall(
+    'slice', 'number',
+    ['string', 'string', 'number'],
+    [inPath, prefix, targetChunkFrames],
+  );
+  Module.FS.unlink(inPath);
+  if (chunkCount < 0) throw new Error(`slice() failed with code ${chunkCount}`);
+
+  const fps = Module.ccall('get_source_fps', 'number', [], []);
+  const chunks = [];
+  const durations = [];
+  for (let i = 0; i < chunkCount; i++) {
+    const path = `${prefix}${String(i).padStart(3, '0')}.ts`;
+    chunks.push(Module.FS.readFile(path));
+    Module.FS.unlink(path);
+    const frameCount = Module.ccall('get_chunk_frame_count', 'number', ['number'], [i]);
+    durations.push(fps > 0 ? frameCount / fps : 0);
+  }
+  return { chunks, durations, fps };
+}
+
+async function reencodeForChunking(inputBytes, gopSize, outWidth = 0, outHeight = 0) {
+  const Module = await getModule();
+  const inPath = '/regop-in.mp4';
+  const outPath = '/regop-out.mp4';
+
+  Module.FS.writeFile(inPath, inputBytes);
+  const ret = Module.ccall(
+    'reencode_for_chunking', 'number',
+    ['string', 'string', 'number', 'number', 'number'],
+    [inPath, outPath, gopSize, outWidth, outHeight],
+  );
+  if (ret !== 0) {
+    Module.FS.unlink(inPath);
+    throw new Error(`reencode_for_chunking() failed with code ${ret}`);
+  }
+  const outBytes = Module.FS.readFile(outPath);
+  Module.FS.unlink(inPath);
+  Module.FS.unlink(outPath);
+  return outBytes;
+}
+
+async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extraAudioTrack = 0, hdr = 0) {
+  const Module = await getModule();
+  const path = '/gen-test.mp4';
+  const ret = Module.ccall(
+    'generate_test_input', 'number',
+    ['string', 'number', 'number', 'number', 'number', 'number', 'number'],
+    [path, numFrames, gopSize, width, height, extraAudioTrack ? 1 : 0, hdr ? 1 : 0],
+  );
+  if (ret !== 0) throw new Error(`generate_test_input() failed with code ${ret}`);
+  const bytes = Module.FS.readFile(path);
+  Module.FS.unlink(path);
+  return bytes;
+}
+
+// How many times over targetChunkFrames counts as "oversized" and worth
+// a re-encode - arbitrary but reasonable, a tunable knob not a constant.
+const OVERSIZE_FACTOR = 2;
+
+// sliceVideo() can only cut at keyframes the source already has, so
+// targetChunkFrames alone has no effect below the source's native
+// keyframe interval. Hybrid fix: slice cheaply at native keyframes
+// first, then only re-encode+re-slice chunks that come out genuinely
+// oversized - each pays for its own size, not the whole video's. This
+// decides the actual chunk set later dispatched to both races (local
+// and DCP fleet).
+async function sliceVideoAdaptive(inputBytes, targetChunkFrames, outWidth = 0, outHeight = 0, progress = () => {}) {
+  const initial = await sliceVideo(inputBytes, targetChunkFrames);
+  if (initial.fps <= 0) return initial; // no reliable fps - can't judge oversize, don't touch it
+
+  const oversized = initial.durations.map(
+    (d, i) => Math.round(d * initial.fps) > targetChunkFrames * OVERSIZE_FACTOR,
+  );
+  const reencodeTotal = oversized.filter(Boolean).length;
+  progress({ phase: 'sliced', nativeChunks: initial.chunks.length, needsReencode: reencodeTotal });
+
+  const chunks = [];
+  const durations = [];
+  let reencodeDone = 0;
+  for (let i = 0; i < initial.chunks.length; i++) {
+    if (oversized[i]) {
+      reencodeDone++;
+      progress({ phase: 'reencoding', current: reencodeDone, total: reencodeTotal });
+      const regopped = await reencodeForChunking(initial.chunks[i], targetChunkFrames, outWidth, outHeight);
+      const resliced = await sliceVideo(regopped, targetChunkFrames);
+      chunks.push(...resliced.chunks);
+      durations.push(...resliced.durations);
+    } else {
+      chunks.push(initial.chunks[i]);
+      durations.push(initial.durations[i]);
+    }
+  }
+  return { chunks, durations, fps: initial.fps };
+}
+
+// ---- ffmpeg-worker.js RPC client: local-race encoder only ----
+// transcodeSegment() runs in a tight loop; a full quality-mode
+// Module.ccall is long enough to freeze the tab, so it stays in a real
+// Worker. Nothing else here is DCP-relevant - the fleet path never
+// touches this Worker.
 const ffmpegWorker = new Worker('./ffmpeg-worker.js');
 let nextRpcId = 1;
 const pendingRpcCalls = new Map();
@@ -184,12 +321,6 @@ function callWorker(fn, args, onProgress) {
 
 async function transcodeSegment(chunkBytes, params = {}) {
   return callWorker('transcodeSegment', [chunkBytes, params]);
-}
-async function sliceVideoAdaptive(inputBytes, targetChunkFrames, outWidth = 0, outHeight = 0, onProgress) {
-  return callWorker('sliceVideoAdaptive', [inputBytes, targetChunkFrames, outWidth, outHeight], onProgress);
-}
-async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extraAudioTrack = 0, hdr = 0) {
-  return callWorker('generateTestClip', [numFrames, gopSize, width, height, extraAudioTrack, hdr]);
 }
 
 // ---- Main orchestration ----
@@ -238,21 +369,22 @@ async function runOnce(inputBytes, inputBaseName) {
   const normalizeLoudness = el('normalizeLoudnessToggle').checked;
   if (normalizeLoudness) log('Loudness normalization enabled: audio on every rendition runs a real decode -> loudnorm filter -> re-encode pass.');
 
-  skippedBakeoffLabels = new Set(BAKEOFF_RENDITIONS.filter((b) => !el(b.toggleId).checked).map((b) => b.label));
-  if (skippedBakeoffLabels.size) log(`Skipping bake-off rendition(s) this run: ${[...skippedBakeoffLabels].join(', ')}`);
+  skippedLabels = new Set(RENDITIONS.filter((r) => !el(r.toggleId).checked).map((r) => r.label));
+  if (skippedLabels.size) log(`Skipping rendition(s) this run: ${[...skippedLabels].join(', ')}`);
   for (const b of BAKEOFF_RENDITIONS) {
-    if (skippedBakeoffLabels.has(b.label)) {
+    if (skippedLabels.has(b.label)) {
       el(b.statBytesId).textContent = 'skipped';
       if (b.statSavingsId) el(b.statSavingsId).textContent = 'skipped';
     }
   }
-  const activeRenditions = RENDITIONS.filter((r) => !skippedBakeoffLabels.has(r.label));
+  const activeRenditions = RENDITIONS.filter((r) => !skippedLabels.has(r.label));
 
   const units = [];
   for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
     for (const rendition of activeRenditions) units.push({ chunkIndex, rendition, normalizeLoudness });
   }
-  setupGrid(chunks.length, activeRenditions);
+  const maxDistribution = el('maxDistributionToggle').checked;
+  setupGrid(chunks.length, activeRenditions, maxDistribution);
   hidePreprocessing();
 
   // Local race waits for the wallet handshake so it doesn't start
@@ -260,7 +392,7 @@ async function runOnce(inputBytes, inputBaseName) {
   // resolves this right after wallet.add(), before it starts dispatch.
   let resolveWalletReady;
   const walletReady = new Promise((resolve) => { resolveWalletReady = resolve; });
-  const fleetPromise = runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, resolveWalletReady);
+  const fleetPromise = runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, resolveWalletReady);
   await walletReady;
   const localPromise = runLocalRace(chunks, units);
 
@@ -395,8 +527,14 @@ function bytesToBase64(bytes) {
 }
 
 
-// ---- DCP job definition and dispatch, one slice PER CHUNK ----
-async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, onWalletReady) {
+// ---- DCP job definition and dispatch ----
+// Two input-set shapes, picked by maxDistribution (section 1 toggle):
+// one slice per chunk (looping every rendition inside the sandbox), or
+// one slice per chunk x rendition ("max distribution" - more, smaller
+// slices, so more fleet workers can pick up pieces of this job
+// concurrently, at the cost of re-transmitting each chunk's bytes once
+// per rendition instead of once per chunk).
+async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, onWalletReady) {
 
   const { compute, identity, wallet } = window.dcp;
   log('Fetching wasm module + glue for fleet dispatch...');
@@ -415,7 +553,20 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
     label: r.label, width: r.width, height: r.height, bitrateKbps: r.bitrateKbps, encoder: r.encoder,
   })));
   const totalUnits = chunks.length * activeRenditions.length;
-  const inputSet = chunks.map((c, chunkIndex) => ({ chunkIndex, chunkBase64: bytesToBase64(c) }));
+  let inputSet, totalSlices;
+  if (maxDistribution) {
+    const chunkBase64ByIndex = chunks.map((c) => bytesToBase64(c));
+    inputSet = [];
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      for (let renditionIndex = 0; renditionIndex < activeRenditions.length; renditionIndex++) {
+        inputSet.push({ chunkIndex, renditionIndex, chunkBase64: chunkBase64ByIndex[chunkIndex] });
+      }
+    }
+    totalSlices = chunks.length * activeRenditions.length;
+  } else {
+    inputSet = chunks.map((c, chunkIndex) => ({ chunkIndex, chunkBase64: bytesToBase64(c) }));
+    totalSlices = chunks.length;
+  }
 
 
   // WORK FUNCTION
@@ -438,8 +589,15 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
     const outPath = '/chunk-out.ts';
     Module.FS.writeFile(inPath, chunkBytes);
 
+    // One rendition if this slice is scoped to a single (chunk, rendition)
+    // pair (unit.renditionIndex present), all of them if it's scoped to
+    // the whole chunk - the encode loop itself is otherwise identical.
+    const renditionsToRun = unit.renditionIndex !== undefined
+      ? [renditionsMetaArg[unit.renditionIndex]]
+      : renditionsMetaArg;
+
     const results = [];
-    for (const rendition of renditionsMetaArg) {
+    for (const rendition of renditionsToRun) {
       const computeT0 = Date.now();
       const ret = Module.ccall(
         'transcode_segment', 'number',
@@ -483,7 +641,7 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
 
   // JOB
   const job = compute.for(inputSet, workFunction, [glueSource, wasmBase64, renditionsMetaJson, normalizeLoudness]);
-  
+
 
   // JOB CONFIG
   job.computeGroups = [
@@ -494,8 +652,8 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
     description: 'Browser-dispatched chunk x rendition ABR transcode race vs. in-page local encoding',
     link: 'https://bell.ca',
   };
-  job.greedyEstimation = true;          // to force an even slice distribution
-  job.estimationSlices = chunks.length; // one slice per chunk
+  job.greedyEstimation = true;         // to force an even slice distribution
+  job.estimationSlices = totalSlices;
 
 
   // EVENTS
@@ -511,7 +669,7 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
       totalCost += chunkDurationMin * awsRatePerMinute(rendition);
       totalDcpRawCost += r.computeSeconds / 100 * DCP_USD_PER_100_VCPU_SECONDS || 0;
     }
-    markGridCellDone(chunkIndex, sliceResults, activeRenditions);
+    markGridCellDone(chunkIndex, sliceResults, activeRenditions, maxDistribution);
     el('fleetBar').style.width = `${(completed / totalUnits) * 100}%`;
     el('statCompleted').textContent = `${completed} / ${totalUnits}`;
     updateThroughputStats(resultTimestamps);
@@ -526,19 +684,19 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
 
 
   // EXEC
-  log(`Dispatching 1 job, ${chunks.length} slice(s) (${totalUnits} rendition-units across ${chunks.length} chunks x ${activeRenditions.length} renditions), to the DCP fleet (computeGroup: bell)...`);
+  log(`Dispatching 1 job, ${totalSlices} slice(s) (${totalUnits} rendition-units across ${chunks.length} chunks x ${activeRenditions.length} renditions, ${maxDistribution ? 'max distribution' : 'one slice per chunk'}), to the DCP fleet (computeGroup: bell)...`);
   await job.exec();
 
   clearInterval(timer);
   const elapsedSec = (performance.now() - t0) / 1000;
   el('fleetTime').textContent = `${elapsedSec.toFixed(1)}s`;
-  log(`Fleet race done in ${elapsedSec.toFixed(1)}s (1 job, ${chunks.length} slices)`);
+  log(`Fleet race done in ${elapsedSec.toFixed(1)}s (1 job, ${totalSlices} slices)`);
   maybeShowSpeedup(elapsedSec, 'fleet');
   return { byRendition };
 }
 
 
-// ---- Dasboard updates ----
+// ---- Dashboard updates ----
 const GRID_CELL_MAX = 23;
 const GRID_GAP = 3;
 const GRID_MAX_HEIGHT = 220;
@@ -563,38 +721,45 @@ function renditionMetaLine(r) {
   return `${r.label}: ${r.width}x${r.height}, ${r.bitrateKbps ? `${r.bitrateKbps}kbps` : 'quality mode'}, ${r.encoder}`;
 }
 
-// One cell per dispatched slice (one chunk, looping every active
-// rendition inside the sandbox) - matches the real DCP dispatch
-// granularity. Hover a cell for that slice's full rendition breakdown.
+// One cell per dispatched slice - matches runFleetRace()'s actual input
+// set, which is either one slice per chunk or one per chunk x rendition
+// depending on maxDistribution. Hover a cell for its rendition(s).
 let gridCells = {};
-function setupGrid(chunkCount, renditions) {
+function setupGrid(chunkCount, renditions, maxDistribution) {
   const grid = el('grid');
   grid.innerHTML = '';
   gridCells = {};
-  const { cols, cellSize } = computeGridLayout(chunkCount, grid.clientWidth);
+  const total = maxDistribution ? chunkCount * renditions.length : chunkCount;
+  const { cols, cellSize } = computeGridLayout(total, grid.clientWidth);
   grid.style.gridTemplateColumns = `repeat(${cols}, ${cellSize}px)`;
   grid.style.gap = `${GRID_GAP}px`;
   for (let c = 0; c < chunkCount; c++) {
-    const cell = document.createElement('div');
-    cell.className = 'grid-cell';
-    cell.style.width = `${cellSize}px`;
-    cell.title = [`chunk ${c} - pending`, ...renditions.map(renditionMetaLine)].join('\n');
-    grid.appendChild(cell);
-    gridCells[c] = cell;
+    if (maxDistribution) {
+      for (const r of renditions) {
+        const cell = document.createElement('div');
+        cell.className = 'grid-cell';
+        cell.style.width = `${cellSize}px`;
+        cell.title = [`chunk ${c} - pending`, renditionMetaLine(r)].join('\n');
+        grid.appendChild(cell);
+        gridCells[`${c}:${r.label}`] = cell;
+      }
+    } else {
+      const cell = document.createElement('div');
+      cell.className = 'grid-cell';
+      cell.style.width = `${cellSize}px`;
+      cell.title = [`chunk ${c} - pending`, ...renditions.map(renditionMetaLine)].join('\n');
+      grid.appendChild(cell);
+      gridCells[c] = cell;
+    }
   }
 }
-function markGridCellDone(chunkIndex, sliceResults, renditions) {
-  const cell = gridCells[chunkIndex];
+function markGridCellDone(chunkIndex, sliceResults, renditions, maxDistribution) {
+  const renditionByLabel = new Map(renditions.map((r) => [r.label, r]));
+  const line = (r) => `${renditionByLabel.has(r.label) ? renditionMetaLine(renditionByLabel.get(r.label)) : r.label} - ${(r.computeSeconds || 0).toFixed(2)}s compute`;
+  const cell = gridCells[maxDistribution ? `${chunkIndex}:${sliceResults[0].label}` : chunkIndex];
   if (!cell) return;
   cell.classList.add('done');
-  const renditionByLabel = new Map(renditions.map((r) => [r.label, r]));
-  cell.title = [
-    `chunk ${chunkIndex} - done`,
-    ...sliceResults.map((r) => {
-      const meta = renditionByLabel.get(r.label);
-      return `${meta ? renditionMetaLine(meta) : r.label} - ${(r.computeSeconds || 0).toFixed(2)}s compute`;
-    }),
-  ].join('\n');
+  cell.title = [`chunk ${chunkIndex} - done`, ...sliceResults.map(line)].join('\n');
 }
 
 function updateThroughputStats(resultTimestamps) {
@@ -631,17 +796,17 @@ function updateCodecComparison(renditionBytes) {
   const hevcBytes = renditionBytes['hevc-240p'] || 0;
   // Skipped renditions never produce a result (renditionBytes stays 0) -
   // left showing "skipped" (set in runOnce) instead of "0.00 MB".
-  if (!skippedBakeoffLabels.has('h264-240p-quality')) {
+  if (!skippedLabels.has('h264-240p-quality')) {
     el('statH264Bytes').textContent = `${(h264Bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
-  if (!skippedBakeoffLabels.has('av1-240p')) {
+  if (!skippedLabels.has('av1-240p')) {
     el('statAv1Bytes').textContent = `${(av1Bytes / (1024 * 1024)).toFixed(2)} MB`;
     if (h264Bytes > 0 && av1Bytes > 0) {
       const pct = (1 - av1Bytes / h264Bytes) * 100;
       el('statAv1Savings').textContent = `${pct.toFixed(0)}% smaller`;
     }
   }
-  if (!skippedBakeoffLabels.has('hevc-240p')) {
+  if (!skippedLabels.has('hevc-240p')) {
     el('statHevcBytes').textContent = `${(hevcBytes / (1024 * 1024)).toFixed(2)} MB`;
     if (h264Bytes > 0 && hevcBytes > 0) {
       const pct = (1 - hevcBytes / h264Bytes) * 100;
