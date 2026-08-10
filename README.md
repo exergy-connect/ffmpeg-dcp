@@ -30,7 +30,7 @@ The demo ships wired to a shared demo identity/wallet, in `app.js`'s
   DCP matches against a keystore file's basename in your local `.dcp`
   folder. Replace `'live demo'` with the basename (no extension) of the
   keystore file you downloaded from the portal - e.g. if you downloaded
-  `wallet.keystore`, use `wallet.get('wallet')`.
+  `wallet.keystore`, use `wallet.get('myAccount')`.
 
 ## Rebuilding the wasm module
 
