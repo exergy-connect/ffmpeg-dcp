@@ -4,12 +4,11 @@
 # src/dcp-transcode.c against all four encoders into
 # ffmpeg-wasm/dcp-transcode-glue.js + .wasm (fetched directly by the
 # browser demo - no wasm-bytes.js base64 step needed here, unlike the
-# Node-deployer copy of this script). See
-# ../ffmpeg-dcp-deploy/ffmpeg-openh264-wasm-dcp.md for the reasoning
-# behind every flag/patch - this script captures the *what*, the doc has
-# the *why*.
+# Node-deployer copy of this script, in the separate ffmpeg-dcp-node
+# repo - see that repo's ffmpeg-openh264-wasm-dcp.md for the reasoning
+# behind every flag/patch here; this script only captures the *what*.
 #
-# Assumes sibling checkouts two levels up (see ../../../SETUP.md):
+# Assumes sibling checkouts two levels up:
 #   ../../emsdk        - emscripten SDK
 #   ../../openh264      - github.com/cisco/openh264, git-cloned directly
 #   ../../x264           - code.videolan.org/videolan/x264, git-cloned directly
