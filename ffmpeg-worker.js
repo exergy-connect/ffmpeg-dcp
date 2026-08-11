@@ -30,28 +30,6 @@ function getModule() {
   return modulePromise;
 }
 
-async function transcodeSegment(chunkBytes, params = {}) {
-  const Module = await getModule();
-  const { width = 0, height = 0, bitrateKbps = 0, encoder = 'libopenh264', normalizeLoudness = 0 } = params;
-  const inPath = `/chunk-in-${Math.random().toString(36).slice(2)}.ts`;
-  const outPath = `/chunk-out-${Math.random().toString(36).slice(2)}.ts`;
-
-  Module.FS.writeFile(inPath, chunkBytes);
-  const ret = Module.ccall(
-    'transcode_segment', 'number',
-    ['string', 'string', 'number', 'number', 'number', 'string', 'number'],
-    [inPath, outPath, width, height, bitrateKbps, encoder, normalizeLoudness ? 1 : 0],
-  );
-  if (ret !== 0) {
-    Module.FS.unlink(inPath);
-    throw new Error(`transcode_segment() failed with code ${ret}`);
-  }
-  const outBytes = Module.FS.readFile(outPath);
-  Module.FS.unlink(inPath);
-  Module.FS.unlink(outPath);
-  return outBytes;
-}
-
 // Slicing + demo-clip generation, moved here from app.js (main thread).
 async function sliceVideo(inputBytes, targetChunkFrames) {
   const Module = await getModule();
@@ -94,7 +72,7 @@ async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extra
   return bytes;
 }
 
-const handlers = { transcodeSegment, sliceVideo, generateTestClip };
+const handlers = { sliceVideo, generateTestClip };
 
 // Minimal request/response RPC over postMessage - see the RPC client at
 // the top of app.js for the main-thread side. No Transferable/zero-copy:

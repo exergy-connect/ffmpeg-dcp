@@ -1,17 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
   <!--
-    Drop a video, watch it race locally (in-page wasm) against the DCP
-    fleet, watch a liveness grid fill in as results land, watch a live
-    cost counter, then play the assembled HLS ladder back in-page. No
-    server anywhere in this page - static files only. See the separate
-    ffmpeg-dcp-node repo's ffmpeg-openh264-wasm-dcp.md for the full
-    build/architecture history.
+    Drop a video, dispatch it to the DCP worker fleet, watch a liveness
+    grid fill in as results land, watch a live cost counter, then play
+    the assembled HLS ladder back in-page. No server anywhere in this
+    page - static files only. See the separate ffmpeg-dcp-node repo's
+    ffmpeg-openh264-wasm-dcp.md for the full build/architecture history.
   -->
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>FFmpeg + WASM on DCP: live transcode race</title>
+    <title>FFmpeg + WASM on DCP: live transcode</title>
 
     <!-- dcp-client's hosted browser build - exposes window.dcp -->
     <script src="https://scheduler.distributed.computer/dcp-client/dcp-client.js"></script>
@@ -62,14 +61,8 @@
       .race-label { width: 70px; font-size: 0.85rem; color: #9aa7b2; }
       .race-bar-track { flex: 1; height: 18px; background: #1c2733; border-radius: 9px; overflow: hidden; }
       .race-bar-fill { height: 100%; width: 0%; transition: width 0.2s ease; }
-      .race-bar-fill.local { background: linear-gradient(90deg, #58a6ff, #388bfd); }
       .race-bar-fill.fleet { background: linear-gradient(90deg, #3fb950, #2ea043); }
       .race-time { width: 70px; text-align: right; font-variant-numeric: tabular-nums; font-size: 0.85rem; color: #9aa7b2; }
-      #speedup {
-        text-align: center; font-size: 2.4rem; font-weight: 700; margin-top: 0.5rem;
-        color: #7ee787; min-height: 2.8rem;
-      }
-      #speedup .unit { font-size: 1.1rem; color: #9aa7b2; }
 
       /* Column count, cell size, and gap are all set inline by
          setupGrid() in app.js, computed per-run so the grid always tiles
@@ -81,7 +74,6 @@
         transition: background 0.25s ease;
       }
       .grid-cell.done { background: #2ea043; }
-      .grid-cell.local-only { background: #388bfd; }
       .grid-legend { display: flex; gap: 1.25rem; margin-top: 0.6rem; font-size: 0.8rem; color: #9aa7b2; }
       .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
 
@@ -180,7 +172,7 @@
   </head>
   <body>
     <h1>FFmpeg + OpenH264/x264/SVT-AV1/x265 on WASM, on DCP</h1>
-    <p class="subtitle">Drop a video. Watch it transcode locally vs. a real DCP worker fleet, live, into a real 1080p/720p/480p/240p ABR ladder. Real AV1 and HEVC renditions ride alongside H.264, so you can watch each cost more compute per encode and land noticeably smaller. Optional real-decode passes along the way: EBU R128 loudness normalization, multi-audio-track passthrough, and HDR10 color-metadata passthrough.</p>
+    <p class="subtitle">Drop a video. Watch a real DCP worker fleet transcode it, live, into a real 1080p/720p/480p/240p ABR ladder. Real AV1 and HEVC renditions ride alongside H.264, so you can watch each cost more compute per encode and land noticeably smaller. Optional real-decode passes along the way: EBU R128 loudness normalization, multi-audio-track passthrough, and HDR10 color-metadata passthrough.</p>
 
     <section style="border-color:#2d3f52;">
       <h2 style="color:#9aa7b2;">Proof-of-concept, not a production pipeline</h2>
@@ -188,11 +180,30 @@
         This demonstrates the mechanism - real FFmpeg encoders compiled to WebAssembly, dispatched as chunked DCP work units - not a production-ready service. A production build would differ in real ways:
       </p>
       <ul style="font-size:0.85rem;color:#9aa7b2;margin:0.4rem 0 0;padding-left:1.3rem;">
-        <li><strong>Server-side dispatch.</strong> This page is both the job deployer and one racer (in-browser wasm) - convenient for a live demo, not the production shape. A server-side orchestrator could dispatch instead, and each encoder could then run its own multi-threaded build rather than the single-threaded wasm every encoder here uses (no real OS threads available in WebAssembly here, by design).</li>
+        <li><strong>Server-side dispatch.</strong> This page is the job deployer, running entirely in-browser - convenient for a live demo, not the production shape. A server-side orchestrator could dispatch instead, and each encoder could then run its own multi-threaded build rather than the single-threaded wasm every encoder here uses (no real OS threads available in WebAssembly here, by design).</li>
         <li><strong>Data off the scheduler.</strong> This demo ships every chunk's raw bytes as bound <code>compute.for()</code> arguments, so they transit the scheduler both to workers and back as results. DCP's <a href="https://docs.dcp.dev/advanced/data-uri.html" style="color:#58a6ff;">remote data</a> (<code>RemoteDataSet</code>, <code>job.setResultStorage()</code>) lets workers fetch input from a URL and push results to one instead, so the real bytes never transit DCP's infrastructure at all - meaningful for large media files, and for keeping data on a private network instead of routing it through a public scheduler.</li>
       </ul>
       <p style="font-size:0.85rem;color:#9aa7b2;margin-top:0.6rem;margin-bottom:0">
         Concrete constraints of this demo build: single video track only (no multi-angle, no subtitles/captions); containers limited to MP4/MOV, MKV, MPEG-TS, and WAV; video decodable as H.264, HEVC, or AV1, audio as AAC or PCM only; up to 8 audio tracks; HDR10 passthrough only (no Dolby Vision - needs a licensed SDK this project doesn't have); and <code>libopenh264</code> itself hard-caps at 4096&times;2304 (DCI 4K, 9,437,184px) - this demo's own renditions top out at 1920&times;1080 (2,073,600px), well under that, but it would matter at true 4K+ output. Documented scope, not a bug list.
+      </p>
+    </section>
+
+    <section id="accountSection">
+      <h2>Your DCP account</h2>
+      <div style="display:flex; flex-direction:column; gap:0.85rem; max-width:480px;">
+        <label style="font-size:0.85rem; color:#9aa7b2;">
+          API key (identity)
+          <input type="text" id="apiKeyInput" placeholder="0x... (leave blank to use the built-in demo key)"
+            style="display:block; width:100%; margin-top:0.3rem; background:#0d1117; border:1px solid #2d3f52; color:#e6edf3; border-radius:6px; padding:0.5rem 0.7rem; font-family:monospace; font-size:0.85rem;" />
+        </label>
+        <label style="font-size:0.85rem; color:#9aa7b2;">
+          Compute group (joinKey,joinSecret)
+          <input type="text" id="computeGroupInput" placeholder="leave blank for the public group"
+            style="display:block; width:100%; margin-top:0.3rem; background:#0d1117; border:1px solid #2d3f52; color:#e6edf3; border-radius:6px; padding:0.5rem 0.7rem; font-family:monospace; font-size:0.85rem;" />
+        </label>
+      </div>
+      <p style="font-size:0.75rem;color:#6e7681;margin-top:0.6rem;margin-bottom:0">
+        Both persist in this browser's local storage across reloads. Get your own API key from <a href="https://bell.dcp.cloud/" style="color:#58a6ff;">your DCP portal</a>.
       </p>
     </section>
 
@@ -262,7 +273,7 @@
         </label>
       </div>
       <p style="font-size:0.75rem;color:#6e7681;margin-top:0.4rem;margin-bottom:0">
-        Each is real extra dispatch/compute cost on top of the ABR ladder - uncheck any to skip it entirely for this run (no job units, no cost). Doesn't affect the ABR ladder or the race itself.
+        Each is real extra dispatch/compute cost on top of the ABR ladder - uncheck any to skip it entirely for this run (no job units, no cost). Doesn't affect the ABR ladder or the job itself.
       </p>
       <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
         <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
@@ -276,19 +287,13 @@
     </section>
 
     <section id="raceSection" class="hidden">
-      <h2>2. The race</h2>
+      <h2>2. Dispatch</h2>
       <div id="preprocessingStatus" class="hidden"></div>
-      <div class="race-row">
-        <div class="race-label">Local</div>
-        <div class="race-bar-track"><div id="localBar" class="race-bar-fill local"></div></div>
-        <div id="localTime" class="race-time">0.0s</div>
-      </div>
       <div class="race-row">
         <div class="race-label">DCP</div>
         <div class="race-bar-track"><div id="fleetBar" class="race-bar-fill fleet"></div></div>
         <div id="fleetTime" class="race-time">0.0s</div>
       </div>
-      <div id="speedup"></div>
     </section>
 
     <section id="joinSection">
@@ -296,7 +301,7 @@
       <div class="join-split">
         <div class="join-panel">
           <div id="qrcode"></div>
-          <p>Scan to turn your phone or laptop into a worker for this demo's compute group. More workers join mid-race, and the DCP bar visibly speeds up.</p>
+          <p>Scan to turn your phone or laptop into a worker for the compute group configured above. More workers join mid-job, and the DCP bar visibly speeds up.</p>
         </div>
         <div id="log"></div>
       </div>

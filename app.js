@@ -1,7 +1,6 @@
 'use strict';
 
-// Page controller for index.html: dispatches to DCP (runFleetRace) and
-// races it against a local encode using the same wasm module.
+// Page controller for index.html: dispatches transcode jobs to the DCP fleet.
 
 // 16:9 throughout - the scaler (sws_getContext in dcp-transcode.c)
 // stretches to the exact width/height given, no letterbox/pillarbox, so
@@ -83,9 +82,38 @@ function log(msg) {
   console.log(msg);
 }
 
-new QRCode(el('qrcode'), {
-  text: `https://dcp.live/?computeGroups=bell,18be80`,
-  width: 128, height: 128,
+// ---- DCP account settings: API key + compute group, persisted locally ----
+const DEFAULT_API_KEY = '0x8dc846130f8d909129b83a155a3c8818d8b146e00412169e10161d49725b6f36';
+const API_KEY_STORAGE_KEY = 'ffmpeg-dcp:apiKey';
+const COMPUTE_GROUP_STORAGE_KEY = 'ffmpeg-dcp:computeGroup';
+
+const apiKeyInput = el('apiKeyInput');
+const computeGroupInput = el('computeGroupInput');
+apiKeyInput.value = localStorage.getItem(API_KEY_STORAGE_KEY) || '';
+computeGroupInput.value = localStorage.getItem(COMPUTE_GROUP_STORAGE_KEY) || '';
+
+function getApiKey() {
+  return apiKeyInput.value.trim() || DEFAULT_API_KEY;
+}
+
+function getComputeGroups() {
+  const raw = computeGroupInput.value.trim();
+  if (!raw) return [{ joinKey: 'public' }];
+  const [joinKey, joinSecret] = raw.split(',').map((s) => s.trim());
+  return joinSecret ? [{ joinKey, joinSecret }] : [{ joinKey }];
+}
+
+const qrcode = new QRCode(el('qrcode'), { width: 128, height: 128 });
+function updateQrCode() {
+  const raw = computeGroupInput.value.trim();
+  qrcode.makeCode(`https://dcp.live/?computeGroups=${encodeURIComponent(raw || 'public')}`);
+}
+updateQrCode();
+
+apiKeyInput.addEventListener('change', () => localStorage.setItem(API_KEY_STORAGE_KEY, apiKeyInput.value.trim()));
+computeGroupInput.addEventListener('change', () => {
+  localStorage.setItem(COMPUTE_GROUP_STORAGE_KEY, computeGroupInput.value.trim());
+  updateQrCode();
 });
 
 // ---- Drop zone wiring ----
@@ -170,7 +198,7 @@ async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extra
   return callWorker('generateTestClip', [numFrames, gopSize, width, height, extraAudioTrack, hdr]);
 }
 
-// ---- ffmpeg-worker.js RPC client: local-race encoder only ----
+// ---- ffmpeg-worker.js RPC client: slicing + demo-clip generation ----
 const ffmpegWorker = new Worker('./ffmpeg-worker.js');
 let nextRpcId = 1;
 const pendingRpcCalls = new Map();
@@ -199,10 +227,6 @@ function callWorker(fn, args, onProgress) {
     pendingRpcCalls.set(id, { resolve, reject, onProgress });
     ffmpegWorker.postMessage({ id, fn, args });
   });
-}
-
-async function transcodeSegment(chunkBytes, params = {}) {
-  return callWorker('transcodeSegment', [chunkBytes, params]);
 }
 
 // ---- Main orchestration ----
@@ -254,36 +278,26 @@ async function runOnce(inputBytes, inputBaseName) {
   }
   const activeRenditions = RENDITIONS.filter((r) => !skippedLabels.has(r.label));
 
-  const units = [];
-  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-    for (const rendition of activeRenditions) units.push({ chunkIndex, rendition, normalizeLoudness });
-  }
   const maxDistribution = el('maxDistributionToggle').checked;
   setupGrid(chunks.length, activeRenditions, maxDistribution);
   hidePreprocessing();
 
-  let resolveWalletReady;
-  const walletReady = new Promise((resolve) => { resolveWalletReady = resolve; });
-  const fleetPromise = runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, resolveWalletReady, inputBaseName);
-  await walletReady;
-  const localPromise = runLocalRace(chunks, units);
-
-  fleetPromise.then((fleetOutcome) => {
-    if (fleetOutcome) {
-      assembleAndPlay(fleetOutcome.byRendition, durations, RENDITIONS);
-      setupSaveOutputs(fleetOutcome.byRendition, inputBaseName);
-    }
-  }).catch((err) => log(`Fleet race promise error: ${err.message}`));
-
-  await localPromise;
+  let fleetOutcome;
+  try {
+    fleetOutcome = await dispatchJob(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, inputBaseName);
+  } catch (err) {
+    log(`Dispatch error: ${err.message}`);
+    return;
+  }
+  if (fleetOutcome) {
+    assembleAndPlay(fleetOutcome.byRendition, durations, RENDITIONS);
+    setupSaveOutputs(fleetOutcome.byRendition, inputBaseName);
+  }
 }
 
 function resetUi() {
-  el('localBar').style.width = '0%';
   el('fleetBar').style.width = '0%';
-  el('localTime').textContent = '0.0s';
   el('fleetTime').textContent = '0.0s';
-  el('speedup').textContent = '';
   el('costCounter').textContent = '$0.0000';
   el('statDcpRaw').textContent = '$0.0000';
   el('statDcpInternal').textContent = '$0.0000';
@@ -298,8 +312,6 @@ function resetUi() {
   el('saveOutputsBtn').classList.add('hidden');
   el('saveOutputsStatus').textContent = '';
   hidePreprocessing();
-  localElapsedSec = null;
-  fleetElapsedSec = null;
 }
 
 // Animated-ellipsis status line covering slicing
@@ -325,58 +337,12 @@ function hidePreprocessing() {
   el('preprocessingStatus').classList.add('hidden');
 }
 
-// ---- Local race: same wasm module, sequential, in-page ----
-async function runLocalRace(chunks, units) {
-  const t0 = performance.now();
-  const timer = setInterval(() => {
-    el('localTime').textContent = `${((performance.now() - t0) / 1000).toFixed(1)}s`;
-  }, 100);
-
-  let completed = 0;
-  for (const unit of units) {
-    const chunkBytes = chunks[unit.chunkIndex];
-    try {
-      await transcodeSegment(chunkBytes, {
-        width: unit.rendition.width,
-        height: unit.rendition.height,
-        bitrateKbps: unit.rendition.bitrateKbps,
-        encoder: unit.rendition.encoder,
-        normalizeLoudness: unit.normalizeLoudness,
-      });
-    } catch (err) {
-      log(`Local encode failed for chunk ${unit.chunkIndex} @ ${unit.rendition.label}: ${err.message}`);
-    }
-    completed += 1;
-    el('localBar').style.width = `${(completed / units.length) * 100}%`;
-    // Yield so the progress bar/timer repaint between (still-blocking) units.
-    await new Promise((r) => setTimeout(r, 0));
-  }
-
-  clearInterval(timer);
-  const elapsedSec = (performance.now() - t0) / 1000;
-  el('localTime').textContent = `${elapsedSec.toFixed(1)}s`;
-  log(`Local race done in ${elapsedSec.toFixed(1)}s`);
-  maybeShowSpeedup(elapsedSec, 'local');
-  return { elapsedSec };
-}
-
-// ---- Fleet race: real DCP dispatch ----
+// ---- Fleet dispatch ----
 if (window.dcpConfig && window.dcpConfig.job) {
   window.dcpConfig.job.uploadInitialNumberOfSlices = 1; // start at 1 slice/pile, not 4 - see above
   window.dcpConfig.job.uploadSlicesTarget = 5E6;         // 5MB, down from the 10MB default (real slices here run ~2-6MB)
   window.dcpConfig.job.uploadSlicesCeiling = 100E6;      // 100MB hard cap, down from 300MB but with real headroom
   window.dcpConfig.job.uploadIncreaseFactor = 1.3;       // gentler ramp than the 2x default
-}
-
-let fleetElapsedSec = null;
-let localElapsedSec = null;
-function maybeShowSpeedup(elapsedSec, which) {
-  if (which === 'local') localElapsedSec = elapsedSec;
-  else fleetElapsedSec = elapsedSec;
-  if (localElapsedSec != null && fleetElapsedSec != null) {
-    const speedup = localElapsedSec / fleetElapsedSec;
-    el('speedup').innerHTML = `${speedup.toFixed(1)}<span class="unit">x faster on the fleet</span>`;
-  }
 }
 
 function bytesToBase64(bytes) {
@@ -396,15 +362,14 @@ function bytesToBase64(bytes) {
 // slices, so more fleet workers can pick up pieces of this job
 // concurrently, at the cost of re-transmitting each chunk's bytes once
 // per rendition instead of once per chunk).
-async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, onWalletReady, inputBaseName) {
+async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, inputBaseName) {
 
   const { compute, identity, wallet } = window.dcp;
 
   // ID AND PAYMENT
-  await identity.set('0x8dc846130f8d909129b83a155a3c8818d8b146e00412169e10161d49725b6f36');
-  const pay = await wallet.get('live demo');
+  await identity.set(getApiKey());
+  const pay = await wallet.get();
   await wallet.add(pay);
-  if (onWalletReady) onWalletReady();
 
 
   // INPUT SET
@@ -418,7 +383,7 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
   // something a data-placement change alone can remove. What actually
   // broke on a real (non-demo-clip) source was the upload SIDE: dcp-client
   // staggers/batches inputSet uploads and ramps batch size up on every
-  // success (see the config override in runFleetRace, below) - that ramp,
+  // success (see the config override in dispatchJob, below) - that ramp,
   // not per-chunk duplication itself, is what let one batch reach ~189MB
   // and trip dcp-client's slice-upload retry bug.
   const renditionsMetaJson = JSON.stringify(activeRenditions.map((r) => ({
@@ -512,13 +477,10 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
 
 
   // JOB CONFIG
-  job.computeGroups = [
-    { joinKey: 'bell', joinSecret: '18be80' }
-  ];
+  job.computeGroups = getComputeGroups();
   job.public = {
     name: `🎞️ FFmpeg+WASM: ${inputBaseName}`,
-    description: 'Browser-dispatched chunk x rendition ABR transcode race vs. in-page local encoding',
-    link: 'https://bell.ca',
+    description: 'Browser-dispatched chunk x rendition ABR transcode job',
   };
   job.greedyEstimation = true;         // to force an even slice distribution
   job.estimationSlices = totalSlices;
@@ -552,14 +514,14 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
 
 
   // EXEC
-  log(`Dispatching 1 job, ${totalSlices} slice(s) (${totalUnits} rendition-units across ${chunks.length} chunks x ${activeRenditions.length} renditions, ${maxDistribution ? 'max distribution' : 'one slice per chunk'}), to the DCP fleet (computeGroup: bell)...`);
+  const computeGroupsLabel = job.computeGroups.map((g) => g.joinKey).join(', ');
+  log(`Dispatching 1 job, ${totalSlices} slice(s) (${totalUnits} rendition-units across ${chunks.length} chunks x ${activeRenditions.length} renditions, ${maxDistribution ? 'max distribution' : 'one slice per chunk'}), to the DCP fleet (computeGroup: ${computeGroupsLabel})...`);
   await job.exec();
 
   clearInterval(timer);
   const elapsedSec = (performance.now() - t0) / 1000;
   el('fleetTime').textContent = `${elapsedSec.toFixed(1)}s`;
-  log(`Fleet race done in ${elapsedSec.toFixed(1)}s (1 job, ${totalSlices} slices)`);
-  maybeShowSpeedup(elapsedSec, 'fleet');
+  log(`Job done in ${elapsedSec.toFixed(1)}s (1 job, ${totalSlices} slices)`);
   return { byRendition };
 }
 
@@ -589,7 +551,7 @@ function renditionMetaLine(r) {
   return `${r.label}: ${r.width}x${r.height}, ${r.bitrateKbps ? `${r.bitrateKbps}kbps` : 'quality mode'}, ${r.encoder}`;
 }
 
-// One cell per dispatched slice - matches runFleetRace()'s actual input
+// One cell per dispatched slice - matches dispatchJob()'s actual input
 // set, which is either one slice per chunk or one per chunk x rendition
 // depending on maxDistribution. Hover a cell for its rendition(s).
 let gridCells = {};
