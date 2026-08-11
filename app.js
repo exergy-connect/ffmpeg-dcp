@@ -64,13 +64,9 @@ function awsRatePerMinute(rendition) {
 // below), unlike AWS's per-output-minute model above.
 const DCP_USD_PER_100_VCPU_SECONDS = 0.0003171;
 
-// Bell's fleet runs at roughly 38% the per-core speed of a GCP-class vCPU.
-const BELL_CPU_EFFICIENCY = 0.38;
-
-// Bell earns back 80% of its own spend on internal jobs (net cost 20%),
-// or keeps 80% as revenue reselling externally (Distributive keeps 20%).
-const BELL_INTERNAL_NET_FACTOR = 0.20;
-const BELL_EXTERNAL_REVENUE_SHARE = 0.80;
+// DCP's scheduler commission vs. worker earnings split on job payments.
+const SCHEDULER_COMMISSION_FACTOR = 0.20;
+const WORKER_EARNINGS_FACTOR = 0.80;
 
 const el = (id) => document.getElementById(id);
 const logEl = el('log');
@@ -300,8 +296,8 @@ function resetUi() {
   el('fleetTime').textContent = '0.0s';
   el('costCounter').textContent = '$0.0000';
   el('statDcpRaw').textContent = '$0.0000';
-  el('statDcpInternal').textContent = '$0.0000';
-  el('statDcpExternal').textContent = '$0.0000';
+  el('statSchedulerCommission').textContent = '$0.0000';
+  el('statWorkerEarnings').textContent = '$0.0000';
   el('dcpDetail').textContent = '0/0 fleet slices: priced from each slice\'s own real compute time';
   el('statH264Bytes').textContent = '0 MB';
   el('statAv1Bytes').textContent = '0 MB';
@@ -611,12 +607,12 @@ function updateCostCounter(totalCost, completed, totalUnits) {
 }
 
 function updateDcpCostComparison(totalRawCost, completed, totalUnits) {
-  const bellInternalCost = totalRawCost * BELL_INTERNAL_NET_FACTOR;
-  const bellExternalRevenue = totalRawCost * BELL_EXTERNAL_REVENUE_SHARE;
+  const schedulerCommission = totalRawCost * SCHEDULER_COMMISSION_FACTOR;
+  const workerEarnings = totalRawCost * WORKER_EARNINGS_FACTOR;
 
   el('statDcpRaw').textContent = `$${totalRawCost.toFixed(4)}`;
-  el('statDcpInternal').textContent = `$${bellInternalCost.toFixed(4)}`;
-  el('statDcpExternal').textContent = `$${bellExternalRevenue.toFixed(4)}`;
+  el('statSchedulerCommission').textContent = `$${schedulerCommission.toFixed(4)}`;
+  el('statWorkerEarnings').textContent = `$${workerEarnings.toFixed(4)}`;
   el('dcpDetail').textContent =
     `${completed}/${totalUnits} fleet slices: priced from each slice's own real compute time`;
 }

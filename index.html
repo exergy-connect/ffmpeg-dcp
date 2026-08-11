@@ -336,12 +336,12 @@
       </div>
       <div class="stat-row dcp-stat-row">
         <div class="stat"><div id="statDcpRaw" class="value">$0.0000</div><div class="label">raw DCP cost, this run</div></div>
-        <div class="stat"><div id="statDcpInternal" class="value">$0.0000</div><div class="label">Bell net cost (internal use)</div></div>
-        <div class="stat"><div id="statDcpExternal" class="value">$0.0000</div><div class="label">Bell revenue (resold externally)</div></div>
+        <div class="stat"><div id="statSchedulerCommission" class="value">$0.0000</div><div class="label">Scheduler commission</div></div>
+        <div class="stat"><div id="statWorkerEarnings" class="value">$0.0000</div><div class="label">Worker earnings</div></div>
       </div>
       <div id="dcpDetail" style="font-size:0.8rem;color:#9aa7b2;margin-top:0.25rem">0/0 fleet slices: priced from each slice's own real compute time</div>
       <p style="font-size:0.75rem;color:#6e7681;margin-top:0.5rem;margin-bottom:0">
-        DCP prices compute at 1.000 ⊇ (one DCP credit) = $0.0003171 USD per 100 vCPU-seconds. "Raw DCP cost" is priced from each slice's own real compute time, reflecting whatever hardware actually ran it - Bell's internal fleet runs at roughly 38% the per-core speed of AWS's, so real vCPU-seconds can cost proportionally more than a same-hardware comparison would suggest. Run internally, Bell earns back 80% of its compute spend, netting 20% of the raw cost. Resold externally, Bell keeps 80% as revenue and Distributive keeps the other 20%.
+        DCP prices compute at 1.000 ⊇ (one DCP credit) = $0.0003171 USD per 100 vCPU-seconds. "Raw DCP cost" is priced from each slice's own real compute time, reflecting whatever hardware actually ran it. Of that, the scheduler takes a 20% commission and the worker that ran the compute earns the other 80%.
       </p>
     </section>
 
