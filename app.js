@@ -106,15 +106,18 @@ fileInput.addEventListener('change', () => {
   if (fileInput.files[0]) handleFile(fileInput.files[0]);
 });
 el('demoClipBtn').addEventListener('click', async (e) => {
-  // Stop the click bubbling to dropzone's own handler (fileInput.click()),
-  // which would otherwise also pop open the file picker.
   e.stopPropagation();
-  const extras = el('demoClipExtrasToggle').checked;
-  // generate_test_input() defaults to 320x240 when width/height are 0.
-  showDropzoneLoaded(`demo-clip - synthetic, 320x240, 15.0s${extras ? ', dual-language audio + HDR10 tags' : ''}`);
-  log(`Generating a synthetic demo clip in-browser (150 frames, 15s @ 10fps${extras ? ', dual-language audio + HDR10 tags' : ''})...`);
-  const bytes = await generateTestClip(150, 20, 0, 0, extras ? 1 : 0, extras ? 1 : 0);
-  runWithBytes(bytes, 'demo-clip');
+  if (!beginRun()) return;
+  try {
+    const extras = el('demoClipExtrasToggle').checked;
+    // generate_test_input() defaults to 320x240 when width/height are 0.
+    showDropzoneLoaded(`demo-clip - synthetic, 320x240, 15.0s${extras ? ', dual-language audio + HDR10 tags' : ''}`);
+    log(`Generating a synthetic demo clip in-browser (150 frames, 15s @ 10fps${extras ? ', dual-language audio + HDR10 tags' : ''})...`);
+    const bytes = await generateTestClip(150, 20, 0, 0, extras ? 1 : 0, extras ? 1 : 0);
+    await runOnce(bytes, 'demo-clip'); // runOnce(), not runWithBytes() - the guard is already held here
+  } finally {
+    endRun();
+  }
 });
 
 function formatBytes(n) {
@@ -160,105 +163,22 @@ async function handleFile(file) {
 }
 
 // ---- Local wasm execution: slicing + demo-clip generation ----
-// Runs on the main thread (createFfmpegModule is on window via a
-// <script> tag in index.html) so this has zero dependency on the
-// local-race-only Worker below - the DCP fleet path needs the chunk
-// set this produces. Cost accepted: reencodeForChunking() is a real
-// re-encode and can briefly freeze the tab, same risk the Worker below
-// exists to avoid for the local race.
-let modulePromise = null;
-function getModule() {
-  if (!modulePromise) {
-    modulePromise = createFfmpegModule({
-      instantiateWasm(imports, successCallback) {
-        fetch('./ffmpeg-wasm/dcp-transcode.wasm')
-          .then((r) => r.arrayBuffer())
-          .then((bytes) => WebAssembly.instantiate(bytes, imports))
-          .then((result) => successCallback(result.instance));
-      },
-      print: (text) => console.log('[wasm main]', text),
-      // console.warn not console.error: ffmpeg's stderr mixes real errors
-      // with expected diagnostics (e.g. OpenH264's "N frames skipped");
-      // genuine failures surface separately via thrown errors/ccall codes.
-      printErr: (text) => console.warn('[wasm main]', text),
-    });
-  }
-  return modulePromise;
-}
-
-async function sliceVideo(inputBytes, targetChunkFrames) {
-  const Module = await getModule();
-  const inPath = '/slicer-in.mp4';
-  const prefix = '/slicer-chunk-';
-
-  Module.FS.writeFile(inPath, inputBytes);
-  const chunkCount = Module.ccall(
-    'slice', 'number',
-    ['string', 'string', 'number'],
-    [inPath, prefix, targetChunkFrames],
-  );
-  Module.FS.unlink(inPath);
-  if (chunkCount < 0) throw new Error(`slice() failed with code ${chunkCount}`);
-
-  const fps = Module.ccall('get_source_fps', 'number', [], []);
-  const chunks = [];
-  const durations = [];
-  for (let i = 0; i < chunkCount; i++) {
-    const path = `${prefix}${String(i).padStart(3, '0')}.ts`;
-    chunks.push(Module.FS.readFile(path));
-    Module.FS.unlink(path);
-    const frameCount = Module.ccall('get_chunk_frame_count', 'number', ['number'], [i]);
-    durations.push(fps > 0 ? frameCount / fps : 0);
-  }
-  return { chunks, durations, fps };
+// Delegates to ffmpeg-worker.jsasync function sliceVideo(inputBytes, targetChunkFrames) {
+  return callWorker('sliceVideo', [inputBytes, targetChunkFrames]);
 }
 
 async function reencodeForChunking(inputBytes, gopSize, outWidth = 0, outHeight = 0) {
-  const Module = await getModule();
-  const inPath = '/regop-in.mp4';
-  const outPath = '/regop-out.mp4';
-
-  Module.FS.writeFile(inPath, inputBytes);
-  const ret = Module.ccall(
-    'reencode_for_chunking', 'number',
-    ['string', 'string', 'number', 'number', 'number'],
-    [inPath, outPath, gopSize, outWidth, outHeight],
-  );
-  if (ret !== 0) {
-    Module.FS.unlink(inPath);
-    throw new Error(`reencode_for_chunking() failed with code ${ret}`);
-  }
-  const outBytes = Module.FS.readFile(outPath);
-  Module.FS.unlink(inPath);
-  Module.FS.unlink(outPath);
-  return outBytes;
+  return callWorker('reencodeForChunking', [inputBytes, gopSize, outWidth, outHeight]);
 }
 
 async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extraAudioTrack = 0, hdr = 0) {
-  const Module = await getModule();
-  const path = '/gen-test.mp4';
-  const ret = Module.ccall(
-    'generate_test_input', 'number',
-    ['string', 'number', 'number', 'number', 'number', 'number', 'number'],
-    [path, numFrames, gopSize, width, height, extraAudioTrack ? 1 : 0, hdr ? 1 : 0],
-  );
-  if (ret !== 0) throw new Error(`generate_test_input() failed with code ${ret}`);
-  const bytes = Module.FS.readFile(path);
-  Module.FS.unlink(path);
-  return bytes;
+  return callWorker('generateTestClip', [numFrames, gopSize, width, height, extraAudioTrack, hdr]);
 }
 
 // How many times over targetChunkFrames counts as "oversized" and worth
 // a re-encode - arbitrary but reasonable, a tunable knob not a constant.
 const OVERSIZE_FACTOR = 2;
 
-// sliceVideo() can only cut at keyframes the source already has, so
-// targetChunkFrames alone has no effect below the source's native
-// keyframe interval. Hybrid fix: slice cheaply at native keyframes
-// first, then only re-encode+re-slice chunks that come out genuinely
-// oversized - each pays for its own size, not the whole video's. This
-// decides the actual chunk set later dispatched to both races (local
-// and DCP fleet).
 async function sliceVideoAdaptive(inputBytes, targetChunkFrames, outWidth = 0, outHeight = 0, progress = () => {}) {
   const initial = await sliceVideo(inputBytes, targetChunkFrames);
   if (initial.fps <= 0) return initial; // no reliable fps - can't judge oversize, don't touch it
@@ -289,10 +209,6 @@ async function sliceVideoAdaptive(inputBytes, targetChunkFrames, outWidth = 0, o
 }
 
 // ---- ffmpeg-worker.js RPC client: local-race encoder only ----
-// transcodeSegment() runs in a tight loop; a full quality-mode
-// Module.ccall is long enough to freeze the tab, so it stays in a real
-// Worker. Nothing else here is DCP-relevant - the fleet path never
-// touches this Worker.
 const ffmpegWorker = new Worker('./ffmpeg-worker.js');
 let nextRpcId = 1;
 const pendingRpcCalls = new Map();
@@ -309,9 +225,6 @@ ffmpegWorker.onmessage = ({ data: { id, result, error, progress } }) => {
   else p.resolve(result);
 };
 ffmpegWorker.onerror = (err) => {
-  // A worker-level error (e.g. a script load failure) has no request id
-  // to match to a specific pending call - reject everything outstanding
-  // rather than leaving those promises hanging forever.
   for (const [id, p] of pendingRpcCalls) {
     pendingRpcCalls.delete(id);
     p.reject(new Error(`ffmpeg worker error: ${err.message || err}`));
@@ -332,16 +245,24 @@ async function transcodeSegment(chunkBytes, params = {}) {
 
 // ---- Main orchestration ----
 let runInProgress = false;
-async function runWithBytes(inputBytes, inputBaseName) {
+function beginRun() {
   if (runInProgress) {
     log('A run is already in progress - ignoring this trigger until it finishes.');
-    return;
+    return false;
   }
   runInProgress = true;
+  return true;
+}
+function endRun() {
+  runInProgress = false;
+}
+
+async function runWithBytes(inputBytes, inputBaseName) {
+  if (!beginRun()) return;
   try {
     await runOnce(inputBytes, inputBaseName);
   } finally {
-    runInProgress = false;
+    endRun();
   }
 }
 
@@ -394,17 +315,12 @@ async function runOnce(inputBytes, inputBaseName) {
   setupGrid(chunks.length, activeRenditions, maxDistribution);
   hidePreprocessing();
 
-  // Local race waits for the wallet handshake so it doesn't start
-  // encoding while the passphrase modal is still up - runFleetRace()
-  // resolves this right after wallet.add(), before it starts dispatch.
   let resolveWalletReady;
   const walletReady = new Promise((resolve) => { resolveWalletReady = resolve; });
   const fleetPromise = runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, resolveWalletReady);
   await walletReady;
   const localPromise = runLocalRace(chunks, units);
 
-  // Off fleetPromise directly, not Promise.all - playback/save don't
-  // need the (much slower) local race to finish too.
   fleetPromise.then((fleetOutcome) => {
     if (fleetOutcome) {
       assembleAndPlay(fleetOutcome.byRendition, durations, RENDITIONS);
@@ -439,7 +355,7 @@ function resetUi() {
   fleetElapsedSec = null;
 }
 
-// Animated-ellipsis status line covering slicing, before the race bars start moving.
+// Animated-ellipsis status line covering slicing
 let preprocessingInterval = null;
 let preprocessingBaseText = '';
 function showPreprocessing(text) {
@@ -498,6 +414,40 @@ async function runLocalRace(chunks, units) {
 }
 
 // ---- Fleet race: real DCP dispatch ----
+// dcp-client's staggered slice-upload batching (job/upload-slices.js)
+// starts at uploadInitialNumberOfSlices (default 4) slices/batch and
+// DOUBLES (default uploadIncreaseFactor: 2) every time a batch uploads
+// successfully under uploadSlicesTarget (default 10MB) - nothing caps the
+// batch it's mid-upload when it overshoots, only shrinks the NEXT one.
+// Max distribution's per-rendition chunk duplication plus a real
+// (non-demo-clip) source let that ramp reach a single ~189MB batch, which
+// broke dcp-client's upload retry logic (its retry loop reuses a Request
+// bound to a connection that can already have been superseded once the
+// batch is big enough to kill it - always resurfaces as "cannot send
+// message on closed connection", masking whatever the real
+// transport-level failure was).
+//
+// A first attempt at tightening uploadSlicesTarget/Ceiling alone (without
+// touching uploadInitialNumberOfSlices) froze the page instead: with real
+// per-chunk slices running several MB each, a pile of 4 (the default
+// uploadInitialNumberOfSlices) can already exceed a too-small ceiling on
+// the FIRST attempt. sliceUploadLogic's recovery for "pile already over
+// ceiling, multiple slices in it" is to recurse into addSlices() on that
+// same pile - but addSlices() always restarts grouping at
+// uploadInitialNumberOfSlices, so it rebuilds the identical oversized pile
+// and recurses again, forever (confirmed: this is what hung the page right
+// after dispatch). Only "a single slice alone exceeds the ceiling" is
+// handled safely (force-uploads it, no recursion) - so
+// uploadInitialNumberOfSlices is set to 1 below specifically to guarantee
+// that's the path always taken, never the unbounded recursive one, no
+// matter how large a single slice's own real chunk data is.
+if (window.dcpConfig && window.dcpConfig.job) {
+  window.dcpConfig.job.uploadInitialNumberOfSlices = 1; // start at 1 slice/pile, not 4 - see above
+  window.dcpConfig.job.uploadSlicesTarget = 5E6;         // 5MB, down from the 10MB default (real slices here run ~2-6MB)
+  window.dcpConfig.job.uploadSlicesCeiling = 100E6;      // 100MB hard cap, down from 300MB but with real headroom
+  window.dcpConfig.job.uploadIncreaseFactor = 1.3;       // gentler ramp than the 2x default
+}
+
 let fleetElapsedSec = null;
 let localElapsedSec = null;
 function maybeShowSpeedup(elapsedSec, which) {
@@ -509,21 +459,6 @@ function maybeShowSpeedup(elapsedSec, which) {
   }
 }
 
-// Fetched once, reused across every runFleetRace() call this session.
-let glueSourcePromise = null;
-let wasmBase64Promise = null;
-async function getGlueSource() {
-  if (!glueSourcePromise) glueSourcePromise = fetch('./ffmpeg-wasm/dcp-transcode-glue.js').then((r) => r.text());
-  return glueSourcePromise;
-}
-async function getWasmBase64() {
-  if (!wasmBase64Promise) {
-    wasmBase64Promise = fetch('./ffmpeg-wasm/dcp-transcode.wasm')
-      .then((r) => r.arrayBuffer())
-      .then((buf) => bytesToBase64(new Uint8Array(buf)));
-  }
-  return wasmBase64Promise;
-}
 function bytesToBase64(bytes) {
   let binary = '';
   const chunkSize = 0x8000;
@@ -544,9 +479,6 @@ function bytesToBase64(bytes) {
 async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, onWalletReady) {
 
   const { compute, identity, wallet } = window.dcp;
-  log('Fetching wasm module + glue for fleet dispatch...');
-  const [glueSource, wasmBase64] = await Promise.all([getGlueSource(), getWasmBase64()]);
-
 
   // ID AND PAYMENT
   await identity.set('0x87ba424720c4a221f0f9c541928f366b2d1b6c78bff4107288c1e9985dd88a91');
@@ -556,6 +488,19 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
 
 
   // INPUT SET
+  // Each slice carries only its own chunk's bytes (not a shared argument
+  // broadcast to every worker - compute.for's arguments array goes to
+  // EVERY invocation regardless of which chunk it's assigned, so putting
+  // the whole video there would mean every worker downloads all of it).
+  // Max distribution still duplicates a given chunk's bytes across its
+  // activeRenditions.length slices - that's inherent to dispatching
+  // (chunk, rendition) pairs to potentially different workers, not
+  // something a data-placement change alone can remove. What actually
+  // broke on a real (non-demo-clip) source was the upload SIDE: dcp-client
+  // staggers/batches inputSet uploads and ramps batch size up on every
+  // success (see the config override in runFleetRace, below) - that ramp,
+  // not per-chunk duplication itself, is what let one batch reach ~189MB
+  // and trip dcp-client's slice-upload retry bug.
   const renditionsMetaJson = JSON.stringify(activeRenditions.map((r) => ({
     label: r.label, width: r.width, height: r.height, bitrateKbps: r.bitrateKbps, encoder: r.encoder,
   })));
@@ -577,19 +522,14 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
 
 
   // WORK FUNCTION
-  async function workFunction(unit, glueSourceArg, wasmBase64Arg, renditionsMetaJsonArg, normalizeLoudnessArg) {
+  async function workFunction(unit, renditionsMetaJsonArg, normalizeLoudnessArg) {
     progress();
     const renditionsMetaArg = JSON.parse(renditionsMetaJsonArg);
-    const moduleShim = { exports: {} };
-    new Function('module', 'exports', glueSourceArg)(moduleShim, moduleShim.exports);
-    const createFfmpegModule = moduleShim.exports;
-
-    const wasmBytes = Uint8Array.from(atob(wasmBase64Arg), (c) => c.charCodeAt(0));
-    const Module = await createFfmpegModule({
-      instantiateWasm(imports, successCallback) {
-        WebAssembly.instantiate(wasmBytes, imports).then((result) => successCallback(result.instance));
-      },
-    });
+    // Resolved via job.requires(['ffmpeg-wasm-test/ffmpeg-wasm.js']) below -
+    // the published package already wraps instantiateWasm around its own
+    // embedded wasm bytes, so no glue/wasm shipped as job arguments anymore.
+    const { createFfmpegModule } = require('ffmpeg-wasm.js');
+    const Module = await createFfmpegModule();
 
     const chunkBytes = Uint8Array.from(atob(unit.chunkBase64), (c) => c.charCodeAt(0));
     const inPath = '/chunk-in.ts';
@@ -647,7 +587,8 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
 
 
   // JOB
-  const job = compute.for(inputSet, workFunction, [glueSource, wasmBase64, renditionsMetaJson, normalizeLoudness]);
+  const job = compute.for(inputSet, workFunction, [renditionsMetaJson, normalizeLoudness]);
+  job.requires(['ffmpeg-wasm-test/ffmpeg-wasm.js']);
 
 
   // JOB CONFIG

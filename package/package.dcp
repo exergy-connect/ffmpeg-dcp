@@ -1,0 +1,7 @@
+{
+    "name": "ffmpeg-wasm-test",
+    "version": "0.1.0",
+    "files": {
+        "ffmpeg-wasm.js": "ffmpeg-wasm.js"
+    }
+}

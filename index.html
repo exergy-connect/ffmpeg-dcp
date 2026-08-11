@@ -359,11 +359,6 @@
       </div>
     </section>
 
-    <!-- Loads createFfmpegModule onto window - used directly on the main
-         thread for slicing/demo-clip generation (see app.js), separately
-         from the copy ffmpeg-worker.js importScripts()'s into its own
-         Worker scope for the local-race encoder. -->
-    <script src="./ffmpeg-wasm/dcp-transcode-glue.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
