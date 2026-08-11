@@ -31,9 +31,7 @@ const BAKEOFF_RENDITIONS = [
   { label: 'hevc-240p', statBytesId: 'statHevcBytes', statSavingsId: 'statHevcSavings' },
 ];
 let skippedLabels = new Set();
-// ~3s at 30fps - near typical real-world GOP sizes, so sliceVideoAdaptive()
-// (ffmpeg-worker.js) rarely needs to re-encode a chunk to hit this target.
-const TARGET_CHUNK_FRAMES = 90;
+const TARGET_CHUNK_FRAMES = 90; // ~3s at 30fps
 
 // Real AWS MediaConvert rate card (aws.amazon.com/mediaconvert/pricing/),
 // not derived from running anything on AWS or from this demo's encode
@@ -163,49 +161,13 @@ async function handleFile(file) {
 }
 
 // ---- Local wasm execution: slicing + demo-clip generation ----
-// Delegates to ffmpeg-worker.jsasync function sliceVideo(inputBytes, targetChunkFrames) {
+// Delegates to ffmpeg-worker.js so this never blocks the main thread.
+async function sliceVideo(inputBytes, targetChunkFrames) {
   return callWorker('sliceVideo', [inputBytes, targetChunkFrames]);
-}
-
-async function reencodeForChunking(inputBytes, gopSize, outWidth = 0, outHeight = 0) {
-  return callWorker('reencodeForChunking', [inputBytes, gopSize, outWidth, outHeight]);
 }
 
 async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extraAudioTrack = 0, hdr = 0) {
   return callWorker('generateTestClip', [numFrames, gopSize, width, height, extraAudioTrack, hdr]);
-}
-
-// How many times over targetChunkFrames counts as "oversized" and worth
-// a re-encode - arbitrary but reasonable, a tunable knob not a constant.
-const OVERSIZE_FACTOR = 2;
-
-async function sliceVideoAdaptive(inputBytes, targetChunkFrames, outWidth = 0, outHeight = 0, progress = () => {}) {
-  const initial = await sliceVideo(inputBytes, targetChunkFrames);
-  if (initial.fps <= 0) return initial; // no reliable fps - can't judge oversize, don't touch it
-
-  const oversized = initial.durations.map(
-    (d, i) => Math.round(d * initial.fps) > targetChunkFrames * OVERSIZE_FACTOR,
-  );
-  const reencodeTotal = oversized.filter(Boolean).length;
-  progress({ phase: 'sliced', nativeChunks: initial.chunks.length, needsReencode: reencodeTotal });
-
-  const chunks = [];
-  const durations = [];
-  let reencodeDone = 0;
-  for (let i = 0; i < initial.chunks.length; i++) {
-    if (oversized[i]) {
-      reencodeDone++;
-      progress({ phase: 'reencoding', current: reencodeDone, total: reencodeTotal });
-      const regopped = await reencodeForChunking(initial.chunks[i], targetChunkFrames, outWidth, outHeight);
-      const resliced = await sliceVideo(regopped, targetChunkFrames);
-      chunks.push(...resliced.chunks);
-      durations.push(...resliced.durations);
-    } else {
-      chunks.push(initial.chunks[i]);
-      durations.push(initial.durations[i]);
-    }
-  }
-  return { chunks, durations, fps: initial.fps };
 }
 
 // ---- ffmpeg-worker.js RPC client: local-race encoder only ----
@@ -274,23 +236,8 @@ async function runOnce(inputBytes, inputBaseName) {
   resetUi();
   showPreprocessing('Preprocessing (slicing source video)');
 
-  const maxRenditionWidth = Math.max(...RENDITIONS.map((r) => r.width));
-  const maxRenditionHeight = Math.max(...RENDITIONS.map((r) => r.height));
   log('Slicing (client-side, same wasm module used everywhere else in this project)...');
-  // Slices cheaply at native keyframes, then re-encodes only oversized
-  // chunks (capped at the largest rendition) - see ffmpeg-worker.js.
-  const { chunks, durations, fps } = await sliceVideoAdaptive(
-    inputBytes, TARGET_CHUNK_FRAMES, maxRenditionWidth, maxRenditionHeight,
-    (info) => {
-      if (info.phase === 'sliced') {
-        log(`Native slice: ${info.nativeChunks} chunk(s), ${info.needsReencode} too big for target - re-encoding those individually...`);
-        if (info.needsReencode) updatePreprocessing(`Preprocessing (re-encoding ${info.needsReencode} oversized chunk(s))`);
-      } else if (info.phase === 'reencoding') {
-        log(`  re-encoding oversized chunk ${info.current}/${info.total}...`);
-        updatePreprocessing(`Preprocessing (re-encoding oversized chunk ${info.current}/${info.total})`);
-      }
-    },
-  );
+  const { chunks, durations, fps } = await sliceVideo(inputBytes, TARGET_CHUNK_FRAMES);
   log(`Sliced into ${chunks.length} chunk(s), fps=${fps.toFixed(2)}, durations=[${durations.map((d) => d.toFixed(2)).join(', ')}]`);
   updatePreprocessing('Preprocessing (connecting to the DCP fleet)');
 
@@ -317,7 +264,7 @@ async function runOnce(inputBytes, inputBaseName) {
 
   let resolveWalletReady;
   const walletReady = new Promise((resolve) => { resolveWalletReady = resolve; });
-  const fleetPromise = runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, resolveWalletReady);
+  const fleetPromise = runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, resolveWalletReady, inputBaseName);
   await walletReady;
   const localPromise = runLocalRace(chunks, units);
 
@@ -414,33 +361,6 @@ async function runLocalRace(chunks, units) {
 }
 
 // ---- Fleet race: real DCP dispatch ----
-// dcp-client's staggered slice-upload batching (job/upload-slices.js)
-// starts at uploadInitialNumberOfSlices (default 4) slices/batch and
-// DOUBLES (default uploadIncreaseFactor: 2) every time a batch uploads
-// successfully under uploadSlicesTarget (default 10MB) - nothing caps the
-// batch it's mid-upload when it overshoots, only shrinks the NEXT one.
-// Max distribution's per-rendition chunk duplication plus a real
-// (non-demo-clip) source let that ramp reach a single ~189MB batch, which
-// broke dcp-client's upload retry logic (its retry loop reuses a Request
-// bound to a connection that can already have been superseded once the
-// batch is big enough to kill it - always resurfaces as "cannot send
-// message on closed connection", masking whatever the real
-// transport-level failure was).
-//
-// A first attempt at tightening uploadSlicesTarget/Ceiling alone (without
-// touching uploadInitialNumberOfSlices) froze the page instead: with real
-// per-chunk slices running several MB each, a pile of 4 (the default
-// uploadInitialNumberOfSlices) can already exceed a too-small ceiling on
-// the FIRST attempt. sliceUploadLogic's recovery for "pile already over
-// ceiling, multiple slices in it" is to recurse into addSlices() on that
-// same pile - but addSlices() always restarts grouping at
-// uploadInitialNumberOfSlices, so it rebuilds the identical oversized pile
-// and recurses again, forever (confirmed: this is what hung the page right
-// after dispatch). Only "a single slice alone exceeds the ceiling" is
-// handled safely (force-uploads it, no recursion) - so
-// uploadInitialNumberOfSlices is set to 1 below specifically to guarantee
-// that's the path always taken, never the unbounded recursive one, no
-// matter how large a single slice's own real chunk data is.
 if (window.dcpConfig && window.dcpConfig.job) {
   window.dcpConfig.job.uploadInitialNumberOfSlices = 1; // start at 1 slice/pile, not 4 - see above
   window.dcpConfig.job.uploadSlicesTarget = 5E6;         // 5MB, down from the 10MB default (real slices here run ~2-6MB)
@@ -476,12 +396,12 @@ function bytesToBase64(bytes) {
 // slices, so more fleet workers can pick up pieces of this job
 // concurrently, at the cost of re-transmitting each chunk's bytes once
 // per rendition instead of once per chunk).
-async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, onWalletReady) {
+async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, onWalletReady, inputBaseName) {
 
   const { compute, identity, wallet } = window.dcp;
 
   // ID AND PAYMENT
-  await identity.set('0x87ba424720c4a221f0f9c541928f366b2d1b6c78bff4107288c1e9985dd88a91');
+  await identity.set('0x8dc846130f8d909129b83a155a3c8818d8b146e00412169e10161d49725b6f36');
   const pay = await wallet.get('live demo');
   await wallet.add(pay);
   if (onWalletReady) onWalletReady();
@@ -596,7 +516,7 @@ async function runFleetRace(chunks, activeRenditions, durations, normalizeLoudne
     { joinKey: 'bell', joinSecret: '18be80' }
   ];
   job.public = {
-    name: '🎞️ FFmpeg+WASM',
+    name: `🎞️ FFmpeg+WASM: ${inputBaseName}`,
     description: 'Browser-dispatched chunk x rendition ABR transcode race vs. in-page local encoding',
     link: 'https://bell.ca',
   };

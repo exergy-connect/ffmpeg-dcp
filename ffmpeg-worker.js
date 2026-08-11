@@ -52,12 +52,7 @@ async function transcodeSegment(chunkBytes, params = {}) {
   return outBytes;
 }
 
-// Slicing + demo-clip generation, moved here from app.js (main thread) -
-// reencodeForChunking() in particular is a real re-encode and was freezing
-// the tab on real (non-demo-clip) sources. The DCP fleet path only needs
-// the chunk *set* these produce (plain Uint8Array/number data, structured-
-// cloned back over postMessage same as transcodeSegment's return already
-// was) - it has no dependency on this Worker's existence beyond that.
+// Slicing + demo-clip generation, moved here from app.js (main thread).
 async function sliceVideo(inputBytes, targetChunkFrames) {
   const Module = await getModule();
   const inPath = '/slicer-in.mp4';
@@ -85,27 +80,6 @@ async function sliceVideo(inputBytes, targetChunkFrames) {
   return { chunks, durations, fps };
 }
 
-async function reencodeForChunking(inputBytes, gopSize, outWidth = 0, outHeight = 0) {
-  const Module = await getModule();
-  const inPath = '/regop-in.mp4';
-  const outPath = '/regop-out.mp4';
-
-  Module.FS.writeFile(inPath, inputBytes);
-  const ret = Module.ccall(
-    'reencode_for_chunking', 'number',
-    ['string', 'string', 'number', 'number', 'number'],
-    [inPath, outPath, gopSize, outWidth, outHeight],
-  );
-  if (ret !== 0) {
-    Module.FS.unlink(inPath);
-    throw new Error(`reencode_for_chunking() failed with code ${ret}`);
-  }
-  const outBytes = Module.FS.readFile(outPath);
-  Module.FS.unlink(inPath);
-  Module.FS.unlink(outPath);
-  return outBytes;
-}
-
 async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extraAudioTrack = 0, hdr = 0) {
   const Module = await getModule();
   const path = '/gen-test.mp4';
@@ -120,7 +94,7 @@ async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extra
   return bytes;
 }
 
-const handlers = { transcodeSegment, sliceVideo, reencodeForChunking, generateTestClip };
+const handlers = { transcodeSegment, sliceVideo, generateTestClip };
 
 // Minimal request/response RPC over postMessage - see the RPC client at
 // the top of app.js for the main-thread side. No Transferable/zero-copy:

@@ -104,6 +104,19 @@
 
       video { width: 100%; border-radius: 8px; background: #000; }
 
+      #saveOutputsBtn {
+        display: block; margin: 0 auto;
+        background: linear-gradient(90deg, #3fb950, #2ea043);
+        color: #04170a; border: none; border-radius: 8px;
+        padding: 0.9rem 2.2rem; font-size: 1.05rem; font-weight: 700;
+        cursor: pointer; animation: save-btn-pulse 2.2s ease-in-out infinite;
+      }
+      #saveOutputsBtn:hover { animation-play-state: paused; filter: brightness(1.08); }
+      @keyframes save-btn-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(63,185,80,0.45); }
+        50% { box-shadow: 0 0 0 14px rgba(63,185,80,0); }
+      }
+
       .join-split { display: flex; flex-wrap: wrap; gap: 1.5rem; align-items: flex-start; }
       .join-split > * { flex: 1 1 300px; min-width: 260px; }
       .join-panel { display: flex; align-items: center; gap: 1.5rem; }
@@ -253,7 +266,7 @@
       </p>
       <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
         <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
-          <input type="checkbox" id="maxDistributionToggle" checked />
+          <input type="checkbox" id="maxDistributionToggle" />
           Max distribution: one DCP slice per chunk&times;rendition
         </label>
       </div>
@@ -348,12 +361,12 @@
       </p>
       <video id="player" controls></video>
       <div id="nowPlayingLabel" style="margin-top:0.6rem;font-size:0.8rem;color:#9aa7b2;"></div>
-      <div style="margin-top:0.85rem;">
-        <button id="saveOutputsBtn" type="button" class="hidden" style="background:#1c2733;color:#e6edf3;border:1px solid #2d3f52;border-radius:6px;padding:0.4rem 0.9rem;cursor:pointer;font-size:0.85rem;">
+      <div style="margin-top:2rem; text-align:center;">
+        <button id="saveOutputsBtn" type="button" class="hidden">
           Save all outputs to disk&hellip;
         </button>
-        <div id="saveOutputsStatus" style="margin-top:0.4rem;font-size:0.78rem;color:#9aa7b2;"></div>
-        <p style="font-size:0.72rem;color:#6e7681;margin-top:0.3rem;margin-bottom:0">
+        <div id="saveOutputsStatus" style="margin-top:0.6rem;font-size:0.78rem;color:#9aa7b2;"></div>
+        <p style="font-size:0.72rem;color:#6e7681;margin-top:0.5rem;margin-bottom:0;max-width:480px;margin-inline:auto;">
           Writes one complete video per rendition (the ABR ladder above, plus the AV1/HEVC/quality-mode comparison renditions from section 4) into <code>&lt;run-timestamp&gt;/&lt;input-name&gt;-&lt;rendition&gt;.ts</code>, under a folder you pick - stitched from that rendition's chunks in order. Needs the File System Access API (Chrome/Edge).
         </p>
       </div>
