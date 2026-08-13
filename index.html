@@ -27,7 +27,8 @@
         background: #0b0f14; color: #e6edf3;
         margin: 0; padding: 24px; max-width: 980px; margin-inline: auto;
       }
-      h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+      h1 { font-size: 2.6rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.4rem; }
+      .tagline { font-size: 1.15rem; color: #c9d1d9; font-weight: 500; margin: 0 0 1.5rem; }
       .subtitle { color: #9aa7b2; margin-top: 0; margin-bottom: 1.5rem; }
       section {
         background: #111823; border: 1px solid #1e2b3a; border-radius: 10px;
@@ -169,7 +170,8 @@
     </style>
   </head>
   <body>
-    <h1>FFmpeg + OpenH264/x264/SVT-AV1/x265 on WASM, on DCP</h1>
+    <h1>DCP Transcode</h1>
+    <p class="tagline">FFmpeg + OpenH264/x264/SVT-AV1/x265 on WASM, on DCP</p>
     <p class="subtitle">Drop a video. Watch a real DCP worker fleet transcode it, live, into a real 1080p/720p/480p/240p ABR ladder. Real AV1 and HEVC renditions ride alongside H.264, so you can watch each cost more compute per encode and land noticeably smaller. Optional real-decode passes along the way: EBU R128 loudness normalization, multi-audio-track passthrough, and HDR10 color-metadata passthrough. When it's done, download every rendition straight to disk.</p>
 
     <section style="border-color:#2d3f52;">
@@ -301,12 +303,12 @@
       <div id="speedup"></div>
     </section>
 
-    <section id="joinSection">
+    <section id="joinSection" class="hidden">
       <h2>Join the fleet</h2>
       <div class="join-split">
         <div class="join-panel">
           <div id="qrcode"></div>
-          <p>Scan to turn your phone or laptop into a worker for the compute group configured above. More workers join mid-job, and the DCP bar visibly speeds up.</p>
+          <p>Scan to turn your phone or laptop into a worker for the compute group this job is running on. More workers join mid-job, and the DCP bar visibly speeds up.</p>
         </div>
         <div id="log"></div>
       </div>

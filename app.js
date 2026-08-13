@@ -179,11 +179,18 @@ function getComputeGroups() {
 }
 
 const qrcode = new QRCode(el('qrcode'), { width: 128, height: 128 });
+// Only ever points at one group - dcp.live's join flow is for joining a
+// single compute group, not several. Several configured: point at the
+// first (same one job.computeGroups puts first). None configured
+// (public): plain dcp.live, no query param needed for the public group.
 function updateQrCode() {
   const groups = getComputeGroups();
-  const raw = groups.length === 1 && groups[0].joinKey === 'public'
-    ? 'public'
-    : groups.map((g) => (g.joinSecret ? `${g.joinKey},${g.joinSecret}` : g.joinKey)).join(';');
+  if (groups.length === 1 && groups[0].joinKey === 'public') {
+    qrcode.makeCode('https://dcp.live');
+    return;
+  }
+  const first = groups[0];
+  const raw = first.joinSecret ? `${first.joinKey},${first.joinSecret}` : first.joinKey;
   qrcode.makeCode(`https://dcp.live/?computeGroups=${encodeURIComponent(raw)}`);
 }
 updateQrCode();
@@ -340,6 +347,7 @@ async function runWithBytes(inputBytes, inputBaseName) {
 
 async function runOnce(inputBytes, inputBaseName) {
   el('raceSection').classList.remove('hidden');
+  el('joinSection').classList.remove('hidden');
   el('liveSection').classList.remove('hidden');
   el('costSection').classList.remove('hidden');
   el('codecSection').classList.remove('hidden');
