@@ -24,14 +24,17 @@ Then open `http://localhost:8843` in Chrome or Edge.
 
 ## Using your own DCP account
 
-The page itself has an "Your DCP account" section with two fields, both
-persisted in this browser's local storage across reloads:
+The page itself has a "Your DCP account" section, persisted in this
+browser's local storage across reloads (a "clear" link resets it):
 
 - **API key** - your DCP identity key, from your account on
-  [your DCP portal](https://bell.dcp.cloud/). Leave blank to fall back
+  [your DCP portal](https://dcp.cloud/). Leave blank to fall back
   to the built-in demo key (`DEFAULT_API_KEY` in `app.js`).
-- **Compute group** - `joinKey,joinSecret` (secret optional). Leave
-  blank to dispatch to the public compute group.
+- **Compute group(s)** - one row per group, each a `joinKey` field and
+  a masked `joinSecret` field (secret optional). Leave a row's key
+  blank to dispatch to the public compute group. "+ Add another group"
+  adds more rows; each row's "×" removes it (or clears it, if it's the
+  only row left).
 
 `wallet.get()` is called with no argument - DCP prompts for a wallet/
 passphrase via its own popup regardless of what's passed there, so

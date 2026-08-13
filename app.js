@@ -78,38 +78,124 @@ function log(msg) {
   console.log(msg);
 }
 
-// ---- DCP account settings: API key + compute group, persisted locally ----
+// ---- DCP account settings: API key + compute group(s), persisted locally ----
 const DEFAULT_API_KEY = '0x8dc846130f8d909129b83a155a3c8818d8b146e00412169e10161d49725b6f36';
 const API_KEY_STORAGE_KEY = 'ffmpeg-dcp:apiKey';
-const COMPUTE_GROUP_STORAGE_KEY = 'ffmpeg-dcp:computeGroup';
+const COMPUTE_GROUPS_STORAGE_KEY = 'ffmpeg-dcp:computeGroups';
 
 const apiKeyInput = el('apiKeyInput');
-const computeGroupInput = el('computeGroupInput');
 apiKeyInput.value = localStorage.getItem(API_KEY_STORAGE_KEY) || '';
-computeGroupInput.value = localStorage.getItem(COMPUTE_GROUP_STORAGE_KEY) || '';
+apiKeyInput.addEventListener('change', () => localStorage.setItem(API_KEY_STORAGE_KEY, apiKeyInput.value.trim()));
 
 function getApiKey() {
   return apiKeyInput.value.trim() || DEFAULT_API_KEY;
 }
 
+// Compute group rows: one {joinKey, joinSecret} pair per row, rendered
+// into #computeGroupRows. A blank key means "public group" - at least one
+// row is always present so there's always something to fill in; '×'
+// removes a row once there's more than one, or just clears the last one.
+const computeGroupRowsEl = el('computeGroupRows');
+let computeGroupRowEls = [];
+
+function loadStoredComputeGroups() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(COMPUTE_GROUPS_STORAGE_KEY) || 'null');
+    if (Array.isArray(stored) && stored.length) return stored;
+  } catch { /* fall through to default */ }
+  return [{ joinKey: '', joinSecret: '' }];
+}
+
+function persistComputeGroups() {
+  const groups = computeGroupRowEls.map((row) => ({
+    joinKey: row.keyInput.value.trim(),
+    joinSecret: row.secretInput.value.trim(),
+  }));
+  localStorage.setItem(COMPUTE_GROUPS_STORAGE_KEY, JSON.stringify(groups));
+  updateQrCode();
+}
+
+function makeComputeGroupRow(joinKey, joinSecret) {
+  const row = document.createElement('div');
+  row.className = 'compute-group-row';
+  row.style.cssText = 'display:flex; gap:0.5rem; align-items:center;';
+
+  const fieldStyle = 'flex:1; min-width:0; background:#0d1117; border:1px solid #2d3f52; color:#e6edf3; border-radius:6px; padding:0.5rem 0.7rem; font-family:monospace; font-size:0.85rem;';
+
+  const keyInput = document.createElement('input');
+  keyInput.type = 'text';
+  keyInput.placeholder = 'joinKey (blank = public)';
+  keyInput.value = joinKey || '';
+  keyInput.style.cssText = fieldStyle;
+
+  const secretInput = document.createElement('input');
+  secretInput.type = 'password';
+  secretInput.placeholder = 'joinSecret (optional)';
+  secretInput.value = joinSecret || '';
+  secretInput.style.cssText = fieldStyle;
+
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.textContent = '×';
+  removeBtn.title = 'Remove this group';
+  removeBtn.style.cssText = 'flex:0 0 auto; background:transparent; border:none; color:#6e7681; cursor:pointer; font-size:1.2rem; padding:0.2rem 0.5rem; line-height:1;';
+
+  keyInput.addEventListener('change', persistComputeGroups);
+  secretInput.addEventListener('change', persistComputeGroups);
+  removeBtn.addEventListener('click', () => {
+    if (computeGroupRowEls.length > 1) {
+      computeGroupRowEls = computeGroupRowEls.filter((r) => r.el !== row);
+      row.remove();
+    } else {
+      keyInput.value = '';
+      secretInput.value = '';
+    }
+    persistComputeGroups();
+  });
+
+  row.append(keyInput, secretInput, removeBtn);
+  return { el: row, keyInput, secretInput };
+}
+
+function renderComputeGroupRows(groups) {
+  computeGroupRowsEl.innerHTML = '';
+  computeGroupRowEls = groups.map((g) => makeComputeGroupRow(g.joinKey, g.joinSecret));
+  for (const row of computeGroupRowEls) computeGroupRowsEl.appendChild(row.el);
+}
+renderComputeGroupRows(loadStoredComputeGroups());
+
+el('addComputeGroupBtn').addEventListener('click', () => {
+  const row = makeComputeGroupRow('', '');
+  computeGroupRowEls.push(row);
+  computeGroupRowsEl.appendChild(row.el);
+});
+
 function getComputeGroups() {
-  const raw = computeGroupInput.value.trim();
-  if (!raw) return [{ joinKey: 'public' }];
-  const [joinKey, joinSecret] = raw.split(',').map((s) => s.trim());
-  return joinSecret ? [{ joinKey, joinSecret }] : [{ joinKey }];
+  const groups = computeGroupRowEls
+    .map((row) => ({ joinKey: row.keyInput.value.trim(), joinSecret: row.secretInput.value.trim() }))
+    .filter((g) => g.joinKey);
+  if (!groups.length) return [{ joinKey: 'public' }];
+  return groups.map((g) => (g.joinSecret ? g : { joinKey: g.joinKey }));
 }
 
 const qrcode = new QRCode(el('qrcode'), { width: 128, height: 128 });
 function updateQrCode() {
-  const raw = computeGroupInput.value.trim();
-  qrcode.makeCode(`https://dcp.live/?computeGroups=${encodeURIComponent(raw || 'public')}`);
+  const groups = getComputeGroups();
+  const raw = groups.length === 1 && groups[0].joinKey === 'public'
+    ? 'public'
+    : groups.map((g) => (g.joinSecret ? `${g.joinKey},${g.joinSecret}` : g.joinKey)).join(';');
+  qrcode.makeCode(`https://dcp.live/?computeGroups=${encodeURIComponent(raw)}`);
 }
 updateQrCode();
 
-apiKeyInput.addEventListener('change', () => localStorage.setItem(API_KEY_STORAGE_KEY, apiKeyInput.value.trim()));
-computeGroupInput.addEventListener('change', () => {
-  localStorage.setItem(COMPUTE_GROUP_STORAGE_KEY, computeGroupInput.value.trim());
+el('clearAccountBtn').addEventListener('click', (e) => {
+  e.preventDefault();
+  apiKeyInput.value = '';
+  localStorage.removeItem(API_KEY_STORAGE_KEY);
+  localStorage.removeItem(COMPUTE_GROUPS_STORAGE_KEY);
+  renderComputeGroupRows([{ joinKey: '', joinSecret: '' }]);
   updateQrCode();
+  log('Cleared saved API key and compute group(s) from local storage.');
 });
 
 // ---- Drop zone wiring ----
@@ -127,18 +213,19 @@ dropzone.addEventListener('drop', (e) => {
 fileInput.addEventListener('change', () => {
   if (fileInput.files[0]) handleFile(fileInput.files[0]);
 });
+// Bundled real sample clip (repo root, committed alongside index.html/app.js
+// like the wasm binary is - no build step, no network dependency beyond
+// this same origin).
 el('demoClipBtn').addEventListener('click', async (e) => {
   e.stopPropagation();
-  if (!beginRun()) return;
+  log('Fetching bundled sample clip (videoplayback.mp4)...');
   try {
-    const extras = el('demoClipExtrasToggle').checked;
-    // generate_test_input() defaults to 320x240 when width/height are 0.
-    showDropzoneLoaded(`demo-clip - synthetic, 320x240, 15.0s${extras ? ', dual-language audio + HDR10 tags' : ''}`);
-    log(`Generating a synthetic demo clip in-browser (150 frames, 15s @ 10fps${extras ? ', dual-language audio + HDR10 tags' : ''})...`);
-    const bytes = await generateTestClip(150, 20, 0, 0, extras ? 1 : 0, extras ? 1 : 0);
-    await runOnce(bytes, 'demo-clip'); // runOnce(), not runWithBytes() - the guard is already held here
-  } finally {
-    endRun();
+    const res = await fetch('./videoplayback.mp4');
+    if (!res.ok) throw new Error(`HTTP ${res.status} fetching videoplayback.mp4`);
+    const buf = await res.arrayBuffer();
+    handleFile(new File([buf], 'videoplayback.mp4', { type: 'video/mp4' }));
+  } catch (err) {
+    log(`Could not load the sample clip: ${err.message}`);
   }
 });
 
@@ -184,14 +271,17 @@ async function handleFile(file) {
   runWithBytes(buf, baseName);
 }
 
-// ---- Local wasm execution: slicing + demo-clip generation ----
+// ---- Local wasm execution: slicing ----
 // Delegates to ffmpeg-worker.js so this never blocks the main thread.
 async function sliceVideo(inputBytes, targetChunkFrames) {
   return callWorker('sliceVideo', [inputBytes, targetChunkFrames]);
 }
 
-async function generateTestClip(numFrames, gopSize, width = 0, height = 0, extraAudioTrack = 0, hdr = 0) {
-  return callWorker('generateTestClip', [numFrames, gopSize, width, height, extraAudioTrack, hdr]);
+// Local race only (see dispatchJob's workFunction for the fleet's own
+// equivalent, which runs the exact same transcode_segment() call but
+// inside a DCP sandbox instead of this tab's worker).
+async function transcodeSegment(chunkBytes, params) {
+  return callWorker('transcodeSegment', [chunkBytes, params]);
 }
 
 // ---- ffmpeg-worker.js RPC client: slicing + demo-clip generation ----
@@ -278,12 +368,32 @@ async function runOnce(inputBytes, inputBaseName) {
   setupGrid(chunks.length, activeRenditions, maxDistribution);
   hidePreprocessing();
 
+  // Local race is optional (dcpOnlyToggle) and, when it runs, races the
+  // fleet for real - kicked off as soon as the wallet/identity is ready
+  // (dispatchJob's onWalletReady), not after the fleet job finishes.
+  const dcpOnly = el('dcpOnlyToggle').checked;
+  el('localRaceRow').classList.toggle('hidden', dcpOnly);
+  let resolveWalletReady;
+  const walletReady = new Promise((resolve) => { resolveWalletReady = resolve; });
+  const fleetPromise = dispatchJob(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, inputBaseName, resolveWalletReady);
+
+  let localPromise = Promise.resolve();
+  if (!dcpOnly) {
+    await walletReady;
+    const units = [];
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      for (const rendition of activeRenditions) units.push({ chunkIndex, rendition });
+    }
+    localPromise = runLocalRace(chunks, units, normalizeLoudness);
+  }
+
   let fleetOutcome;
   try {
-    fleetOutcome = await dispatchJob(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, inputBaseName);
+    fleetOutcome = await fleetPromise;
   } catch (err) {
     log(`Dispatch error: ${err.message}`);
-    return;
+  } finally {
+    await localPromise; // don't return while the local race is still running - endRun() would unblock a new run too early
   }
   if (fleetOutcome) {
     assembleAndPlay(fleetOutcome.byRendition, durations, RENDITIONS);
@@ -291,9 +401,60 @@ async function runOnce(inputBytes, inputBaseName) {
   }
 }
 
+// ---- Local race: same wasm module, sequential, in-page ----
+let localElapsedSec = null;
+let fleetElapsedSec = null;
+function maybeShowSpeedup(elapsedSec, which) {
+  if (which === 'local') localElapsedSec = elapsedSec;
+  else fleetElapsedSec = elapsedSec;
+  if (localElapsedSec != null && fleetElapsedSec != null) {
+    const speedup = localElapsedSec / fleetElapsedSec;
+    el('speedup').innerHTML = `${speedup.toFixed(1)}<span class="unit">x faster on the fleet</span>`;
+  }
+}
+
+async function runLocalRace(chunks, units, normalizeLoudness) {
+  const t0 = performance.now();
+  const timer = setInterval(() => {
+    el('localTime').textContent = `${((performance.now() - t0) / 1000).toFixed(1)}s`;
+  }, 100);
+
+  let completed = 0;
+  for (const unit of units) {
+    const chunkBytes = chunks[unit.chunkIndex];
+    try {
+      await transcodeSegment(chunkBytes, {
+        width: unit.rendition.width,
+        height: unit.rendition.height,
+        bitrateKbps: unit.rendition.bitrateKbps,
+        encoder: unit.rendition.encoder,
+        normalizeLoudness,
+      });
+    } catch (err) {
+      log(`Local encode failed for chunk ${unit.chunkIndex} @ ${unit.rendition.label}: ${err.message}`);
+    }
+    completed += 1;
+    el('localBar').style.width = `${(completed / units.length) * 100}%`;
+    // Yield so the progress bar/timer repaint between (still-blocking) units.
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  clearInterval(timer);
+  const elapsedSec = (performance.now() - t0) / 1000;
+  el('localTime').textContent = `${elapsedSec.toFixed(1)}s`;
+  log(`Local race done in ${elapsedSec.toFixed(1)}s`);
+  maybeShowSpeedup(elapsedSec, 'local');
+}
+
 function resetUi() {
+  el('localBar').style.width = '0%';
+  el('localTime').textContent = '0.0s';
   el('fleetBar').style.width = '0%';
   el('fleetTime').textContent = '0.0s';
+  el('speedup').textContent = '';
+  el('readyStateBadge').textContent = '';
+  localElapsedSec = null;
+  fleetElapsedSec = null;
   el('costCounter').textContent = '$0.0000';
   el('statDcpRaw').textContent = '$0.0000';
   el('statSchedulerCommission').textContent = '$0.0000';
@@ -351,14 +512,42 @@ function bytesToBase64(bytes) {
 }
 
 
+// Under max distribution, these three ride together in one slice instead
+// of each getting its own: all three are libopenh264 (cheap/fast), so
+// bundling them doesn't create a straggler slice, and it saves two of
+// this chunk's re-transmissions. 1080p/720p (the biggest renditions) and
+// av1-240p/hevc-240p (the priciest per-encode - see the codec section)
+// stay on their own slices so more workers can pick them up in parallel.
+const MAX_DISTRIBUTION_BUNDLE_LABELS = new Set(['480p', '240p', 'h264-240p-quality']);
+
+// Partitions renditions into DCP-slice groups for max distribution: the
+// bundle above collapses into one group (at the position of its first
+// member), everything else is its own singleton group - so a chunk with
+// all 7 renditions active becomes 5 slices, not 7.
+function groupRenditionsForMaxDistribution(renditions) {
+  const groups = [];
+  let bundleGroup = null;
+  renditions.forEach((r, renditionIndex) => {
+    if (MAX_DISTRIBUTION_BUNDLE_LABELS.has(r.label)) {
+      if (!bundleGroup) { bundleGroup = []; groups.push(bundleGroup); }
+      bundleGroup.push(renditionIndex);
+    } else {
+      groups.push([renditionIndex]);
+    }
+  });
+  return groups;
+}
+
 // ---- DCP job definition and dispatch ----
 // Two input-set shapes, picked by maxDistribution (section 1 toggle):
 // one slice per chunk (looping every rendition inside the sandbox), or
-// one slice per chunk x rendition ("max distribution" - more, smaller
-// slices, so more fleet workers can pick up pieces of this job
+// one slice per chunk x rendition-group ("max distribution" - more,
+// smaller slices, so more fleet workers can pick up pieces of this job
 // concurrently, at the cost of re-transmitting each chunk's bytes once
-// per rendition instead of once per chunk).
-async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, inputBaseName) {
+// per slice instead of once per chunk). Most rendition-groups are a
+// single rendition; see MAX_DISTRIBUTION_BUNDLE_LABELS above for the one
+// exception.
+async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, inputBaseName, onWalletReady) {
 
   const { compute, identity, wallet } = window.dcp;
 
@@ -366,6 +555,7 @@ async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudnes
   await identity.set(getApiKey());
   const pay = await wallet.get();
   await wallet.add(pay);
+  onWalletReady?.(); // lets runOnce() start the local race concurrently, not after this whole job finishes
 
 
   // INPUT SET
@@ -389,13 +579,14 @@ async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudnes
   let inputSet, totalSlices;
   if (maxDistribution) {
     const chunkBase64ByIndex = chunks.map((c) => bytesToBase64(c));
+    const renditionGroups = groupRenditionsForMaxDistribution(activeRenditions);
     inputSet = [];
     for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      for (let renditionIndex = 0; renditionIndex < activeRenditions.length; renditionIndex++) {
-        inputSet.push({ chunkIndex, renditionIndex, chunkBase64: chunkBase64ByIndex[chunkIndex] });
+      for (const renditionIndexes of renditionGroups) {
+        inputSet.push({ chunkIndex, renditionIndexes, chunkBase64: chunkBase64ByIndex[chunkIndex] });
       }
     }
-    totalSlices = chunks.length * activeRenditions.length;
+    totalSlices = chunks.length * renditionGroups.length;
   } else {
     inputSet = chunks.map((c, chunkIndex) => ({ chunkIndex, chunkBase64: bytesToBase64(c) }));
     totalSlices = chunks.length;
@@ -417,11 +608,12 @@ async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudnes
     const outPath = '/chunk-out.ts';
     Module.FS.writeFile(inPath, chunkBytes);
 
-    // One rendition if this slice is scoped to a single (chunk, rendition)
-    // pair (unit.renditionIndex present), all of them if it's scoped to
-    // the whole chunk - the encode loop itself is otherwise identical.
-    const renditionsToRun = unit.renditionIndex !== undefined
-      ? [renditionsMetaArg[unit.renditionIndex]]
+    // A subset of renditions if this slice is scoped to one rendition
+    // group (unit.renditionIndexes present - usually one rendition, more
+    // than one for the bundled group), all of them if it's scoped to the
+    // whole chunk - the encode loop itself is otherwise identical.
+    const renditionsToRun = unit.renditionIndexes !== undefined
+      ? unit.renditionIndexes.map((renditionIndex) => renditionsMetaArg[renditionIndex])
       : renditionsMetaArg;
 
     const results = [];
@@ -485,6 +677,16 @@ async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudnes
   // EVENTS
   function handleResult(ev) {
     const { chunkIndex, renditions: sliceResults } = ev.result;
+    // Not a per-hop breakdown (disk->scheduler->worker->scheduler->client) -
+    // DCP's client-side API doesn't expose that; a 'result' event is just
+    // {sliceNumber, result}, no timing metadata attached. This is the one
+    // number actually observable from here: wall-clock time from this job's
+    // dispatch until this slice's result arrived, everything (upload wait,
+    // network, queue, worker compute, return trip) included. Subtracting
+    // each rendition's own computeSeconds (already isolated inside the
+    // sandbox, one clock, exact) leaves an "overhead" figure - upload +
+    // queue + network - which is the closest honest proxy available.
+    const wallSeconds = (performance.now() - t0) / 1000;
     for (const r of sliceResults) {
       completed += 1;
       resultTimestamps.push(Date.now());
@@ -495,7 +697,7 @@ async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudnes
       totalCost += chunkDurationMin * awsRatePerMinute(rendition);
       totalDcpRawCost += r.computeSeconds / 100 * DCP_USD_PER_100_VCPU_SECONDS || 0;
     }
-    markGridCellDone(chunkIndex, sliceResults, activeRenditions, maxDistribution);
+    markGridCellDone(chunkIndex, sliceResults, activeRenditions, maxDistribution, wallSeconds);
     el('fleetBar').style.width = `${(completed / totalUnits) * 100}%`;
     el('statCompleted').textContent = `${completed} / ${totalUnits}`;
     updateThroughputStats(resultTimestamps);
@@ -507,17 +709,21 @@ async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudnes
   job.on('error', (err) => log(`Job error: ${err.message || err}`));
   job.on('nofunds', (ev) => log(`Nofunds: ${JSON.stringify(ev)}`));
   job.on('result', handleResult);
+  // States observed in practice: init, preauth, deploying, uploading,
+  // compute-groups, listeners, deployed, reconnected, complete.
+  job.on('readyStateChange', (state) => { el('readyStateBadge').textContent = state; });
 
 
   // EXEC
   const computeGroupsLabel = job.computeGroups.map((g) => g.joinKey).join(', ');
   log(`Dispatching 1 job, ${totalSlices} slice(s) (${totalUnits} rendition-units across ${chunks.length} chunks x ${activeRenditions.length} renditions, ${maxDistribution ? 'max distribution' : 'one slice per chunk'}), to the DCP fleet (computeGroup: ${computeGroupsLabel})...`);
-  await job.exec();
+  await job.exec(0.124);
 
   clearInterval(timer);
   const elapsedSec = (performance.now() - t0) / 1000;
   el('fleetTime').textContent = `${elapsedSec.toFixed(1)}s`;
   log(`Job done in ${elapsedSec.toFixed(1)}s (1 job, ${totalSlices} slices)`);
+  maybeShowSpeedup(elapsedSec, 'fleet');
   return { byRendition };
 }
 
@@ -579,13 +785,36 @@ function setupGrid(chunkCount, renditions, maxDistribution) {
     }
   }
 }
-function markGridCellDone(chunkIndex, sliceResults, renditions, maxDistribution) {
+function markGridCellDone(chunkIndex, sliceResults, renditions, maxDistribution, wallSeconds) {
   const renditionByLabel = new Map(renditions.map((r) => [r.label, r]));
   const line = (r) => `${renditionByLabel.has(r.label) ? renditionMetaLine(renditionByLabel.get(r.label)) : r.label} - ${(r.computeSeconds || 0).toFixed(2)}s compute`;
-  const cell = gridCells[maxDistribution ? `${chunkIndex}:${sliceResults[0].label}` : chunkIndex];
-  if (!cell) return;
-  cell.classList.add('done');
-  cell.title = [`chunk ${chunkIndex} - done`, ...sliceResults.map(line)].join('\n');
+  // wallSeconds is this whole slice's dispatch-to-result time (one number
+  // for the slice, not per rendition) - upload+queue+network+return trip,
+  // everything except each rendition's own isolated compute time. DCP's
+  // client API doesn't expose a per-hop breakdown (disk->scheduler,
+  // scheduler->worker, worker->scheduler, scheduler->client) - this slice
+  // total, minus the compute line(s) above, is the closest honest proxy.
+  const title = [
+    `chunk ${chunkIndex} - done`,
+    ...sliceResults.map(line),
+    `${wallSeconds.toFixed(2)}s wall time since dispatch (this slice - includes upload/queue/network, not just compute)`,
+  ].join('\n');
+  // Under max distribution a bundled slice (see MAX_DISTRIBUTION_BUNDLE_LABELS)
+  // returns more than one rendition at once - every one of them landed
+  // together, so every one of their grid cells gets marked done together.
+  if (maxDistribution) {
+    for (const r of sliceResults) {
+      const cell = gridCells[`${chunkIndex}:${r.label}`];
+      if (!cell) continue;
+      cell.classList.add('done');
+      cell.title = title;
+    }
+  } else {
+    const cell = gridCells[chunkIndex];
+    if (!cell) return;
+    cell.classList.add('done');
+    cell.title = title;
+  }
 }
 
 function updateThroughputStats(resultTimestamps) {
@@ -599,11 +828,9 @@ function updateThroughputStats(resultTimestamps) {
 function updateCostCounter(totalCost, completed, totalUnits) {
   el('costCounter').textContent = `$${totalCost.toFixed(4)}`;
   el('costDetail').textContent =
-    `${completed}/${totalUnits} units, real minutes x AWS's published rate card (not run on AWS, not this demo's encode time): ` +
-    `$${AWS_BASIC_TIER_RATE_PER_MIN.toFixed(4)}/min (H.264, Basic tier, SD) / ` +
-    `$${AWS_H264_HD_RATE_PER_MIN.toFixed(4)}/min (H.264, Basic tier, HD) / ` +
-    `$${AWS_AV1_RATE_PER_MIN.toFixed(4)}/min (AV1, Professional tier, SD - bake-off trio only) / ` +
-    `$${AWS_HEVC_RATE_PER_MIN.toFixed(4)}/min (HEVC, Professional tier, SD - bake-off trio only)`;
+    `${completed}/${totalUnits} units, AWS's published rate x real output minutes (not run on AWS, not this demo's encode time): ` +
+    `$${AWS_BASIC_TIER_RATE_PER_MIN.toFixed(4)}/min H.264 SD, $${AWS_H264_HD_RATE_PER_MIN.toFixed(4)} HD, ` +
+    `$${AWS_AV1_RATE_PER_MIN.toFixed(4)} AV1 SD (bake-off only), $${AWS_HEVC_RATE_PER_MIN.toFixed(4)} HEVC SD (bake-off only)`;
 }
 
 function updateDcpCostComparison(totalRawCost, completed, totalUnits) {
