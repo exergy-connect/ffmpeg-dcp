@@ -359,8 +359,11 @@ async function runOnce(inputBytes, inputBaseName) {
   log(`Sliced into ${chunks.length} chunk(s), fps=${fps.toFixed(2)}, durations=[${durations.map((d) => d.toFixed(2)).join(', ')}]`);
   updatePreprocessing('Preprocessing (connecting to the DCP fleet)');
 
-  const normalizeLoudness = el('normalizeLoudnessToggle').checked;
-  if (normalizeLoudness) log('Loudness normalization enabled: audio on every rendition runs a real decode -> loudnorm filter -> re-encode pass.');
+  // Loudness normalization is disabled -- the toggle for it was removed
+  // from the UI, it didn't work correctly. normalizeLoudness stays wired
+  // through dispatchJob/runLocalRace/workFunction as a plain `false` so
+  // none of that plumbing needs to change if it's ever fixed and reenabled.
+  const normalizeLoudness = false;
 
   skippedLabels = new Set(RENDITIONS.filter((r) => !el(r.toggleId).checked).map((r) => r.label));
   if (skippedLabels.size) log(`Skipping rendition(s) this run: ${[...skippedLabels].join(', ')}`);
@@ -398,14 +401,18 @@ async function runOnce(inputBytes, inputBaseName) {
   let fleetOutcome;
   try {
     fleetOutcome = await fleetPromise;
+    // Show DCP results the moment the fleet job finishes -- these don't
+    // depend on the local race at all, so there's no reason to make
+    // playback/download wait for it too, even though runOnce() itself
+    // still needs to (see the finally below).
+    if (fleetOutcome) {
+      assembleAndPlay(fleetOutcome.byRendition, durations, RENDITIONS);
+      setupSaveOutputs(fleetOutcome.byRendition, inputBaseName);
+    }
   } catch (err) {
     log(`Dispatch error: ${err.message}`);
   } finally {
     await localPromise; // don't return while the local race is still running - endRun() would unblock a new run too early
-  }
-  if (fleetOutcome) {
-    assembleAndPlay(fleetOutcome.byRendition, durations, RENDITIONS);
-    setupSaveOutputs(fleetOutcome.byRendition, inputBaseName);
   }
 }
 
@@ -510,15 +517,6 @@ if (window.dcpConfig && window.dcpConfig.job) {
   window.dcpConfig.job.uploadIncreaseFactor = 1.3;       // gentler ramp than the 2x default
 }
 
-function bytesToBase64(bytes) {
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
 
 // Under max distribution, these three ride together in one slice instead
 // of each getting its own: all three are libopenh264 (cheap/fast), so
@@ -555,6 +553,21 @@ function groupRenditionsForMaxDistribution(renditions) {
 // per slice instead of once per chunk). Most rendition-groups are a
 // single rendition; see MAX_DISTRIBUTION_BUNDLE_LABELS above for the one
 // exception.
+//
+// identity/wallet/compute.for/job.exec all run HERE, on the main thread,
+// where dcp-client already loads via a normal <script> tag - NOT inside a
+// Worker. Confirmed directly (2026-08-20): dcp-client.js's loader does
+// document.write() to inject dcp-config.js, and its wallet-picker UI does
+// direct DOM manipulation - neither works in a WorkerGlobalScope (no
+// document/window, only self). Running it in a worker doesn't fail
+// cleanly either: the script's own early code (console banner etc.) runs
+// fine, then it throws partway through once it touches `document`, and
+// Chromium reports that as a generic "importScripts ... failed to load"
+// NetworkError rather than the real ReferenceError - easy to mistake for
+// a network/CORS problem, which is what the first pass at this bug did.
+// Only the base64 encoding of raw chunk bytes (pure data transformation,
+// CPU-heavy on large inputs, no dcp-client involved at all) is offloaded
+// to dcp-deploy-worker.js.
 async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, inputBaseName, onWalletReady) {
 
   const { compute, identity, wallet } = window.dcp;
@@ -574,31 +587,26 @@ async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudnes
   // Max distribution still duplicates a given chunk's bytes across its
   // activeRenditions.length slices - that's inherent to dispatching
   // (chunk, rendition) pairs to potentially different workers, not
-  // something a data-placement change alone can remove. What actually
-  // broke on a real (non-demo-clip) source was the upload SIDE: dcp-client
-  // staggers/batches inputSet uploads and ramps batch size up on every
-  // success (see the config override in dispatchJob, below) - that ramp,
-  // not per-chunk duplication itself, is what let one batch reach ~189MB
-  // and trip dcp-client's slice-upload retry bug.
+  // something a data-placement change alone can remove.
   const renditionsMetaJson = JSON.stringify(activeRenditions.map((r) => ({
     label: r.label, width: r.width, height: r.height, bitrateKbps: r.bitrateKbps, encoder: r.encoder,
   })));
   const totalUnits = chunks.length * activeRenditions.length;
-  let inputSet, totalSlices;
-  if (maxDistribution) {
-    const chunkBase64ByIndex = chunks.map((c) => bytesToBase64(c));
-    const renditionGroups = groupRenditionsForMaxDistribution(activeRenditions);
-    inputSet = [];
-    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      for (const renditionIndexes of renditionGroups) {
-        inputSet.push({ chunkIndex, renditionIndexes, chunkBase64: chunkBase64ByIndex[chunkIndex] });
-      }
-    }
-    totalSlices = chunks.length * renditionGroups.length;
-  } else {
-    inputSet = chunks.map((c, chunkIndex) => ({ chunkIndex, chunkBase64: bytesToBase64(c) }));
-    totalSlices = chunks.length;
-  }
+  const renditionGroups = maxDistribution ? groupRenditionsForMaxDistribution(activeRenditions) : null;
+  const totalSlices = maxDistribution ? chunks.length * renditionGroups.length : chunks.length;
+
+  // Base64-encode the raw chunks in a worker so it doesn't block this
+  // thread on large inputs. Structured clone, deliberately NOT a transfer
+  // list: runOnce() still owns `chunks` and feeds them to the local race
+  // after this call. The clone is a memcpy (GB/s) - trivial next to the
+  // base64 work itself.
+  const prepWorker = new Worker('./dcp-deploy-worker.js');
+  const inputSet = await new Promise((resolve, reject) => {
+    prepWorker.onmessage = ({ data }) => resolve(data.inputSet);
+    prepWorker.onerror = (err) => reject(new Error(`prep worker failed: ${err.message || 'script error'}`));
+    prepWorker.postMessage({ cmd: 'prepare', chunks, renditionGroups, maxDistribution });
+  });
+  prepWorker.terminate();
 
 
   // WORK FUNCTION
@@ -683,8 +691,8 @@ async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudnes
 
 
   // EVENTS
-  function handleResult(ev) {
-    const { chunkIndex, renditions: sliceResults } = ev.result;
+  function handleResult(result) {
+    const { chunkIndex, renditions: sliceResults } = result;
     // Not a per-hop breakdown (disk->scheduler->worker->scheduler->client) -
     // DCP's client-side API doesn't expose that; a 'result' event is just
     // {sliceNumber, result}, no timing metadata attached. This is the one
@@ -716,7 +724,7 @@ async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudnes
 
   job.on('error', (err) => log(`Job error: ${err.message || err}`));
   job.on('nofunds', (ev) => log(`Nofunds: ${JSON.stringify(ev)}`));
-  job.on('result', handleResult);
+  job.on('result', (ev) => handleResult(ev.result));
   // States observed in practice: init, preauth, deploying, uploading,
   // compute-groups, listeners, deployed, reconnected, complete.
   job.on('readyStateChange', (state) => { el('readyStateBadge').textContent = state; });
@@ -724,7 +732,7 @@ async function dispatchJob(chunks, activeRenditions, durations, normalizeLoudnes
 
   // EXEC
   const computeGroupsLabel = job.computeGroups.map((g) => g.joinKey).join(', ');
-  log(`Dispatching 1 job, ${totalSlices} slice(s) (${totalUnits} rendition-units across ${chunks.length} chunks x ${activeRenditions.length} renditions, ${maxDistribution ? 'max distribution' : 'one slice per chunk'}), to the DCP fleet (computeGroup: ${computeGroupsLabel})...`);
+  log(`Dispatching 1 job, ${totalSlices} slice(s) (${totalUnits} rendition-units across ${chunks.length} chunks x ${activeRenditions.length} renditions, ${maxDistribution ? 'distribute ladder' : 'one slice per chunk'}), to the DCP fleet (computeGroup: ${computeGroupsLabel})...`);
   await job.exec(0.124);
 
   clearInterval(timer);

@@ -172,7 +172,7 @@
   <body>
     <h1>DCP Transcode</h1>
     <p class="tagline">FFmpeg + OpenH264/x264/SVT-AV1/x265 on WASM, on DCP</p>
-    <p class="subtitle">Drop a video. Watch a real DCP worker fleet transcode it, live, into a real 1080p/720p/480p/240p ABR ladder. Real AV1 and HEVC renditions ride alongside H.264, so you can watch each cost more compute per encode and land noticeably smaller. Optional real-decode passes along the way: EBU R128 loudness normalization, multi-audio-track passthrough, and HDR10 color-metadata passthrough. When it's done, download every rendition straight to disk.</p>
+    <p class="subtitle">Drop a video. Watch a real DCP worker fleet transcode it, live, into a real 1080p/720p/480p/240p ABR ladder. Real AV1 and HEVC renditions ride alongside H.264, so you can watch each cost more compute per encode and land noticeably smaller. Optional real-decode passes along the way: multi-audio-track passthrough and HDR10 color-metadata passthrough. When it's done, download every rendition straight to disk.</p>
 
     <section style="border-color:#2d3f52;">
       <h2 style="color:#9aa7b2;">Proof-of-concept, not a production pipeline</h2>
@@ -219,15 +219,6 @@
         </div>
       </div>
       <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
-        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
-          <input type="checkbox" id="normalizeLoudnessToggle" checked />
-          Normalize loudness (EBU R128) on every rendition
-        </label>
-      </div>
-      <p style="font-size:0.75rem;color:#6e7681;margin-top:0.4rem;margin-bottom:0">
-        Loudness normalization runs a real decode &rarr; avfilter (<code>loudnorm</code>) &rarr; re-encode pass on the audio track. A real upload's own multiple audio tracks or HDR10 metadata already pass through automatically, no toggle needed.
-      </p>
-      <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
         <span>ABR ladder renditions to encode:</span>
         <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
           <input type="checkbox" id="ladder1080pToggle" checked />
@@ -269,8 +260,8 @@
       </p>
       <div style="margin-top:0.85rem; display:flex; flex-wrap:wrap; gap:1.25rem; align-items:center; font-size:0.85rem; color:#9aa7b2;">
         <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
-          <input type="checkbox" id="maxDistributionToggle" checked />
-          Max distribution: one DCP slice per chunk&times;rendition
+          <input type="checkbox" id="maxDistributionToggle" />
+          Distribute ladder: one DCP slice per chunk&times;rendition
         </label>
       </div>
       <p style="font-size:0.75rem;color:#6e7681;margin-top:0.4rem;margin-bottom:0">
