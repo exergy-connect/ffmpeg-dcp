@@ -10,6 +10,9 @@ This is the `dcp-only` branch - no in-page local encode to compare
 against, and no hardcoded identity/compute group. Point it at your own
 DCP account and compute group from the page itself.
 
+**Live xFrame social transcoder:**
+[https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/dcp-transcoding.html](https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/dcp-transcoding.html)
+
 ## Run it
 
 No build step - the compiled wasm module (`ffmpeg-wasm/`) is committed,
