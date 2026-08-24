@@ -1,0 +1,25 @@
+{
+    "name": "xFrame.ai",
+    "build": {
+      "dockerfile": "Dockerfile",
+      "context": ".."
+    },
+    "remoteUser": "vscode",
+    "runArgs": ["--env-file", "${localEnv:HOME}/.devcontainer/devcontainer.env"],
+    "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/${localWorkspaceFolderBasename},type=bind",
+    "containerEnv": {
+      "TZ": "America/Chicago",
+      "XFORM_WORKSPACE": "/tmp/xform-ws",
+      "XFRAME_CHROME_PATH": "/usr/bin/chromium"
+    },
+    "customizations": {
+      "vscode": {
+        "extensions": [
+          "ritwickdey.LiveServer"
+        ]
+      }
+    },
+    "postStartCommand": "git config core.sshCommand 'ssh -F /workspaces/DeepWaterModel/.devcontainer/ssh_config' && mkdir -p .cursor && echo '[xFrame] refreshing skills' >&2 && /usr/local/bin/install-xFrame-ai-skills.sh >&2"
+  }
+  
