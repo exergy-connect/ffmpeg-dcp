@@ -67,6 +67,11 @@
     .run-meta .stat .label { font-size: 0.72rem; }
     .run-meta button.linkish { background: transparent; border: none; color: var(--accent); padding: 0; font-size: 0.75rem; text-decoration: underline; cursor: pointer; }
     .run-meta .warn-text { color: var(--warn); }
+    .nofunds-box { background: rgba(240,136,62,0.12); border: 1px solid rgba(240,136,62,0.45); color: #ffb77a; border-radius: 8px; padding: 0.85rem 1rem; margin: 0.75rem 0 1rem; }
+    .nofunds-box strong { color: var(--warn); display: block; margin-bottom: 0.35rem; }
+    .nofunds-box .nofunds-stats { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; margin-top: 0.65rem; }
+    .nofunds-box .stat .value { font-size: 1.05rem; color: #ffe0c2; }
+    .nofunds-box code { font-size: 0.78rem; color: #ffd7b0; }
   </style>
 </head>
 <body>
@@ -77,7 +82,7 @@
     </div>
     <div class="page-header-brand">
       <img class="brand-logo" src="./exergy_connect_logo.png" alt="Exergy Connect" width="180" height="48" />
-      <p class="build-stamp" title="Build stamp">2026-08-24T20:06:50Z · 84f6d8a</p>
+      <p class="build-stamp" title="Build stamp">2026-08-24T20:28:20Z · 8119718</p>
     </div>
   </header>
 
@@ -88,7 +93,7 @@
 
   <section>
     <h2>1. Browser recording input</h2>
-    <p class="muted">Accepts a completed <code>MediaRecorder</code> WebM (VP8/VP9 + Opus). Record in-page or drop an existing <code>.webm</code>.</p>
+    <p class="muted">Accepts a completed <code>MediaRecorder</code> WebM (VP8/VP9 + Opus), or an MP4/H.264 file. Record in-page or drop a file.</p>
     <div class="row" style="margin-bottom:0.75rem">
       <button type="button" id="recordBtn">Start recording</button>
       <button type="button" id="stopRecordBtn" disabled>Stop</button>
@@ -96,9 +101,9 @@
     </div>
     <video id="livePreview" muted playsinline class="hidden"></video>
     <div id="dropzone" style="margin-top:0.75rem">
-      <p>Drop a WebM recording here, or click to choose a file</p>
-      <p class="muted" style="font-size:0.8rem;margin-top:0.4rem">Preferred MIME: video/webm;codecs=vp9,opus (fallback vp8,opus)</p>
-      <input id="fileInput" type="file" accept="video/webm,video/*" />
+      <p>Drop a WebM recording or MP4 here, or click to choose a file</p>
+      <p class="muted" style="font-size:0.8rem;margin-top:0.4rem">Preferred: video/webm;codecs=vp9,opus (fallback vp8,opus). MP4/H.264 also works.</p>
+      <input id="fileInput" type="file" accept="video/webm,video/mp4,video/*" />
     </div>
     <div id="inputLoaded" class="hidden" style="margin-top:0.75rem">
       <span class="badge">loaded</span>
@@ -119,6 +124,17 @@
       </select>
     </div>
     <div id="selectionSummary" class="muted"></div>
+    <div id="preflightCost" class="stat-row" style="margin-top:0.85rem">
+      <div class="stat">
+        <div id="preflightCostValue" class="value">—</div>
+        <div class="label">estimated DCP cost</div>
+      </div>
+      <div class="stat">
+        <div id="preflightSliceValue" class="value">—</div>
+        <div class="label">estimated slices</div>
+      </div>
+    </div>
+    <p id="preflightCostDetail" class="muted" style="margin:0.35rem 0 0"></p>
   </section>
 
   <section>
@@ -161,6 +177,16 @@
       </div>
     </div>
     <p id="costEstimateDetail" class="muted" style="margin:0.5rem 0 0"></p>
+    <div id="nofundsBox" class="nofunds-box hidden">
+      <strong>Insufficient DCP funds</strong>
+      <div id="nofundsMessage"></div>
+      <div class="nofunds-stats">
+        <div class="stat"><div id="nofundsRequired" class="value">—</div><div class="label">funds required</div></div>
+        <div class="stat"><div id="nofundsRemaining" class="value">—</div><div class="label">slices remaining</div></div>
+        <div class="stat"><div id="nofundsSlicePay" class="value">—</div><div class="label">per-slice payment</div></div>
+      </div>
+      <div id="nofundsRemedy" class="muted" style="margin-top:0.55rem"></div>
+    </div>
     <div id="preprocessingStatus" class="muted hidden" style="margin-top:0.75rem"></div>
     <div class="row" style="margin-top:0.75rem">
       <span class="muted" style="width:70px">Fleet</span>
@@ -660,8 +686,8 @@
     }
   },
   "build": {
-    "stamp": "2026-08-24T20:06:50Z · 84f6d8a",
-    "builtAt": "2026-08-24T20:06:50Z · 84f6d8a"
+    "stamp": "2026-08-24T20:28:20Z · 8119718",
+    "builtAt": "2026-08-24T20:28:20Z · 8119718"
   }
 }
   </script>

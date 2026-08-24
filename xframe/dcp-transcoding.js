@@ -10,13 +10,16 @@ const CONFIG = JSON.parse(document.getElementById('app-config').textContent);
 const el = (id) => document.getElementById(id);
 const logEl = el('log');
 
-/** Payment offered per DCP slice (must match job.exec below). */
-const SLICE_PAYMENT_DCC = 0.124;
+/** Payment offered per DCP slice (updated from job nofunds events). */
+const DEFAULT_SLICE_PAYMENT_DCC = 0.124;
+let slicePaymentDcc = DEFAULT_SLICE_PAYMENT_DCC;
 const CREDIT_SYMBOL = '\u2287'; // ⊇
 
 let inputDurationSec = null;
 let lastKnownBalanceDcc = null;
 let balanceRefreshInFlight = false;
+let lastExactSliceCount = null;
+let lastNofunds = null;
 
 function log(msg) {
   const line = document.createElement('div');
@@ -29,6 +32,51 @@ function log(msg) {
 function hideRunError() {
   el('runError').classList.add('hidden');
 }
+function hideNofunds() {
+  lastNofunds = null;
+  el('nofundsBox').classList.add('hidden');
+}
+
+function clearExactCostBasis() {
+  lastExactSliceCount = null;
+}
+function showNofunds(ev) {
+  const fundsRequired = Number(ev?.fundsRequired);
+  const slicePay = Number(ev?.slicePaymentAmount);
+  const remaining = Number(ev?.remainingSlices);
+  const account = ev?.bankAccount ? String(ev.bankAccount) : '';
+
+  if (Number.isFinite(slicePay) && slicePay > 0) {
+    slicePaymentDcc = slicePay;
+  }
+  lastNofunds = {
+    fundsRequired: Number.isFinite(fundsRequired) ? fundsRequired : null,
+    slicePaymentAmount: slicePaymentDcc,
+    remainingSlices: Number.isFinite(remaining) ? remaining : null,
+    bankAccount: account,
+    job: ev?.job || '',
+    name: ev?.name || '',
+  };
+
+  el('nofundsRequired').textContent = formatCredits(lastNofunds.fundsRequired);
+  el('nofundsRemaining').textContent =
+    lastNofunds.remainingSlices != null ? String(lastNofunds.remainingSlices) : '—';
+  el('nofundsSlicePay').textContent = formatCredits(lastNofunds.slicePaymentAmount);
+  el('nofundsMessage').textContent =
+    `Job paused: need ${formatCredits(lastNofunds.fundsRequired)} to finish ` +
+    `${lastNofunds.remainingSlices ?? '?'} remaining slice(s).`;
+  const shortAcct = account
+    ? `${account.slice(0, 10)}…${account.slice(-6)}`
+    : 'payment account';
+  el('nofundsRemedy').innerHTML =
+    `Add funds to <code title="${account}">${shortAcct}</code>, then retry the job. ` +
+    `Cost estimate below uses ${formatCredits(slicePaymentDcc)}/slice from the scheduler.`;
+  el('nofundsBox').classList.remove('hidden');
+
+  if (lastExactSliceCount != null) updateCostEstimate(lastExactSliceCount);
+  else updateCostEstimate();
+  fetchAccountBalance().catch(() => {});
+}
 function showRunError(error) {
   const message = error?.message || String(error);
   let remedy = 'Retry the job. Check the activity log for details.';
@@ -37,7 +85,9 @@ function showRunError(error) {
   } else if (/Failed to fetch|NetworkError|ERR_NAME_NOT_RESOLVED/i.test(message)) {
     remedy = 'Check network access to scheduler.distributed.computer.';
   } else if (/nofunds|insufficient funds/i.test(message)) {
-    remedy = 'Fund the DCP payment account, then retry.';
+    remedy = 'Fund the DCP payment account shown above, then retry.';
+  } else if (/slice_webm|Only VP8 or VP9|MediaRecorder|\.webm/i.test(message)) {
+    remedy = 'Use an in-page recording or drop a browser MediaRecorder WebM (VP8/VP9 + Opus). MP4/H.264 files are also accepted now via the MPEG-TS slicer — hard-refresh if you still see a WebM-only error.';
   } else if (/vp8|vp9|opus|decoder|wasm/i.test(message)) {
     remedy = 'Rebuild the xframe WASM package (see xframe/README.md) and publish ffmpeg-wasm-social.';
   }
@@ -79,6 +129,20 @@ validateApiKeyField(false);
 
 function getApiKey() {
   return apiKeyInput.value.trim() || DEFAULT_API_KEY;
+}
+
+/** identity.set() may only run once per page load (EHAVEIDENTITY). */
+async function ensureIdentity() {
+  const { identity } = window.dcp || {};
+  if (!identity) throw new Error('DCP identity API is not available yet.');
+  if (typeof identity.check === 'function' && identity.check()) return;
+  try {
+    await identity.set(getApiKey());
+  } catch (err) {
+    const msg = err?.message || String(err);
+    if (/already been set|EHAVEIDENTITY/i.test(msg)) return;
+    throw err;
+  }
 }
 
 const computeGroupRowsEl = el('computeGroupRows');
@@ -296,6 +360,7 @@ function updateSelectionSummary() {
   el('statUnique').textContent = String(unique.length);
   el('statAliases').textContent = String(selected.length);
   el('runBtn').disabled = !inputBytes || selected.length === 0;
+  clearExactCostBasis();
   updateCostEstimate();
 }
 
@@ -311,59 +376,119 @@ function estimateChunkCount(durationSec) {
   return Math.max(1, Math.ceil((durationSec * fps) / targetFrames));
 }
 
+/** Rough fallback when browser can't report duration (common for MediaRecorder WebM). */
+function estimateChunkCountFromBytes(byteLength) {
+  if (!(byteLength > 0)) return null;
+  // ~1.2 Mbps average for screen/webcam WebM → bytes/sec
+  const approxSec = byteLength / 150000;
+  return estimateChunkCount(Math.max(3, approxSec));
+}
+
 function estimateSliceCount(uniqueFormatCount, chunkCount) {
   if (!uniqueFormatCount || !chunkCount) return null;
   const maxDistribution = el('maxDistributionToggle')?.checked !== false;
   return maxDistribution ? chunkCount * uniqueFormatCount : chunkCount;
 }
 
+function currentChunkEstimate() {
+  if (lastExactSliceCount != null) return { chunks: null, approx: false, source: 'exact' };
+  const fromDuration = estimateChunkCount(inputDurationSec);
+  if (fromDuration != null) return { chunks: fromDuration, approx: true, source: 'duration' };
+  if (inputBytes?.length) {
+    const fromBytes = estimateChunkCountFromBytes(inputBytes.length);
+    if (fromBytes != null) return { chunks: fromBytes, approx: true, source: 'size' };
+  }
+  return { chunks: null, approx: true, source: 'none' };
+}
+
 function updateCostEstimate(exactSliceCount = null) {
+  if (exactSliceCount != null) lastExactSliceCount = exactSliceCount;
   const selected = selectedDeliverables();
   const unique = dedupeFormats(selected);
-  const chunkCount = exactSliceCount != null
-    ? null
-    : estimateChunkCount(inputDurationSec);
-  const slices = exactSliceCount != null
-    ? exactSliceCount
-    : estimateSliceCount(unique.length, chunkCount);
+  const chunkInfo = currentChunkEstimate();
+  const slices = lastExactSliceCount != null
+    ? lastExactSliceCount
+    : estimateSliceCount(unique.length, chunkInfo.chunks);
 
   const costEl = el('costEstimate');
   const detailEl = el('costEstimateDetail');
+  const preCost = el('preflightCostValue');
+  const preSlices = el('preflightSliceValue');
+  const preDetail = el('preflightCostDetail');
+
+  const paint = (costText, sliceText, detail, warn) => {
+    costEl.textContent = costText;
+    preCost.textContent = costText;
+    preSlices.textContent = sliceText;
+    detailEl.textContent = detail;
+    preDetail.textContent = detail;
+    costEl.classList.toggle('warn-text', !!warn);
+    preCost.classList.toggle('warn-text', !!warn);
+  };
+
   if (!selected.length) {
-    costEl.textContent = '—';
-    costEl.classList.remove('warn-text');
-    detailEl.textContent = 'Select placements to estimate DCP cost.';
+    paint('—', '—', 'Select placements to estimate DCP cost.', false);
+    return;
+  }
+  if (!inputBytes) {
+    paint('—', '—', 'Load a recording to estimate slice count and cost.', false);
     return;
   }
   if (slices == null) {
-    costEl.textContent = '—';
-    costEl.classList.remove('warn-text');
-    detailEl.textContent = 'Load a recording to estimate slice count and cost.';
+    // Still show per-format floor: 1 chunk × unique formats
+    const floorSlices = el('maxDistributionToggle').checked ? Math.max(1, unique.length) : 1;
+    const floorCost = floorSlices * slicePaymentDcc;
+    paint(
+      `≥ ${formatCredits(floorCost)}`,
+      `≥ ${floorSlices}`,
+      `Lower bound for ${unique.length} unique format(s) at ${slicePaymentDcc} ${CREDIT_SYMBOL}/slice (duration unknown).`,
+      lastKnownBalanceDcc != null && floorCost > lastKnownBalanceDcc,
+    );
     return;
   }
 
-  const costDcc = slices * SLICE_PAYMENT_DCC;
-  costEl.textContent = formatCredits(costDcc);
-  const approx = exactSliceCount == null ? '~' : '';
-  const chunkNote = exactSliceCount != null
+  const costDcc = slices * slicePaymentDcc;
+  const approx = lastExactSliceCount == null;
+  const chunkNote = lastExactSliceCount != null
     ? `${slices} slice(s)`
-    : `~${slices} slice(s) (~${chunkCount} chunk(s) × ${unique.length} format(s)${el('maxDistributionToggle').checked ? '' : ', bundled'})`;
-  detailEl.textContent =
-    `${approx}${chunkNote} × ${SLICE_PAYMENT_DCC} ${CREDIT_SYMBOL}/slice` +
-    (exactSliceCount == null ? ' (keyframe-aligned; exact after slice)' : '');
+    : `~${slices} slice(s) (~${chunkInfo.chunks} chunk(s) × ${unique.length} format(s)` +
+      `${el('maxDistributionToggle').checked ? '' : ', bundled'})` +
+      `${chunkInfo.source === 'size' ? ', from file size' : ''}` +
+      `${chunkInfo.source === 'duration' && inputDurationSec ? `, ${inputDurationSec.toFixed(1)}s` : ''}`;
+  let detail =
+    `${approx ? '~' : ''}${chunkNote} × ${slicePaymentDcc} ${CREDIT_SYMBOL}/slice` +
+    (approx ? ' — before dispatch' : '');
 
-  if (lastKnownBalanceDcc != null && costDcc > lastKnownBalanceDcc) {
-    costEl.classList.add('warn-text');
-    detailEl.textContent += ' — estimate exceeds current balance.';
-  } else {
-    costEl.classList.remove('warn-text');
+  let warn = false;
+  if (lastNofunds?.fundsRequired != null) {
+    detail +=
+      ` · still need ${formatCredits(lastNofunds.fundsRequired)}` +
+      (lastNofunds.remainingSlices != null
+        ? ` for ${lastNofunds.remainingSlices} remaining`
+        : '');
+    warn = true;
+  } else if (lastKnownBalanceDcc != null && costDcc > lastKnownBalanceDcc) {
+    warn = true;
+    detail += ' — estimate exceeds current balance.';
   }
+
+  paint(
+    `${approx ? '~' : ''}${formatCredits(costDcc)}`,
+    `${approx ? '~' : ''}${slices}`,
+    detail,
+    warn,
+  );
 }
 
 async function fetchAccountBalance(existingPayKeystore = null) {
   if (balanceRefreshInFlight) return;
-  if (!window.dcp?.protocol || !window.dcp?.wallet) {
+  if (!window.dcp?.protocol || !window.dcp?.wallet || !window.dcp?.identity) {
     el('accountBalance').textContent = '—';
+    return;
+  }
+  if (!validateApiKeyField()) {
+    el('accountBalance').textContent = '—';
+    log('Balance refresh failed: enter a valid DCP identity API key first.');
     return;
   }
   balanceRefreshInFlight = true;
@@ -371,18 +496,21 @@ async function fetchAccountBalance(existingPayKeystore = null) {
   balEl.textContent = '…';
   try {
     const { wallet, protocol } = window.dcp;
+    // Bank teller signs with connection.identity; must be set before Connection.
+    await ensureIdentity();
     const pay = existingPayKeystore || await wallet.get();
     if (!existingPayKeystore) await wallet.add(pay);
     const bankTeller = new protocol.Connection(window.dcpConfig.bank.services.bankTeller);
     try {
       const req = new bankTeller.Request('viewAccounts', {
-        address: [pay.address],
+        addresses: [pay.address],
       });
       // authorize() expects a Keystore (or PrivateKey), not an Address.
       await req.authorize(pay);
       const res = await req.send();
       if (!res?.success) {
-        throw new Error(res?.payload?.message || 'Bank balance request failed');
+        const detail = res?.payload?.message || res?.payload?.code || JSON.stringify(res?.payload || res);
+        throw new Error(detail || 'Bank balance request failed');
       }
       const raw = res.payload?.accounts?.[0]?.balance;
       let balance;
@@ -435,15 +563,38 @@ function preferredMime() {
 async function readVideoDuration(url) {
   return new Promise((resolve) => {
     const v = document.createElement('video');
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      try { URL.revokeObjectURL(v.src); } catch { /* ignore */ }
+      resolve(Number.isFinite(value) && value > 0 ? value : null);
+    };
+    const timer = setTimeout(() => finish(null), 4000);
     v.preload = 'metadata';
     v.onloadedmetadata = () => {
-      const d = v.duration;
-      URL.revokeObjectURL(v.src);
-      resolve(Number.isFinite(d) && d > 0 ? d : null);
+      if (Number.isFinite(v.duration) && v.duration > 0) {
+        clearTimeout(timer);
+        finish(v.duration);
+        return;
+      }
+      // MediaRecorder WebM often reports Infinity until a far seek forces duration.
+      try {
+        v.currentTime = Number.MAX_SAFE_INTEGER;
+      } catch {
+        clearTimeout(timer);
+        finish(null);
+      }
+    };
+    v.ontimeupdate = () => {
+      if (Number.isFinite(v.duration) && v.duration > 0) {
+        clearTimeout(timer);
+        finish(v.duration);
+      }
     };
     v.onerror = () => {
-      try { URL.revokeObjectURL(v.src); } catch { /* ignore */ }
-      resolve(null);
+      clearTimeout(timer);
+      finish(null);
     };
     v.src = url;
   });
@@ -584,8 +735,8 @@ function framingModeCode() {
 }
 
 async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, inputBaseName) {
-  const { compute, identity, wallet } = window.dcp;
-  await identity.set(getApiKey());
+  const { compute, wallet } = window.dcp;
+  await ensureIdentity();
   const pay = await wallet.get();
   await wallet.add(pay);
   await fetchAccountBalance(pay);
@@ -690,7 +841,14 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
   let unitIndex = 0;
   job.on('readyStateChange', (state) => { el('readyStateBadge').textContent = state; });
   job.on('error', (err) => log(`Job error: ${err.message || err}`));
-  job.on('nofunds', (ev) => log(`Nofunds: ${JSON.stringify(ev)}`));
+  job.on('nofunds', (ev) => {
+    log(`Nofunds: ${JSON.stringify(ev)}`);
+    showNofunds(ev);
+    showRunError(new Error(
+      `Insufficient DCP funds: need ${ev?.fundsRequired ?? '?'} ${CREDIT_SYMBOL} ` +
+      `for ${ev?.remainingSlices ?? '?'} remaining slice(s).`,
+    ));
+  });
   job.on('result', (ev) => {
     const { chunkIndex, segments } = ev.result;
     for (const seg of segments) {
@@ -705,7 +863,7 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
 
   log(`Dispatching ${inputSet.length} slice(s), ${totalUnits} format-units (${chunks.length} chunks × ${uniqueFormats.length} unique formats)…`);
   updateCostEstimate(inputSet.length);
-  await job.exec(SLICE_PAYMENT_DCC);
+  await job.exec(slicePaymentDcc);
   clearInterval(timer);
   const elapsedSec = (performance.now() - t0) / 1000;
   el('fleetTime').textContent = `${elapsedSec.toFixed(1)}s`;
@@ -794,6 +952,7 @@ el('runBtn').addEventListener('click', async () => {
 
   runInProgress = true;
   hideRunError();
+  hideNofunds();
   el('runBtn').disabled = true;
   el('outputsSection').classList.add('hidden');
   el('fleetBar').style.width = '0%';
@@ -805,8 +964,8 @@ el('runBtn').addEventListener('click', async () => {
     el('preprocessingStatus').textContent = 'Slicing WebM at keyframes…';
     const targetFrames = CONFIG.dispatch?.target_chunk_frames || 90;
     log('Slicing browser recording (client-side WASM)…');
-    const { chunks, durations, fps } = await sliceVideo(inputBytes, targetFrames);
-    log(`Sliced into ${chunks.length} chunk(s), fps=${(fps || 0).toFixed?.(2) ?? fps}`);
+    const { chunks, durations, fps, container, slicer } = await sliceVideo(inputBytes, targetFrames);
+    log(`Sliced into ${chunks.length} chunk(s) via ${slicer || 'slice'} → .${container || '?'} , fps=${(fps || 0).toFixed?.(2) ?? fps}`);
     if (Array.isArray(durations) && durations.length) {
       inputDurationSec = durations.reduce((a, b) => a + b, 0);
     }
@@ -830,6 +989,9 @@ el('runBtn').addEventListener('click', async () => {
 });
 
 log(`Config loaded: ${platformEntries().length} platforms, package ${CONFIG.dcpPackage}`);
-el('maxDistributionToggle').addEventListener('change', () => updateCostEstimate());
+el('maxDistributionToggle').addEventListener('change', () => {
+  clearExactCostBasis();
+  updateCostEstimate();
+});
 el('refreshBalanceBtn').addEventListener('click', () => fetchAccountBalance());
 updateCostEstimate();
