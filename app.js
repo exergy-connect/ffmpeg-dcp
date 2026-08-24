@@ -78,14 +78,59 @@ function log(msg) {
   console.log(msg);
 }
 
+function hideRunError() {
+  el('runError').classList.add('hidden');
+}
+
+function showRunError(error) {
+  const message = error?.message || String(error);
+  let remedy = 'Retry the job. If it still fails, check the browser console and the activity log below for details.';
+
+  if (/malformed keystore|invalid.*api key/i.test(message)) {
+    remedy = 'Clear the saved API key, then enter a valid DCP identity API key (0x followed by 64 hexadecimal characters). Do not use a wallet address, compute-group key, or join secret.';
+  } else if (/ERR_NAME_NOT_RESOLVED|Failed to fetch|NetworkError|network request/i.test(message)) {
+    remedy = 'Check DNS/network access to scheduler.distributed.computer, then reload the page and retry.';
+  } else if (/nofunds|insufficient funds/i.test(message)) {
+    remedy = 'Choose a funded DCP payment account or add funds in the DCP portal, then retry.';
+  }
+
+  el('runErrorMessage').textContent = message;
+  el('runErrorRemedy').textContent = remedy;
+  el('runError').classList.remove('hidden');
+  el('runError').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 // ---- DCP account settings: API key + compute group(s), persisted locally ----
 const DEFAULT_API_KEY = '0x8dc846130f8d909129b83a155a3c8818d8b146e00412169e10161d49725b6f36';
 const API_KEY_STORAGE_KEY = 'ffmpeg-dcp:apiKey';
 const COMPUTE_GROUPS_STORAGE_KEY = 'ffmpeg-dcp:computeGroups';
+const API_KEY_PATTERN = /^0x[0-9a-fA-F]{64}$/;
+const API_KEY_VALIDATION_MESSAGE = 'Invalid DCP identity API key format.';
 
 const apiKeyInput = el('apiKeyInput');
 apiKeyInput.value = localStorage.getItem(API_KEY_STORAGE_KEY) || '';
-apiKeyInput.addEventListener('change', () => localStorage.setItem(API_KEY_STORAGE_KEY, apiKeyInput.value.trim()));
+
+function validateApiKeyField(showError = true) {
+  const value = apiKeyInput.value.trim();
+  const valid = value === '' || API_KEY_PATTERN.test(value);
+  apiKeyInput.setCustomValidity(valid ? '' : API_KEY_VALIDATION_MESSAGE);
+  apiKeyInput.setAttribute('aria-invalid', String(!valid));
+  el('apiKeyValidation').classList.toggle('hidden', valid || !showError);
+  return valid;
+}
+
+apiKeyInput.addEventListener('input', () => {
+  validateApiKeyField(apiKeyInput.value.trim() !== '');
+  hideRunError();
+});
+apiKeyInput.addEventListener('change', () => {
+  if (validateApiKeyField()) {
+    localStorage.setItem(API_KEY_STORAGE_KEY, apiKeyInput.value.trim());
+  }
+  hideRunError();
+});
+el('accountForm').addEventListener('submit', (event) => event.preventDefault());
+validateApiKeyField(false);
 
 function getApiKey() {
   return apiKeyInput.value.trim() || DEFAULT_API_KEY;
@@ -198,10 +243,12 @@ updateQrCode();
 el('clearAccountBtn').addEventListener('click', (e) => {
   e.preventDefault();
   apiKeyInput.value = '';
+  validateApiKeyField(false);
   localStorage.removeItem(API_KEY_STORAGE_KEY);
   localStorage.removeItem(COMPUTE_GROUPS_STORAGE_KEY);
   renderComputeGroupRows([{ joinKey: '', joinSecret: '' }]);
   updateQrCode();
+  hideRunError();
   log('Cleared saved API key and compute group(s) from local storage.');
 });
 
@@ -329,6 +376,7 @@ function beginRun() {
     log('A run is already in progress - ignoring this trigger until it finishes.');
     return false;
   }
+  hideRunError();
   runInProgress = true;
   return true;
 }
@@ -337,9 +385,17 @@ function endRun() {
 }
 
 async function runWithBytes(inputBytes, inputBaseName) {
+  if (!validateApiKeyField()) {
+    showRunError(new Error(API_KEY_VALIDATION_MESSAGE));
+    apiKeyInput.focus();
+    return;
+  }
   if (!beginRun()) return;
   try {
     await runOnce(inputBytes, inputBaseName);
+  } catch (err) {
+    log(`Run failed: ${err.message || err}`);
+    showRunError(err);
   } finally {
     endRun();
   }
@@ -385,17 +441,29 @@ async function runOnce(inputBytes, inputBaseName) {
   const dcpOnly = el('dcpOnlyToggle').checked;
   el('localRaceRow').classList.toggle('hidden', dcpOnly);
   let resolveWalletReady;
-  const walletReady = new Promise((resolve) => { resolveWalletReady = resolve; });
+  let rejectWalletReady;
+  const walletReady = new Promise((resolve, reject) => {
+    resolveWalletReady = resolve;
+    rejectWalletReady = reject;
+  });
+  walletReady.catch(() => {}); // handled explicitly below when the local race is enabled
   const fleetPromise = dispatchJob(chunks, activeRenditions, durations, normalizeLoudness, maxDistribution, inputBaseName, resolveWalletReady);
+  // If identity/payment setup fails before onWalletReady runs, release the
+  // local-race wait so the fleet error can reach the UI instead of hanging.
+  fleetPromise.catch(rejectWalletReady);
 
   let localPromise = Promise.resolve();
   if (!dcpOnly) {
-    await walletReady;
-    const units = [];
-    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      for (const rendition of activeRenditions) units.push({ chunkIndex, rendition });
+    try {
+      await walletReady;
+      const units = [];
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        for (const rendition of activeRenditions) units.push({ chunkIndex, rendition });
+      }
+      localPromise = runLocalRace(chunks, units, normalizeLoudness);
+    } catch {
+      // fleetPromise is awaited below and supplies the original error.
     }
-    localPromise = runLocalRace(chunks, units, normalizeLoudness);
   }
 
   let fleetOutcome;
@@ -411,6 +479,7 @@ async function runOnce(inputBytes, inputBaseName) {
     }
   } catch (err) {
     log(`Dispatch error: ${err.message}`);
+    throw err;
   } finally {
     await localPromise; // don't return while the local race is still running - endRun() would unblock a new run too early
   }
