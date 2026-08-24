@@ -1,0 +1,219 @@
+---
+# Final HTML materialization for dcp-transcoding.xp
+---
+===
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ app.title | default("DCP Social Media Transcoder") }}</title>
+  <link rel="icon" href="./favicon.ico" sizes="any" />
+  <script src="https://scheduler.distributed.computer/dcp-client/dcp-client.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <style>
+    :root { color-scheme: dark; --bg:#0b0f14; --card:#111823; --border:#1e2b3a; --text:#e6edf3; --muted:#9aa7b2; --accent:#58a6ff; --ok:#3fb950; --warn:#f0883e; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; max-width: 1040px; margin-inline: auto; }
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.25rem; margin-bottom: 1.5rem; }
+    .page-header-text { min-width: 0; flex: 1; }
+    h1 { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.35rem; }
+    .tagline { color: var(--muted); margin: 0; font-size: 1.05rem; }
+    .brand-logo { flex: 0 0 auto; display: block; height: 48px; width: auto; max-width: 180px; object-fit: contain; }
+    .page-header-brand { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 0.35rem; }
+    .build-stamp { margin: 0; font-size: 0.65rem; line-height: 1.2; color: #5c6b78; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; white-space: nowrap; user-select: text; }
+    @media (max-width: 640px) {
+      .page-header { flex-wrap: wrap; }
+      .page-header-brand { margin-left: auto; }
+      .brand-logo { height: 40px; }
+    }
+    section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem; }
+    section h2 { font-size: 1rem; margin: 0 0 0.75rem; color: #d7dee5; }
+    .hidden { display: none !important; }
+    #dropzone { border: 2px dashed #2d3f52; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; }
+    #dropzone.dragover { border-color: var(--accent); background: #0f1a26; }
+    #fileInput, #recordPreviewInput { display: none; }
+    button, .btn { background: #1c2733; color: var(--text); border: 1px solid #2d3f52; border-radius: 6px; padding: 0.45rem 0.9rem; cursor: pointer; font-size: 0.9rem; }
+    button.primary { background: linear-gradient(90deg, #3fb950, #2ea043); color: #04170a; border: none; font-weight: 700; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+    .platform-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.75rem; }
+    .platform-card h3 { margin: 0; font-size: 0.95rem; }
+    .platform-title { display: flex; align-items: center; gap: 0.65rem; margin-bottom: 0.65rem; }
+    .platform-logo { width: 2rem; height: 2rem; flex: 0 0 2rem; display: grid; place-items: center; }
+    .platform-logo svg { display: block; width: 100%; height: 100%; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.28)); }
+    .placement { display: flex; gap: 0.6rem; align-items: flex-start; margin: 0.35rem 0; font-size: 0.88rem; color: var(--muted); }
+    .placement strong { color: var(--text); }
+    label.inline { display: inline-flex; gap: 0.4rem; align-items: center; font-size: 0.9rem; color: var(--muted); }
+    input[type="text"], input[type="password"], select { background: #0d1117; border: 1px solid #2d3f52; color: var(--text); border-radius: 6px; padding: 0.45rem 0.65rem; font-family: monospace; font-size: 0.85rem; width: 100%; }
+    .field { margin-bottom: 0.65rem; }
+    .field label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.25rem; }
+    #log { font-family: ui-monospace, monospace; font-size: 0.78rem; background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; max-height: 220px; overflow: auto; color: #c9d1d9; }
+    #log div { margin: 0.15rem 0; }
+    .stat-row { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+    .stat .value { font-size: 1.3rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .stat .label { font-size: 0.75rem; color: var(--muted); }
+    #grid { display: grid; gap: 3px; margin-top: 0.5rem; }
+    .grid-cell { aspect-ratio: 1; border-radius: 3px; background: #1c2733; }
+    .grid-cell.done { background: var(--ok); }
+    .bar-track { flex: 1; height: 14px; background: #1c2733; border-radius: 7px; overflow: hidden; min-width: 120px; }
+    .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3fb950, #2ea043); transition: width 0.2s ease; }
+    video { width: 100%; max-height: 280px; border-radius: 8px; background: #000; }
+    .outputs { display: grid; gap: 0.5rem; }
+    .output-row { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.88rem; }
+    .badge { display: inline-block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 4px; background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.35); }
+    .badge.warn { background: rgba(240,136,62,0.15); color: var(--warn); border-color: rgba(240,136,62,0.4); }
+    .muted { color: var(--muted); font-size: 0.85rem; }
+    #readyStateBadge { margin-left: 0.5rem; }
+    .error-box { background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.4); color: #ff7b72; border-radius: 8px; padding: 0.75rem; margin-bottom: 1rem; }
+    .run-meta { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; align-items: center; margin-left: auto; }
+    .run-meta .stat .value { font-size: 1.05rem; }
+    .run-meta .stat .label { font-size: 0.72rem; }
+    .run-meta button.linkish { background: transparent; border: none; color: var(--accent); padding: 0; font-size: 0.75rem; text-decoration: underline; cursor: pointer; }
+    .run-meta .warn-text { color: var(--warn); }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <div class="page-header-text">
+      <h1>{{ app.title }}</h1>
+      <p class="tagline">{{ app.tagline }}</p>
+    </div>
+    <div class="page-header-brand">
+      <img class="brand-logo" src="./exergy_connect_logo.png" alt="Exergy Connect" width="180" height="48" />
+      <p class="build-stamp" title="Build stamp">{{ build.stamp }}</p>
+    </div>
+  </header>
+
+  <div id="runError" class="error-box hidden">
+    <div id="runErrorMessage"></div>
+    <div id="runErrorRemedy" class="muted" style="margin-top:0.35rem"></div>
+  </div>
+
+  <section>
+    <h2>1. Browser recording input</h2>
+    <p class="muted">Accepts a completed <code>MediaRecorder</code> WebM (VP8/VP9 + Opus). Record in-page or drop an existing <code>.webm</code>.</p>
+    <div class="row" style="margin-bottom:0.75rem">
+      <button type="button" id="recordBtn">Start recording</button>
+      <button type="button" id="stopRecordBtn" disabled>Stop</button>
+      <span id="recordStatus" class="muted">Idle</span>
+    </div>
+    <video id="livePreview" muted playsinline class="hidden"></video>
+    <div id="dropzone" style="margin-top:0.75rem">
+      <p>Drop a WebM recording here, or click to choose a file</p>
+      <p class="muted" style="font-size:0.8rem;margin-top:0.4rem">Preferred MIME: video/webm;codecs=vp9,opus (fallback vp8,opus)</p>
+      <input id="fileInput" type="file" accept="video/webm,video/*" />
+    </div>
+    <div id="inputLoaded" class="hidden" style="margin-top:0.75rem">
+      <span class="badge">loaded</span>
+      <span id="fileInfo" class="muted" style="margin-left:0.5rem"></span>
+      <video id="preview" controls style="margin-top:0.75rem"></video>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Platforms &amp; placements</h2>
+    <p class="muted">Select any combination of feed and vertical placements. Identical Meta specs encode once and are shared.</p>
+    <div id="platformList"></div>
+    <div class="field" style="margin-top:0.75rem;max-width:320px">
+      <label for="framingSelect">Framing</label>
+      <select id="framingSelect">
+        <option value="cover" selected>Fill (center crop)</option>
+        <option value="contain">Fit (pad)</option>
+      </select>
+    </div>
+    <div id="selectionSummary" class="muted"></div>
+  </section>
+
+  <section>
+    <h2>3. DCP account</h2>
+    <form id="accountForm" autocomplete="off">
+      <div class="field">
+        <label for="apiKeyInput">Identity API key</label>
+        <input id="apiKeyInput" type="password" placeholder="0x… (64 hex)" spellcheck="false" />
+        <div id="apiKeyValidation" class="muted hidden" style="color:#ff7b72">Invalid DCP identity API key format.</div>
+      </div>
+      <div class="field">
+        <label>Compute groups</label>
+        <div id="computeGroupRows"></div>
+        <button type="button" id="addComputeGroupBtn" style="margin-top:0.4rem">Add group</button>
+      </div>
+      <div class="row">
+        <label class="inline"><input type="checkbox" id="maxDistributionToggle" checked /> Max distribution (one DCP slice per chunk × unique format)</label>
+      </div>
+      <div class="row" style="margin-top:0.75rem">
+        <button type="button" id="clearAccountBtn">Clear saved account</button>
+        <div id="qrcode" title="Join compute group"></div>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <h2>4. Run</h2>
+    <div class="row" style="align-items:flex-end">
+      <button type="button" class="primary" id="runBtn" disabled>Transcode on DCP</button>
+      <span id="readyStateBadge" class="badge">idle</span>
+      <div class="run-meta" id="runMeta">
+        <div class="stat">
+          <div id="costEstimate" class="value">—</div>
+          <div class="label">est. cost</div>
+        </div>
+        <div class="stat">
+          <div id="accountBalance" class="value">—</div>
+          <div class="label">balance <button type="button" class="linkish" id="refreshBalanceBtn">refresh</button></div>
+        </div>
+      </div>
+    </div>
+    <p id="costEstimateDetail" class="muted" style="margin:0.5rem 0 0"></p>
+    <div id="preprocessingStatus" class="muted hidden" style="margin-top:0.75rem"></div>
+    <div class="row" style="margin-top:0.75rem">
+      <span class="muted" style="width:70px">Fleet</span>
+      <div class="bar-track"><div id="fleetBar" class="bar-fill"></div></div>
+      <span id="fleetTime" class="muted" style="width:70px;text-align:right">0.0s</span>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><div id="statCompleted" class="value">0 / 0</div><div class="label">units complete</div></div>
+      <div class="stat"><div id="statUnique" class="value">0</div><div class="label">unique formats</div></div>
+      <div class="stat"><div id="statAliases" class="value">0</div><div class="label">aliased deliverables</div></div>
+    </div>
+    <div id="grid"></div>
+  </section>
+
+  <section id="outputsSection" class="hidden">
+    <h2>5. Outputs</h2>
+    <p class="muted">One H.264/AAC MP4 upload master per selected placement. Shared Meta encodes appear under each requested name.</p>
+    <div id="outputs" class="outputs"></div>
+    <div class="row" style="margin-top:1rem">
+        <button type="button" class="primary hidden" id="saveOutputsBtn">Save all MP4s…</button>
+      <span id="saveOutputsStatus" class="muted"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Activity log</h2>
+    <div id="log"></div>
+  </section>
+
+  <script id="app-config" type="application/json">
+{{ {
+  title: app.title,
+  tagline: app.tagline,
+  defaultFraming: app.default_framing,
+  runtimeScript: app.runtime_script,
+  workerScript: app.worker_script,
+  deployWorkerScript: app.deploy_worker_script,
+  wasmGlue: app.wasm_glue,
+  wasmBinary: app.wasm_binary,
+  dcpPackage: app.dcp_package,
+  input: input,
+  timing: timing.social_default,
+  color: color.sdr_bt709,
+  framing: framing,
+  dispatch: dispatch,
+  platforms: platforms,
+  formats: formats
+} | tojson }}
+  </script>
+  <script src="./dcp-transcoding.js"></script>
+</body>
+</html>

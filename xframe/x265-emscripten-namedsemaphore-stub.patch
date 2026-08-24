@@ -1,0 +1,46 @@
+diff --git a/source/common/threading.h b/source/common/threading.h
+index b915c78..2aac45c 100644
+--- a/source/common/threading.h
++++ b/source/common/threading.h
+@@ -514,10 +514,32 @@ protected:
+ 
+ #define TIMEOUT_INFINITE 0xFFFFFFFF
+ 
++#ifdef __EMSCRIPTEN__
++/* Named semaphores are for cross-process synchronization (x265's
++ * optional external CTU-info sharing feature via ringmem.cpp) -
++ * meaningless in a single-process wasm module, and Emscripten's libc
++ * doesn't implement sem_open/sem_close/sem_unlink at all (unlike
++ * pthread's own mutex/cond primitives, which do have real single-
++ * threaded stub semantics here - this project's other encoders rely
++ * on that, but named semaphores have no comparable stub). No-op
++ * stub: create()/give()/take() always report success trivially,
++ * since there is no other "process" for them to ever meaningfully
++ * block or signal against. */
+ class NamedSemaphore
+ {
+ public:
+-    NamedSemaphore() 
++    NamedSemaphore() {}
++    ~NamedSemaphore() {}
++    bool create(const char*, const int, const int) { return true; }
++    bool give(const int32_t) { return true; }
++    bool take(const uint32_t = 0) { return true; }
++    void release() {}
++};
++#else
++class NamedSemaphore
++{
++public:
++    NamedSemaphore()
+         : m_sem(NULL)
+ #ifndef __APPLE__
+         , m_name(NULL)
+@@ -787,6 +809,7 @@ private:
+     char  *m_name;
+ #endif // __APPLE_
+ };
++#endif // __EMSCRIPTEN__
+ 
+ #endif // ifdef _WIN32
+ 

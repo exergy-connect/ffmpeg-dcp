@@ -1,0 +1,137 @@
+diff --git a/source/encoder/frameencoder.cpp b/source/encoder/frameencoder.cpp
+index c8bf125..d377696 100644
+--- a/source/encoder/frameencoder.cpp
++++ b/source/encoder/frameencoder.cpp
+@@ -291,14 +291,18 @@ bool FrameEncoder::startCompressFrame(Frame* curFrame[MAX_LAYERS])
+             return false;
+     }
+ 
++#ifdef __EMSCRIPTEN__
++    /* No worker thread is listening for m_enable in this sandbox (see
++     * FrameEncoder::start()) - compress inline instead of waking one. */
++    runFrameCompress();
++#else
+     m_enable.trigger();
++#endif
+     return true;
+ }
+ 
+-void FrameEncoder::threadMain()
++void FrameEncoder::runThreadInit()
+ {
+-    THREAD_NAME("Frame", m_jpId);
+-
+     if (m_pool)
+     {
+         m_pool->setCurrentThreadAffinity();
+@@ -341,30 +345,63 @@ void FrameEncoder::threadMain()
+         m_tld->analysis.create(NULL);
+         m_localTldIdx = 0;
+     }
++}
++
++/* one iteration of the worker loop body: wait for reference data this frame
++ * depends on, compress it, and signal completion. Shared by the real
++ * (threaded) threadMain() loop below and by the Emscripten synchronous
++ * path in startCompressFrame(). */
++void FrameEncoder::runFrameCompress()
++{
++    if (m_param->bCTUInfo)
++    {
++        while (!m_frame[0]->m_ctuInfo)
++            m_frame[0]->m_copied.wait();
++    }
++    if ((m_param->bAnalysisType == AVC_INFO) && !strlen(m_param->analysisSave) && !strlen(m_param->analysisLoad) && !(IS_X265_TYPE_I(m_frame[0]->m_lowres.sliceType)))
++    {
++        while (((m_frame[0]->m_analysisData.interData == NULL && m_frame[0]->m_analysisData.intraData == NULL) || (uint32_t)m_frame[0]->m_poc != m_frame[0]->m_analysisData.poc))
++            m_frame[0]->m_copyMVType.wait();
++    }
++
++    for (int layer = 0; layer < m_param->numLayers; layer++)
++        compressFrame(layer);
++    m_done.trigger(); /* FrameEncoder::getEncodedPicture() blocks for this event */
++}
++
++void FrameEncoder::threadMain()
++{
++    THREAD_NAME("Frame", m_jpId);
++
++    runThreadInit();
+ 
+     m_done.trigger();     /* signal that thread is initialized */
+     m_enable.wait();      /* Encoder::encode() triggers this event */
+ 
+     while (m_threadActive)
+     {
+-        if (m_param->bCTUInfo)
+-        {
+-            while (!m_frame[0]->m_ctuInfo)
+-                m_frame[0]->m_copied.wait();
+-        }
+-        if ((m_param->bAnalysisType == AVC_INFO) && !strlen(m_param->analysisSave) && !strlen(m_param->analysisLoad) && !(IS_X265_TYPE_I(m_frame[0]->m_lowres.sliceType)))
+-        {
+-            while (((m_frame[0]->m_analysisData.interData == NULL && m_frame[0]->m_analysisData.intraData == NULL) || (uint32_t)m_frame[0]->m_poc != m_frame[0]->m_analysisData.poc))
+-                m_frame[0]->m_copyMVType.wait();
+-        }
+-
+-        for (int layer = 0; layer < m_param->numLayers; layer++)
+-            compressFrame(layer);
+-        m_done.trigger(); /* FrameEncoder::getEncodedPicture() blocks for this event */
++        runFrameCompress();
+         m_enable.wait();
+     }
+ }
+ 
++#ifdef __EMSCRIPTEN__
++bool FrameEncoder::start()
++{
++    /* Synchronous stand-in for Thread::start() + the first half of
++     * threadMain() - see the comment on this method's declaration in
++     * frameencoder.h for why this is safe in this sandbox. */
++    runThreadInit();
++    m_done.trigger(); /* signal that "thread" is initialized */
++    return true;
++}
++
++void FrameEncoder::stop()
++{
++    /* nothing to join - start() never spawned a real thread */
++}
++#endif
++
+ void FrameEncoder::WeightAnalysis::processTasks(int /* workerThreadId */)
+ {
+     Frame* frame = master.m_frame[master.m_sLayerId];
+diff --git a/source/encoder/frameencoder.h b/source/encoder/frameencoder.h
+index 2d039e0..0401ca8 100644
+--- a/source/encoder/frameencoder.h
++++ b/source/encoder/frameencoder.h
+@@ -193,6 +193,19 @@ public:
+     /* blocks until worker thread is done, returns access unit */
+     Frame **getEncodedPicture(NALList& list);
+ 
++#ifdef __EMSCRIPTEN__
++    /* Shadow (hide) Thread::start()/stop(): this sandbox has no real second
++     * thread of execution (no -pthread, no Worker), so run FrameEncoder's
++     * work synchronously on the calling thread instead of via a real OS
++     * thread. Safe because with frame-threads=1 (the only mode this project
++     * uses), Encoder::encode() already calls getEncodedPicture() for the
++     * previous frame before startCompressFrame() for the next one - the
++     * thread/event handshake was never exploiting real concurrency here,
++     * just acting as a same-thread function call in a threaded costume. */
++    bool start();
++    void stop();
++#endif
++
+     void initDecodedPictureHashSEI(int row, int cuAddr, int height, int layer);
+ 
+     Event                    m_enable;
+@@ -311,6 +324,8 @@ protected:
+     void encodeSlice(uint32_t sliceAddr, int layer);
+ 
+     void threadMain();
++    void runThreadInit();
++    void runFrameCompress();
+     int  collectCTUStatistics(const CUData& ctu, FrameStats* frameLog);
+     void noiseReductionUpdate();
+     void writeTrailingSEIMessages(int layer);

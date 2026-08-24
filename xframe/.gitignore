@@ -1,0 +1,5 @@
+# Generated DCP package bundle (rebuild via package/build-bravojs-bundle.js).
+package/ffmpeg-wasm.js
+
+# Docker export staging copy; canonical artifacts live in ffmpeg-wasm/.
+ffmpeg-wasm/dist/
