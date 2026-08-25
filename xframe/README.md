@@ -32,13 +32,17 @@ bash scripts/compile.sh
 node scripts/verify-concepts.js
 ```
 
-The compile step stages the HTML, browser scripts, workers, images, and custom
-WASM under `output/`. That directory is the complete static deployment root:
+The compile step stages the HTML, browser scripts, workers, and images under
+`output/`. The WASM module is **not** copied there — it is checked in once at
+[`ffmpeg-wasm/`](ffmpeg-wasm/) and loaded by the staged worker via
+`../ffmpeg-wasm/`. Serve from the repo (or `xframe/`) so that path resolves;
+for a local static server:
 
 ```bash
 cd /workspaces/ffmpeg-dcp/xframe/output
 python3 -m http.server 8765
 # open http://127.0.0.1:8765/dcp-transcoding.html
+# (worker fetches ../ffmpeg-wasm/dcp-transcode.wasm)
 ```
 
 The custom WASM module is single-threaded and does not require
@@ -55,10 +59,15 @@ Publish for DCP:
 
 ```bash
 cd xframe
-bash ffmpeg-wasm/build.sh
+bash ffmpeg-wasm/build.sh          # if WASM artifacts are missing
 node package/build-bravojs-bundle.js
-# then publish package/ as name ffmpeg-wasm-social (see package/package.dcp)
+node package/publish.js            # optional: --apiKey=0x…
 ```
+
+`publish.js` deploys `ffmpeg-wasm-social` to the DCP package manager so
+`job.requires(['ffmpeg-wasm-social/ffmpeg-wasm.js'])` resolves. Until that
+package is published, fleet jobs fail with `Could not locate module
+/packages/ffmpeg-wasm-social/package.dcp`.
 
 The Docker build fetches and compiles the required Emscripten, FFmpeg, and
 OpenH264 sources without using the root app’s build cache.

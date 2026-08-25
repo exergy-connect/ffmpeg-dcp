@@ -130,9 +130,26 @@ stageAsset(path.join(root, app.deploy_worker_script || 'dcp-deploy-worker.js'), 
 stageAsset(path.join(root, 'exergy_connect_logo.png'), 'exergy_connect_logo.png');
 stageAsset(path.join(root, '..', 'favicon.ico'), 'favicon.ico');
 
+// WASM is checked in once under xframe/ffmpeg-wasm/. The staged worker loads
+// it via ../ffmpeg-wasm/ when served from output/ (see ffmpeg-worker.js).
+// Do not copy another binary into output/.
+const wasmGlue = path.join(root, app.wasm_glue || 'ffmpeg-wasm/dcp-transcode-glue.js');
+const wasmBinary = path.join(root, app.wasm_binary || 'ffmpeg-wasm/dcp-transcode.wasm');
 const allowMissingWasm = process.env.ALLOW_MISSING_WASM === '1';
-stageAsset(path.join(root, app.wasm_glue), config.wasmGlue, { allowMissing: allowMissingWasm });
-stageAsset(path.join(root, app.wasm_binary), config.wasmBinary, { allowMissing: allowMissingWasm });
+if (!fs.existsSync(wasmGlue) || !fs.existsSync(wasmBinary)) {
+  const msg = `Missing canonical WASM under xframe/ffmpeg-wasm/ (${wasmGlue}, ${wasmBinary})`;
+  if (allowMissingWasm) console.warn(msg);
+  else throw new Error(msg);
+} else {
+  console.log(`Using checked-in WASM: ${path.relative(root, wasmBinary)}`);
+}
+
+// Drop any previously staged duplicate so deploys cannot accidentally ship two copies.
+const stagedWasmDir = path.join(outputDir, 'ffmpeg-wasm');
+if (fs.existsSync(stagedWasmDir)) {
+  fs.rmSync(stagedWasmDir, { recursive: true, force: true });
+  console.log('Removed staged output/ffmpeg-wasm/ (use xframe/ffmpeg-wasm/ instead)');
+}
 
 console.log(`Wrote ${outPath} (${tpl.length} bytes)`);
 console.log(`Staged browser runtime under ${outputDir}`);

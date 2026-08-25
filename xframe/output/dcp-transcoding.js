@@ -29,6 +29,137 @@ function log(msg) {
   console.log(msg);
 }
 
+/** Verbose activity-log + console helper for DCP diagnosis. */
+function dbg(msg, detail) {
+  let text = `[debug] ${msg}`;
+  if (detail !== undefined) {
+    try {
+      text += ` ${typeof detail === 'string' ? detail : safeJson(detail)}`;
+    } catch (_) {
+      text += ` ${String(detail)}`;
+    }
+  }
+  log(text);
+}
+
+function safeJson(value, depth = 0) {
+  if (value == null) return String(value);
+  if (typeof value === 'string') {
+    if (value.length > 240) return JSON.stringify(`${value.slice(0, 80)}…(${value.length} chars)`);
+    return JSON.stringify(value);
+  }
+  if (typeof value !== 'object') return JSON.stringify(value);
+  if (depth > 3) return '"[MaxDepth]"';
+  if (Array.isArray(value)) {
+    if (value.length > 12) {
+      return `[${value.slice(0, 8).map((v) => safeJson(v, depth + 1)).join(',')},…+${value.length - 8}]`;
+    }
+    return `[${value.map((v) => safeJson(v, depth + 1)).join(',')}]`;
+  }
+  const out = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (/base64|chunkBase64|segmentBase64|keystore|private|secret|apiKey/i.test(k)) {
+      const len = typeof v === 'string' ? v.length : (v?.byteLength ?? '?');
+      out[k] = `<omitted len=${len}>`;
+    } else if (typeof v === 'string' && v.length > 200) {
+      out[k] = `${v.slice(0, 60)}…(${v.length})`;
+    } else if (v && typeof v === 'object') {
+      out[k] = JSON.parse(safeJson(v, depth + 1));
+    } else {
+      out[k] = v;
+    }
+  }
+  try {
+    return JSON.stringify(out);
+  } catch (_) {
+    return String(value);
+  }
+}
+
+/** Mirror every job EventEmitter event into the activity log. */
+function attachJobDebug(job) {
+  const seen = new Set();
+  const bind = (name) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    try {
+      job.on(name, (...args) => {
+        if (name === 'result') return; // handled with richer logging elsewhere
+        const head = args[0];
+        if (name === 'readyStateChange') {
+          el('readyStateBadge').textContent = String(head);
+          dbg(`job.${name}`, head);
+          return;
+        }
+        if (name === 'console' || name === 'stdout' || name === 'stderr') {
+          const line = typeof head === 'string'
+            ? head
+            : (head?.message || head?.data || safeJson(head));
+          dbg(`job.${name}`, line);
+          return;
+        }
+        if (name === 'error') {
+          dbg(`job.${name}`, head?.message || head?.stack || safeJson(head));
+          return;
+        }
+        if (name === 'accepted') {
+          // Prefer job.id; payload is often empty or non-enumerable.
+          dbg(`job.${name}`, {
+            id: job.id || job.jobId || '(pending)',
+            payload: head && typeof head === 'object' ? Object.keys(head) : head,
+          });
+          return;
+        }
+        if (name === 'status') {
+          const s = (head && typeof head === 'object') ? head : (job.status || {});
+          dbg(`job.${name}`, {
+            total: s.total,
+            distributed: s.distributed,
+            computed: s.computed,
+            runStatus: s.runStatus,
+            raw: head && typeof head !== 'object' ? head : undefined,
+          });
+          return;
+        }
+        dbg(`job.${name}`, args.length <= 1 ? head : args);
+      });
+    } catch (err) {
+      dbg(`could not bind job.on('${name}')`, err?.message || err);
+    }
+  };
+
+  for (const name of [
+    'readyStateChange', 'error', 'console', 'stdout', 'stderr', 'nofunds',
+    'accepted', 'status', 'cancel', 'complete', 'payment', 'warning',
+    'readystatechange', 'slice', 'progress', 'deployed', 'uploaded',
+    'submit', 'submitted', 'fetch', 'fetchResult', 'resultHandle',
+  ]) {
+    bind(name);
+  }
+
+  // Catch-all: wrap emit so unknown events still surface.
+  if (typeof job.emit === 'function') {
+    const origEmit = job.emit.bind(job);
+    job.emit = function patchedEmit(event, ...args) {
+      try {
+        if (event !== 'result' && event !== 'newListener' && event !== 'removeListener') {
+          if (event === 'readyStateChange') {
+            el('readyStateBadge').textContent = String(args[0]);
+          }
+          // Known events already log via job.on; only log unknowns here.
+          if (!seen.has(event)) {
+            dbg(`emit:${event}`, args.length <= 1 ? args[0] : args);
+          }
+        }
+      } catch (_) { /* never break the job path for logging */ }
+      return origEmit(event, ...args);
+    };
+    dbg('patched job.emit for catch-all event logging');
+  } else {
+    dbg('job.emit missing — only explicit listeners will log');
+  }
+}
+
 function hideRunError() {
   el('runError').classList.add('hidden');
 }
@@ -86,6 +217,8 @@ function showRunError(error) {
     remedy = 'Check network access to scheduler.distributed.computer.';
   } else if (/nofunds|insufficient funds/i.test(message)) {
     remedy = 'Fund the DCP payment account shown above, then retry.';
+  } else if (/fetchModuleURL|Could not locate module|package\.dcp|ffmpeg-wasm-social/i.test(message)) {
+    remedy = 'Publish the DCP package: cd xframe && node package/build-bravojs-bundle.js && node package/publish.js';
   } else if (/slice_webm|Only VP8 or VP9|MediaRecorder|\.webm/i.test(message)) {
     remedy = 'Use an in-page recording or drop a browser MediaRecorder WebM (VP8/VP9 + Opus). MP4/H.264 files are also accepted now via the MPEG-TS slicer — hard-refresh if you still see a WebM-only error.';
   } else if (/vp8|vp9|opus|decoder|wasm/i.test(message)) {
@@ -124,7 +257,8 @@ apiKeyInput.addEventListener('input', () => {
 apiKeyInput.addEventListener('change', () => {
   if (validateApiKeyField()) localStorage.setItem(API_KEY_STORAGE_KEY, apiKeyInput.value.trim());
 });
-el('accountForm').addEventListener('submit', (e) => e.preventDefault());
+el('identityForm').addEventListener('submit', (e) => e.preventDefault());
+el('computeGroupsForm').addEventListener('submit', (e) => e.preventDefault());
 validateApiKeyField(false);
 
 function getApiKey() {
@@ -734,11 +868,25 @@ function framingModeCode() {
   return 1; // cover
 }
 
-async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, inputBaseName) {
+async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, inputBaseName, container) {
   const { compute, wallet } = window.dcp;
+  dbg('dispatchJob start', {
+    chunks: chunks.length,
+    formats: uniqueFormats.length,
+    maxDistribution,
+    container: container || '(sniff)',
+    paymentPerSlice: slicePaymentDcc,
+    package: CONFIG.dcpPackage || 'ffmpeg-wasm-social/ffmpeg-wasm.js',
+  });
+  dbg('ensureIdentity…');
   await ensureIdentity();
+  dbg('wallet.get / wallet.add…');
   const pay = await wallet.get();
   await wallet.add(pay);
+  dbg('payment keystore loaded', {
+    address: pay?.address || pay?.account || '(unknown)',
+    hasId: Boolean(pay),
+  });
   await fetchAccountBalance(pay);
 
   const formatsMeta = uniqueFormats.map((f) => ({
@@ -754,8 +902,10 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
   }));
   const formatsMetaJson = JSON.stringify(formatsMeta);
   const totalUnits = chunks.length * uniqueFormats.length;
+  dbg('formatsMeta', formatsMeta.map((f) => `${f.signature} ${f.width}x${f.height}`));
 
   const prepWorker = new Worker(assetUrl(CONFIG.deployWorkerScript || 'dcp-deploy-worker.js'));
+  dbg('prep worker start', assetUrl(CONFIG.deployWorkerScript || 'dcp-deploy-worker.js'));
   const inputSet = await new Promise((resolve, reject) => {
     prepWorker.onmessage = ({ data }) => resolve(data.inputSet);
     prepWorker.onerror = (err) => reject(new Error(`prep worker failed: ${err.message || 'script error'}`));
@@ -764,56 +914,139 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
       chunks,
       formatCount: uniqueFormats.length,
       maxDistribution,
+      container: container || undefined,
     });
   });
   prepWorker.terminate();
 
+  const inputSummary = inputSet.map((u, i) => ({
+    i,
+    chunkIndex: u.chunkIndex,
+    formatIndexes: u.formatIndexes,
+    chunkExt: u.chunkExt,
+    b64Len: u.chunkBase64?.length ?? 0,
+    headHex: (() => {
+      try {
+        const b = Uint8Array.from(atob(u.chunkBase64.slice(0, 24)), (c) => c.charCodeAt(0));
+        return [...b.slice(0, 8)].map((x) => x.toString(16).padStart(2, '0')).join('');
+      } catch (_) {
+        return 'decode-fail';
+      }
+    })(),
+  }));
+  dbg(`inputSet ready: ${inputSet.length} slice(s)`, inputSummary.slice(0, 8));
+  if (inputSummary.length > 8) dbg(`… ${inputSummary.length - 8} more slice(s) omitted from summary`);
+
   async function workFunction(unit, formatsMetaJsonArg) {
-    progress();
-    const formatsMetaArg = JSON.parse(formatsMetaJsonArg);
-    const { createFfmpegModule } = require('ffmpeg-wasm.js');
-    const Module = await createFfmpegModule();
+    // console.* on the worker is often forwarded as job 'console' events.
+    const wlog = (...args) => {
+      try { console.log('[social-wf]', ...args); } catch (_) { /* ignore */ }
+    };
+    // Keep the slice alive while the ~8MB WASM package downloads/instantiates;
+    // without periodic progress() the scheduler may reclaim the slice mid-load.
+    let progressTick = 0;
+    const progressKeepalive = setInterval(() => {
+      try {
+        progressTick += 1;
+        progress();
+        if (progressTick % 3 === 0) wlog('progress keepalive', { tick: progressTick });
+      } catch (_) { /* ignore */ }
+    }, 4000);
+    const stopKeepalive = () => {
+      try { clearInterval(progressKeepalive); } catch (_) { /* ignore */ }
+    };
 
-    const chunkBytes = Uint8Array.from(atob(unit.chunkBase64), (c) => c.charCodeAt(0));
-    const inPath = '/chunk-in.webm';
-    Module.FS.writeFile(inPath, chunkBytes);
-
-    const indexes = unit.formatIndexes !== undefined
-      ? unit.formatIndexes
-      : formatsMetaArg.map((_, i) => i);
-
-    const results = [];
-    for (const formatIndex of indexes) {
-      const fmt = formatsMetaArg[formatIndex];
-      const outPath = `/chunk-out-${formatIndex}.ts`;
-      const computeT0 = Date.now();
-      const gop = (fmt.gopSeconds || 2) * (fmt.maxFps || 30);
-      const code = Module.ccall(
-        'transcode_social_segment', 'number',
-        ['string', 'string', 'number', 'number', 'number', 'number', 'number', 'number', 'string'],
-        [
-          inPath, outPath, fmt.width, fmt.height, fmt.bitrateKbps,
-          fmt.audioBitrateKbps || 160, gop,
-          fmt.frameMode === undefined ? 1 : fmt.frameMode,
-          fmt.encoder || 'libopenh264',
-        ],
-      );
-      const computeSeconds = (Date.now() - computeT0) / 1000;
-      if (code < 0) {
-        throw new Error(`transcode_social_segment failed (${code}) for ${fmt.signature}`);
-      }
-      const segBytes = Module.FS.readFile(outPath);
-      Module.FS.unlink(outPath);
+    try {
       progress();
-      let binary = '';
-      const chunkSize = 0x8000;
-      for (let i = 0; i < segBytes.length; i += chunkSize) {
-        binary += String.fromCharCode.apply(null, segBytes.subarray(i, i + chunkSize));
+      wlog('start', {
+        chunkIndex: unit.chunkIndex,
+        formatIndexes: unit.formatIndexes,
+        chunkExt: unit.chunkExt,
+        b64Len: unit.chunkBase64?.length,
+      });
+      const formatsMetaArg = JSON.parse(formatsMetaJsonArg);
+      wlog('require ffmpeg-wasm.js…');
+      const required = require('ffmpeg-wasm.js');
+      wlog('require keys', required && typeof required === 'object' ? Object.keys(required) : typeof required);
+      const createFfmpegModule = required.createFfmpegModule || required.default || required;
+      if (typeof createFfmpegModule !== 'function') {
+        throw new Error('ffmpeg-wasm.js did not export createFfmpegModule');
       }
-      results.push({ signature: fmt.signature, segmentBase64: btoa(binary), computeSeconds });
+      wlog('createFfmpegModule…');
+      const Module = await createFfmpegModule();
+      progress();
+      wlog('module ready', {
+        hasCcall: typeof Module.ccall === 'function',
+        hasFS: Boolean(Module.FS),
+      });
+
+      const chunkBytes = Uint8Array.from(atob(unit.chunkBase64), (c) => c.charCodeAt(0));
+      const isEbml = chunkBytes.length >= 4 &&
+        chunkBytes[0] === 0x1a && chunkBytes[1] === 0x45 &&
+        chunkBytes[2] === 0xdf && chunkBytes[3] === 0xa3;
+      const inExt = unit.chunkExt || (isEbml ? 'webm' : 'ts');
+      const inPath = `/chunk-in.${inExt}`;
+      wlog('write input', {
+        inPath,
+        bytes: chunkBytes.length,
+        magic: [...chunkBytes.slice(0, 8)].map((x) => x.toString(16).padStart(2, '0')).join(''),
+        isEbml,
+      });
+      Module.FS.writeFile(inPath, chunkBytes);
+
+      const indexes = unit.formatIndexes !== undefined
+        ? unit.formatIndexes
+        : formatsMetaArg.map((_, i) => i);
+
+      const results = [];
+      for (const formatIndex of indexes) {
+        const fmt = formatsMetaArg[formatIndex];
+        const outPath = `/chunk-out-${formatIndex}.ts`;
+        const computeT0 = Date.now();
+        const gop = (fmt.gopSeconds || 2) * (fmt.maxFps || 30);
+        wlog('transcode_social_segment', {
+          formatIndex,
+          signature: fmt.signature,
+          wh: `${fmt.width}x${fmt.height}`,
+          br: fmt.bitrateKbps,
+          gop,
+          encoder: fmt.encoder || 'libopenh264',
+        });
+        const code = Module.ccall(
+          'transcode_social_segment', 'number',
+          ['string', 'string', 'number', 'number', 'number', 'number', 'number', 'number', 'string'],
+          [
+            inPath, outPath, fmt.width, fmt.height, fmt.bitrateKbps,
+            fmt.audioBitrateKbps || 160, gop,
+            fmt.frameMode === undefined ? 1 : fmt.frameMode,
+            fmt.encoder || 'libopenh264',
+          ],
+        );
+        const computeSeconds = (Date.now() - computeT0) / 1000;
+        wlog('ccall done', { signature: fmt.signature, code, computeSeconds });
+        if (code < 0) {
+          throw new Error(`transcode_social_segment failed (${code}) for ${fmt.signature} (in .${inExt})`);
+        }
+        const segBytes = Module.FS.readFile(outPath);
+        Module.FS.unlink(outPath);
+        progress();
+        let binary = '';
+        const chunkSize = 0x8000;
+        for (let i = 0; i < segBytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, segBytes.subarray(i, i + chunkSize));
+        }
+        results.push({ signature: fmt.signature, segmentBase64: btoa(binary), computeSeconds });
+        wlog('segment encoded', { signature: fmt.signature, outBytes: segBytes.length, computeSeconds });
+      }
+      Module.FS.unlink(inPath);
+      wlog('return', { chunkIndex: unit.chunkIndex, segments: results.length });
+      return { chunkIndex: unit.chunkIndex, segments: results };
+    } catch (err) {
+      wlog('FAILED', err && err.message ? err.message : String(err));
+      throw err;
+    } finally {
+      stopKeepalive();
     }
-    Module.FS.unlink(inPath);
-    return { chunkIndex: unit.chunkIndex, segments: results };
   }
 
   const t0 = performance.now();
@@ -822,12 +1055,14 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
   }, 100);
 
   let completed = 0;
+  let resultEvents = 0;
   const bySignature = {};
   for (const f of uniqueFormats) bySignature[f.signature] = new Array(chunks.length).fill(null);
 
   setupGrid(inputSet.length);
   el('statCompleted').textContent = `0 / ${totalUnits}`;
 
+  dbg('compute.for…', { slices: inputSet.length, argsBytes: formatsMetaJson.length });
   const job = compute.for(inputSet, workFunction, [formatsMetaJson]);
   job.requires([CONFIG.dcpPackage || 'ffmpeg-wasm-social/ffmpeg-wasm.js']);
   job.computeGroups = getComputeGroups();
@@ -838,11 +1073,45 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
   job.greedyEstimation = true;
   job.estimationSlices = inputSet.length;
 
+  dbg('job config', {
+    requires: job.requires,
+    computeGroups: job.computeGroups,
+    estimationSlices: job.estimationSlices,
+    greedyEstimation: job.greedyEstimation,
+    id: job.id || job.jobId || job.address || '(pending)',
+    keys: Object.keys(job || {}).slice(0, 40),
+  });
+
+  attachJobDebug(job);
+
   let unitIndex = 0;
-  job.on('readyStateChange', (state) => { el('readyStateBadge').textContent = state; });
-  job.on('error', (err) => log(`Job error: ${err.message || err}`));
+  let lastStatus = null;
+  job.on('accepted', () => {
+    log(
+      `Job accepted id=${job.id || '(unknown)'} — waiting for workers. ` +
+      `Each worker must download/instantiate ffmpeg-wasm-social (~8MB); first result often takes 1–3+ minutes.`,
+    );
+  });
+  job.on('status', (ev) => {
+    const s = (ev && typeof ev === 'object' && ('distributed' in ev || 'computed' in ev))
+      ? ev
+      : (job.status || ev || {});
+    lastStatus = {
+      total: s.total,
+      distributed: s.distributed,
+      computed: s.computed,
+      runStatus: s.runStatus,
+    };
+    const statusEl = el('preprocessingStatus');
+    if (statusEl) {
+      statusEl.textContent =
+        `Fleet ${lastStatus.runStatus || el('readyStateBadge')?.textContent || '?'} · ` +
+        `distributed ${lastStatus.distributed ?? '?'}/${lastStatus.total ?? inputSet.length} · ` +
+        `computed ${lastStatus.computed ?? 0} · results ${resultEvents}`;
+    }
+  });
   job.on('nofunds', (ev) => {
-    log(`Nofunds: ${JSON.stringify(ev)}`);
+    log(`Nofunds: ${safeJson(ev)}`);
     showNofunds(ev);
     showRunError(new Error(
       `Insufficient DCP funds: need ${ev?.fundsRequired ?? '?'} ${CREDIT_SYMBOL} ` +
@@ -850,8 +1119,25 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
     ));
   });
   job.on('result', (ev) => {
-    const { chunkIndex, segments } = ev.result;
+    resultEvents += 1;
+    dbg(`result event #${resultEvents}`, {
+      sliceNumber: ev?.sliceNumber,
+      keys: ev && typeof ev === 'object' ? Object.keys(ev) : typeof ev,
+      resultType: typeof ev?.result,
+      resultKeys: ev?.result && typeof ev.result === 'object' ? Object.keys(ev.result) : undefined,
+    });
+    const payload = ev?.result ?? ev;
+    const chunkIndex = payload?.chunkIndex;
+    const segments = payload?.segments;
+    if (!Array.isArray(segments)) {
+      log(`Unexpected result payload (slice ${ev?.sliceNumber ?? '?'}): ${safeJson(payload)}`);
+      return;
+    }
     for (const seg of segments) {
+      if (!seg?.signature || !bySignature[seg.signature]) {
+        log(`Unknown signature in result: ${seg?.signature}`);
+        continue;
+      }
       bySignature[seg.signature][chunkIndex] = seg.segmentBase64;
       completed += 1;
     }
@@ -859,16 +1145,88 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
     if (cell) cell.classList.add('done');
     el('fleetBar').style.width = `${(completed / totalUnits) * 100}%`;
     el('statCompleted').textContent = `${completed} / ${totalUnits}`;
+    const status = el('preprocessingStatus');
+    if (status) {
+      status.textContent = `Fleet: received ${completed}/${totalUnits} format-units…`;
+    }
+    log(
+      `Received slice ${ev?.sliceNumber ?? unitIndex}: chunk ${chunkIndex}, ` +
+      `${segments.length} segment(s) (${completed}/${totalUnits} format-units)`,
+    );
   });
 
-  log(`Dispatching ${inputSet.length} slice(s), ${totalUnits} format-units (${chunks.length} chunks × ${uniqueFormats.length} unique formats)…`);
+  const groupsLabel = (job.computeGroups || []).map((g) => g.joinKey || g).join(', ') || '(default)';
+  log(`Dispatching ${inputSet.length} slice(s), ${totalUnits} format-units (${chunks.length} chunks × ${uniqueFormats.length} unique formats) → groups: ${groupsLabel}`);
   updateCostEstimate(inputSet.length);
-  await job.exec(slicePaymentDcc);
-  clearInterval(timer);
+
+  const heartbeat = setInterval(() => {
+    const sec = ((performance.now() - t0) / 1000).toFixed(1);
+    const state = el('readyStateBadge')?.textContent || '?';
+    const st = lastStatus || job.status || {};
+    dbg(`heartbeat ${sec}s`, {
+      readyState: state,
+      jobId: job.id || '(none)',
+      resultEvents,
+      completed,
+      totalUnits,
+      slices: inputSet.length,
+      statusTotal: st.total,
+      distributed: st.distributed,
+      computed: st.computed,
+      runStatus: st.runStatus,
+    });
+    if (Number(sec) >= 30 && (st.distributed == null || Number(st.distributed) === 0) && resultEvents === 0) {
+      dbg(
+        'hint: still 0 distributed slices — public workers may be scarce, or open https://dcp.live ' +
+        'and join this compute group so a worker can pick up work',
+      );
+    }
+    if (Number(st.distributed) > 0 && Number(st.computed) === 0 && resultEvents === 0 && Number(sec) >= 45) {
+      dbg(
+        'hint: slices are distributed but none computed yet — workers are likely still loading ' +
+        'ffmpeg-wasm-social WASM; watch for job.console [social-wf] lines',
+      );
+    }
+    const status = el('preprocessingStatus');
+    if (status) {
+      status.textContent =
+        `Fleet ${st.runStatus || state} · ${sec}s · dist ${st.distributed ?? 0}/${st.total ?? inputSet.length} · ` +
+        `computed ${st.computed ?? 0} · results ${resultEvents}`;
+    }
+  }, 5000);
+
+  dbg(`job.exec(${slicePaymentDcc})…`);
+  try {
+    await job.exec(slicePaymentDcc);
+    dbg('job.exec resolved');
+  } catch (err) {
+    dbg('job.exec rejected', err?.message || err);
+    throw err;
+  } finally {
+    clearInterval(heartbeat);
+    clearInterval(timer);
+  }
+
   const elapsedSec = (performance.now() - t0) / 1000;
   el('fleetTime').textContent = `${elapsedSec.toFixed(1)}s`;
-  log(`Job done in ${elapsedSec.toFixed(1)}s`);
+  log(`Job done in ${elapsedSec.toFixed(1)}s — result events=${resultEvents}, format-units=${completed}/${totalUnits}`);
+  dbg('post-job signature fill', Object.fromEntries(
+    Object.entries(bySignature).map(([sig, arr]) => [sig, arr.map((x) => (x ? 'ok' : 'missing'))]),
+  ));
   fetchAccountBalance().catch(() => {});
+  if (completed === 0) {
+    throw new Error(
+      'DCP finished with no segments received. Workers likely failed on the fleet. ' +
+      'Scroll the activity log for [debug] job.error / job.console / Worker lines — ' +
+      'you may still have been charged for attempted slices.',
+    );
+  }
+  if (completed < totalUnits) {
+    throw new Error(
+      `Incomplete results: received ${completed}/${totalUnits} format-units. ` +
+      'Some slices failed on the fleet; assemble aborted to avoid corrupt masters.',
+    );
+  }
   return { bySignature, durations };
 }
 
@@ -966,6 +1324,14 @@ el('runBtn').addEventListener('click', async () => {
     log('Slicing browser recording (client-side WASM)…');
     const { chunks, durations, fps, container, slicer } = await sliceVideo(inputBytes, targetFrames);
     log(`Sliced into ${chunks.length} chunk(s) via ${slicer || 'slice'} → .${container || '?'} , fps=${(fps || 0).toFixed?.(2) ?? fps}`);
+    dbg('slice summary', {
+      chunkBytes: chunks.map((c) => c.length),
+      durations,
+      fps,
+      container,
+      slicer,
+      inputBytes: inputBytes.length,
+    });
     if (Array.isArray(durations) && durations.length) {
       inputDurationSec = durations.reduce((a, b) => a + b, 0);
     }
@@ -973,7 +1339,9 @@ el('runBtn').addEventListener('click', async () => {
     updateCostEstimate(maxDistribution ? chunks.length * uniqueFormats.length : chunks.length);
     el('preprocessingStatus').textContent = 'Dispatching to DCP…';
 
-    const { bySignature } = await dispatchJob(chunks, uniqueFormats, durations, maxDistribution, inputBaseName);
+    const { bySignature } = await dispatchJob(
+      chunks, uniqueFormats, durations, maxDistribution, inputBaseName, container,
+    );
     el('preprocessingStatus').textContent = 'Assembling MP4 masters…';
     lastOutputs = await assembleMasters(bySignature, uniqueFormats, durations, deliverables);
     el('saveOutputsBtn').classList.toggle('hidden', !lastOutputs.length || !window.showDirectoryPicker);

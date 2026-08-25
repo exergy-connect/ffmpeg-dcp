@@ -13,10 +13,20 @@ function bytesToBase64(bytes) {
   return btoa(binary);
 }
 
+function sniffChunkExt(bytes) {
+  if (bytes && bytes.length >= 4 &&
+      bytes[0] === 0x1a && bytes[1] === 0x45 &&
+      bytes[2] === 0xdf && bytes[3] === 0xa3) {
+    return 'webm';
+  }
+  return 'ts';
+}
+
 onmessage = ({ data }) => {
   if (data.cmd !== 'prepare') return;
-  const { chunks, formatCount, maxDistribution } = data;
+  const { chunks, formatCount, maxDistribution, container } = data;
   const chunkBase64ByIndex = chunks.map((c) => bytesToBase64(c));
+  const chunkExtByIndex = chunks.map((c) => container || sniffChunkExt(c));
   let inputSet;
   if (maxDistribution) {
     inputSet = [];
@@ -26,6 +36,7 @@ onmessage = ({ data }) => {
           chunkIndex,
           formatIndexes: [formatIndex],
           chunkBase64: chunkBase64ByIndex[chunkIndex],
+          chunkExt: chunkExtByIndex[chunkIndex],
         });
       }
     }
@@ -35,6 +46,7 @@ onmessage = ({ data }) => {
       chunkIndex,
       formatIndexes: allIndexes,
       chunkBase64,
+      chunkExt: chunkExtByIndex[chunkIndex],
     }));
   }
   postMessage({ inputSet });

@@ -3,9 +3,21 @@
 /**
  * xFrame social transcoder worker.
  * Uses the custom single-threaded dcp-transcode WASM API.
- * Paths resolve relative to this worker script (xframe/).
+ *
+ * Canonical artifacts are checked in once at xframe/ffmpeg-wasm/.
+ * This worker may run from xframe/ or from the staged xframe/output/ tree
+ * (GitHub Pages); resolve the directory accordingly.
  */
-importScripts('./ffmpeg-wasm/dcp-transcode-glue.js');
+function wasmDirUrl() {
+  const path = String(self.location.pathname || '');
+  // .../xframe/output/ffmpeg-worker.js → ../ffmpeg-wasm/
+  // .../xframe/ffmpeg-worker.js        → ./ffmpeg-wasm/
+  const relative = /\/output\//.test(path) ? '../ffmpeg-wasm/' : './ffmpeg-wasm/';
+  return new URL(relative, self.location.href).href;
+}
+
+const WASM_DIR = wasmDirUrl();
+importScripts(new URL('dcp-transcode-glue.js', WASM_DIR).href);
 
 let modulePromise = null;
 let lastFfmpegErr = [];
@@ -14,7 +26,7 @@ function getModule() {
   if (!modulePromise) {
     modulePromise = createFfmpegModule({
       instantiateWasm(imports, successCallback) {
-        fetch('./ffmpeg-wasm/dcp-transcode.wasm')
+        fetch(new URL('dcp-transcode.wasm', WASM_DIR).href)
           .then((response) => {
             if (!response.ok) throw new Error(`WASM fetch failed: HTTP ${response.status}`);
             return response.arrayBuffer();

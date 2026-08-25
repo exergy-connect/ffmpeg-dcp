@@ -3,3 +3,11 @@ package/ffmpeg-wasm.js
 
 # Docker export staging copy; canonical artifacts live in ffmpeg-wasm/.
 ffmpeg-wasm/dist/
+
+# Staged Pages tree must not hold a second copy of the WASM.
+output/ffmpeg-wasm/
+
+# Local npm install used only by package/publish.js
+node_modules/
+package.json
+package-lock.json

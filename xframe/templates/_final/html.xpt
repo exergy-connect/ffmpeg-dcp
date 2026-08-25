@@ -143,29 +143,31 @@
 
   <section>
     <h2>3. DCP account</h2>
-    <form id="accountForm" autocomplete="off">
+    <form id="identityForm" autocomplete="off">
       <div class="field">
         <label for="apiKeyInput">Identity API key</label>
-        <input id="apiKeyInput" type="password" placeholder="0x… (64 hex)" spellcheck="false" />
+        <input id="apiKeyInput" type="password" name="dcp-identity-api-key" placeholder="0x… (64 hex)" spellcheck="false" autocomplete="off" />
         <div id="apiKeyValidation" class="muted hidden" style="color:#ff7b72">Invalid DCP identity API key format.</div>
       </div>
+    </form>
+    <form id="computeGroupsForm" autocomplete="off" style="margin-top:0.85rem">
       <div class="field">
         <label>Compute groups</label>
         <div id="computeGroupRows"></div>
         <button type="button" id="addComputeGroupBtn" style="margin-top:0.4rem">Add group</button>
       </div>
-      <div class="row">
-        <label class="inline"><input type="checkbox" id="maxDistributionToggle" checked /> Max distribution (one DCP slice per chunk × unique format)</label>
-      </div>
-      <div class="row" style="margin-top:0.75rem">
-        <button type="button" id="clearAccountBtn">Clear saved account</button>
-        <div id="qrcode" title="Join compute group"></div>
-      </div>
     </form>
+    <div class="row" style="margin-top:0.75rem">
+      <button type="button" id="clearAccountBtn">Clear saved account</button>
+      <div id="qrcode" title="Join compute group"></div>
+    </div>
   </section>
 
   <section>
     <h2>4. Run</h2>
+    <div class="row" style="margin-bottom:0.75rem">
+      <label class="inline"><input type="checkbox" id="maxDistributionToggle" checked /> Max distribution (one DCP slice per chunk × unique format)</label>
+    </div>
     <div class="row" style="align-items:flex-end">
       <button type="button" class="primary" id="runBtn" disabled>Transcode on DCP</button>
       <span id="readyStateBadge" class="badge">idle</span>
