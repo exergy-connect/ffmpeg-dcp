@@ -1340,7 +1340,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       'Some slices failed on the fleet; assemble aborted to avoid corrupt masters.',
     );
   }
-  return { bySignature, durations };
+  return { bySignature };
 }
 
 function framingLabel() {
