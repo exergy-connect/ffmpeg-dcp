@@ -46,7 +46,7 @@ const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
  * @typedef {object} BrokerSession
  * @property {string} sessionId
  * @property {string} brokerUrl
- * @property {Buffer} sessionKey
+ * @property {Buffer|null} sessionKey
  * @property {string} accessToken
  * @property {RunnerIdentity} identity
  * @property {string} runnerVersion
@@ -164,27 +164,44 @@ function modInverse(value, modulus) {
 }
 
 /**
+ * @param {Record<string, unknown>} params
+ * @param {string} name
+ */
+function getRsaParam(params, name) {
+  if (params[name] != null && params[name] !== "") {
+    return String(params[name]);
+  }
+  const target = name.toLowerCase();
+  for (const [key, value] of Object.entries(params)) {
+    if (key.toLowerCase() === target && value != null && value !== "") {
+      return String(value);
+    }
+  }
+  return "";
+}
+
+/**
  * @param {Record<string, unknown>} rsaParams
  */
 export function reconstructPrivateKey(rsaParams) {
-  const modulus = decodeBigInt("Modulus", String(rsaParams.Modulus ?? ""));
-  const exponent = decodeBigInt("Exponent", String(rsaParams.Exponent ?? ""));
-  const privateExponent = decodeBigInt("D", String(rsaParams.D ?? ""));
-  const primeP = decodeBigInt("P", String(rsaParams.P ?? ""));
-  const primeQ = decodeBigInt("Q", String(rsaParams.Q ?? ""));
+  const modulus = decodeBigInt("Modulus", getRsaParam(rsaParams, "Modulus"));
+  const exponent = decodeBigInt("Exponent", getRsaParam(rsaParams, "Exponent"));
+  const privateExponent = decodeBigInt("D", getRsaParam(rsaParams, "D"));
+  const primeP = decodeBigInt("P", getRsaParam(rsaParams, "P"));
+  const primeQ = decodeBigInt("Q", getRsaParam(rsaParams, "Q"));
 
-  const dp =
-    rsaParams.DP != null && rsaParams.DP !== ""
-      ? decodeBigInt("DP", String(rsaParams.DP))
-      : privateExponent % (primeP - 1n);
-  const dq =
-    rsaParams.DQ != null && rsaParams.DQ !== ""
-      ? decodeBigInt("DQ", String(rsaParams.DQ))
-      : privateExponent % (primeQ - 1n);
-  const qi =
-    rsaParams.InverseQ != null && rsaParams.InverseQ !== ""
-      ? decodeBigInt("InverseQ", String(rsaParams.InverseQ))
-      : modInverse(primeQ, primeP);
+  const dpValue = getRsaParam(rsaParams, "DP");
+  const dqValue = getRsaParam(rsaParams, "DQ");
+  const inverseQValue = getRsaParam(rsaParams, "InverseQ");
+  const dp = dpValue
+    ? decodeBigInt("DP", dpValue)
+    : privateExponent % (primeP - 1n);
+  const dq = dqValue
+    ? decodeBigInt("DQ", dqValue)
+    : privateExponent % (primeQ - 1n);
+  const qi = inverseQValue
+    ? decodeBigInt("InverseQ", inverseQValue)
+    : modInverse(primeQ, primeP);
 
   return createPrivateKey({
     key: {
@@ -203,26 +220,54 @@ export function reconstructPrivateKey(rsaParams) {
 }
 
 /**
+ * @param {Record<string, unknown>} object
+ * @param {string[]} keys
+ */
+function pickField(object, keys) {
+  for (const key of keys) {
+    const value = object[key];
+    if (value != null && value !== "") {
+      return value;
+    }
+  }
+  return "";
+}
+
+/**
  * @param {JitConfigFiles} files
  */
 export function parseRunnerIdentity(files) {
   const runner = files.runner;
   const credentials = files.credentials;
-  const data = /** @type {Record<string, unknown>} */ (credentials.data ?? {});
+  const data = /** @type {Record<string, unknown>} */ (
+    credentials.data ?? credentials.Data ?? credentials
+  );
 
-  const clientId = String(data.clientId ?? "");
-  const authorizationUrl = String(data.authorizationUrl ?? "");
+  const clientId = String(
+    pickField(data, ["clientId", "ClientId"]) ||
+      pickField(credentials, ["clientId", "ClientId"])
+  );
+  const authorizationUrl = String(
+    pickField(data, ["authorizationUrl", "AuthorizationUrl"]) ||
+      pickField(credentials, ["authorizationUrl", "AuthorizationUrl"])
+  );
   if (!clientId || !authorizationUrl) {
     throw new Error("Runner credentials missing clientId or authorizationUrl");
   }
 
-  const brokerUrl = String(runner.serverUrlV2 ?? runner.serverUrl ?? "");
+  const brokerUrl = String(
+    pickField(runner, ["serverUrlV2", "ServerUrlV2", "serverUrl", "ServerUrl"])
+  );
   if (!brokerUrl) {
     throw new Error("Runner config missing serverUrl/serverUrlV2");
   }
 
-  const agentId = Number(runner.agentId ?? 0);
-  const agentName = String(runner.agentName ?? "");
+  const agentId = Number(
+    pickField(runner, ["agentId", "AgentId"]) || 0
+  );
+  const agentName = String(
+    pickField(runner, ["agentName", "AgentName"])
+  );
   if (!agentId || !agentName) {
     throw new Error("Runner config missing agentId or agentName");
   }
@@ -365,21 +410,30 @@ export async function createBrokerSession(
   }
 
   const parsed = JSON.parse(responseText);
-  if (!parsed.sessionId) {
+  const sessionId = parsed.sessionId ?? parsed.SessionId;
+  if (!sessionId) {
     throw new Error("Broker CreateSession response missing sessionId");
   }
 
-  const encryptionKeyValue = parsed.encryptionKey?.value;
-  if (!encryptionKeyValue) {
-    throw new Error("Broker CreateSession response missing encryptionKey.value");
+  const encryptionKeyValue =
+    parsed.encryptionKey?.value ??
+    parsed.encryptionKey?.Value ??
+    parsed.EncryptionKey?.value ??
+    parsed.EncryptionKey?.Value;
+
+  let sessionKey = null;
+  if (encryptionKeyValue) {
+    const encryptedKey = Buffer.isBuffer(encryptionKeyValue)
+      ? encryptionKeyValue
+      : Buffer.from(encryptionKeyValue, "base64");
+    sessionKey = decryptSessionKey(encryptedKey, identity.privateKey);
   }
 
-  const encryptedKey = Buffer.from(encryptionKeyValue, "base64");
-  const sessionKey = decryptSessionKey(encryptedKey, identity.privateKey);
-
   return {
-    sessionId: String(parsed.sessionId),
-    brokerUrl: String(parsed.brokerURL ?? identity.brokerUrl).replace(/\/$/, ""),
+    sessionId: String(sessionId),
+    brokerUrl: String(
+      parsed.brokerURL ?? parsed.BrokerURL ?? identity.brokerUrl
+    ).replace(/\/$/, ""),
     sessionKey,
     accessToken,
     identity,
@@ -445,6 +499,26 @@ export function decryptMessageBody(encryptedBody, sessionKey) {
     decipher.final(),
   ]);
   return pkcs7Unpad(decrypted, blockSize).toString("utf8");
+}
+
+/**
+ * @param {string} body
+ * @param {Buffer|null} sessionKey
+ */
+export function decodeMessageBody(body, sessionKey) {
+  if (sessionKey) {
+    return decryptMessageBody(body, sessionKey);
+  }
+
+  try {
+    const parsed = JSON.parse(body);
+    if (typeof parsed === "string") {
+      return parsed;
+    }
+    return JSON.stringify(parsed);
+  } catch {
+    return body;
+  }
 }
 
 /**
@@ -528,17 +602,21 @@ export async function pollForJobReference(session, fetchImpl = fetch, signal) {
 
       consecutiveErrors = 0;
       const message = await response.json();
-      if (message.messageType !== "RunnerJobRequest") {
+      const messageType = message.messageType ?? message.MessageType;
+      const messageId = message.messageId ?? message.MessageId;
+      const messageBody = message.body ?? message.Body;
+
+      if (messageType !== "RunnerJobRequest") {
         throw new Error(
-          `Unexpected broker message type: ${message.messageType ?? "unknown"}`
+          `Unexpected broker message type: ${messageType ?? "unknown"}`
         );
       }
 
-      const decryptedBody = decryptMessageBody(message.body, session.sessionKey);
-      const reference = parseJobReferenceBody(decryptedBody);
+      const decodedBody = decodeMessageBody(messageBody, session.sessionKey);
+      const reference = parseJobReferenceBody(decodedBody);
       return {
-        messageId: Number(message.messageId),
-        messageType: String(message.messageType),
+        messageId: Number(messageId),
+        messageType: String(messageType),
         ...reference,
       };
     } catch (error) {

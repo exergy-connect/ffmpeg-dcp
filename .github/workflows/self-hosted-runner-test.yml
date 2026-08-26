@@ -16,9 +16,6 @@ jobs:
     name: Probe JIT / self-hosted runner
     runs-on: [self-hosted, dcp, wasm, video]
     timeout-minutes: 15
-    env:
-      VIDEO_PATH: ${{ steps.video.outputs.path }}
-      VIDEO_URL: ${{ steps.video.outputs.url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,6 +71,8 @@ jobs:
           URL="$(resolve_url "$REL")"
           echo "path=$REL" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "VIDEO_PATH=$REL" >> "$GITHUB_ENV"
+          echo "VIDEO_URL=$URL" >> "$GITHUB_ENV"
           echo "Resolved video path: $REL"
           echo "Resolved video URL: $URL"
 
