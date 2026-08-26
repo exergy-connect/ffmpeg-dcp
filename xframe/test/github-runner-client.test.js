@@ -4,7 +4,11 @@ import {
   createCipheriv,
   generateKeyPairSync,
   publicEncrypt,
+  randomUUID,
 } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -15,8 +19,11 @@ import {
   decryptSessionKey,
   parseAcquiredJobMetadata,
   parseAcquiredJobSteps,
+  parseAcquiredJobEnvironment,
   parseJobReferenceBody,
   parseRunnerIdentity,
+  shouldExecuteAcquiredJob,
+  executeAcquiredJobSteps,
   reconstructPrivateKey,
   sanitizeRunServiceUrl,
 } from "./github-runner-client.js";
@@ -499,4 +506,102 @@ test("parseAcquiredJobSteps unwraps TemplateToken-encoded scripts", () => {
   assert.equal(steps.length, 1);
   assert.equal(steps[0].kind, "run");
   assert.equal(steps[0].script, 'echo "Video URL: ${VIDEO_URL}"');
+});
+
+test("parseAcquiredJobEnvironment maps workflow variables into env", () => {
+  const env = parseAcquiredJobEnvironment(
+    {
+      variables: {
+        VIDEO_URL: {
+          value: "https://example.test/video.mp4",
+          isSecret: false,
+        },
+        GITHUB_REPOSITORY: { value: "exergy-connect/ffmpeg-dcp", isSecret: false },
+      },
+    },
+    { runnerName: "dcp-test-runner" }
+  );
+
+  assert.equal(env.VIDEO_URL, "https://example.test/video.mp4");
+  assert.equal(env.GITHUB_REPOSITORY, "exergy-connect/ffmpeg-dcp");
+  assert.equal(env.RUNNER_NAME, "dcp-test-runner");
+  assert.ok(env.RUNNER_OS);
+});
+
+test("shouldExecuteAcquiredJob matches process-video job id and display name", () => {
+  assert.equal(
+    shouldExecuteAcquiredJob(
+      { contextData: { github: { job: "process-video" } } },
+      { jobName: "anything" }
+    ),
+    true
+  );
+  assert.equal(
+    shouldExecuteAcquiredJob(
+      { contextData: { github: {} } },
+      { jobName: "Process video on self-hosted runner" }
+    ),
+    true
+  );
+  assert.equal(
+    shouldExecuteAcquiredJob(
+      { contextData: { github: { job: "resolve-video-url" } } },
+      { jobName: "Resolve video URL" }
+    ),
+    false
+  );
+});
+
+test("executeAcquiredJobSteps runs shell steps with the acquired env", async () => {
+  const outputPath = path.join(os.tmpdir(), `runner-step-${randomUUID()}.txt`);
+  const steps = parseAcquiredJobSteps({
+    steps: [
+      {
+        displayName: "Verify runner received video URL",
+        reference: { type: "script", name: "script" },
+        inputs: {
+          script: `test -n "$VIDEO_URL"\necho "$VIDEO_URL" > "${outputPath}"`,
+        },
+      },
+    ],
+  });
+
+  const result = await executeAcquiredJobSteps(steps, {
+    ...process.env,
+    VIDEO_URL: "https://example.test/video.mp4",
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(
+    fs.readFileSync(outputPath, "utf8").trim(),
+    "https://example.test/video.mp4"
+  );
+  fs.unlinkSync(outputPath);
+});
+
+test("executeAcquiredJobSteps skips uses steps", async () => {
+  const steps = parseAcquiredJobSteps({
+    steps: [
+      {
+        displayName: "Checkout",
+        reference: { type: "node", path: "actions/checkout" },
+        inputs: { uses: "actions/checkout@v4" },
+      },
+      {
+        displayName: "Echo",
+        reference: { type: "script", name: "script" },
+        inputs: { script: "echo ok" },
+      },
+    ],
+  });
+
+  const skipped = [];
+  const result = await executeAcquiredJobSteps(steps, process.env, {
+    onStepSkip(step) {
+      skipped.push(step.displayName);
+    },
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(skipped, ["Checkout"]);
 });

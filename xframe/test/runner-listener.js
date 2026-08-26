@@ -4,10 +4,10 @@
  *
  * One-shot GitHub Actions listener prototype:
  *   JIT registration -> OAuth auth -> broker session -> long-poll ->
- *   decrypt job reference -> acquire job -> print metadata -> exit
+ *   decrypt job reference -> acquire job -> execute process-video steps -> exit
  *
- * Does not execute workflow steps. After acquiring, the job is completed as
- * skipped so the workflow does not remain locked.
+ * Executes shell steps from the acquired `process-video` job manifest. Other
+ * jobs are completed as skipped.
  *
  * Usage:
  *   node --env-file=xframe/test/.env xframe/test/runner-listener.js
@@ -22,12 +22,15 @@ import {
   createBrokerSession,
   decodeJitConfig,
   deleteBrokerSession,
+  executeAcquiredJobSteps,
   fetchRunnerOAuthToken,
+  parseAcquiredJobEnvironment,
   parseAcquiredJobMetadata,
   parseAcquiredJobSteps,
   parseRunnerIdentity,
   pollForJobReference,
   sanitizeRunServiceUrl,
+  shouldExecuteAcquiredJob,
 } from "./github-runner-client.js";
 
 function printJobMetadata({
@@ -133,19 +136,52 @@ async function main() {
   printAcquiredJobMetadata(jobMetadata);
   printAcquiredJobSteps(jobSteps);
 
+  let jobResult = "skipped";
+  if (shouldExecuteAcquiredJob(acquiredJob.payload, jobMetadata)) {
+    const env = parseAcquiredJobEnvironment(acquiredJob.payload, {
+      runnerName: registration.runner.name,
+    });
+    console.log("\nExecuting process-video steps...");
+    const execution = await executeAcquiredJobSteps(jobSteps, env, {
+      onStepStart(step) {
+        console.log(`\n>>> Running step ${step.order}: ${step.displayName}`);
+      },
+      onStepSkip(step) {
+        console.log(
+          `\n>>> Skipping action step ${step.order}: ${step.displayName} (${step.uses})`
+        );
+      },
+    });
+
+    if (execution.success) {
+      jobResult = "succeeded";
+      console.log("\nAll process-video steps completed successfully.");
+    } else {
+      jobResult = "failed";
+      console.error(
+        `\nStep failed: ${execution.failedStep?.displayName ?? "unknown"} (exit ${execution.exitCode ?? 1})`
+      );
+    }
+  } else {
+    console.log("\nJob is not process-video; skipping execution.");
+  }
+
   if (acquiredJob.jobAuthToken && jobMetadata.planId) {
-    console.log("\nCompleting acquired job as skipped...");
+    console.log(`\nCompleting acquired job as ${jobResult}...`);
     await completeJob(jobReference.runServiceUrl, {
       planId: jobMetadata.planId,
       jobId: jobMetadata.jobId,
-      result: "skipped",
+      result: jobResult,
       authToken: acquiredJob.jobAuthToken,
     });
-    console.log("Job completed as skipped.");
+    console.log(`Job completed as ${jobResult}.`);
   } else {
     console.log(
       "\nJob acquired but no job-scoped token was returned; workflow may remain in progress."
     );
+    if (jobResult === "failed") {
+      process.exitCode = 1;
+    }
   }
 }
 

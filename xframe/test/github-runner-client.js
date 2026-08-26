@@ -15,6 +15,7 @@ import {
   privateDecrypt,
   randomUUID,
 } from "node:crypto";
+import { spawn } from "node:child_process";
 
 const DEFAULT_RUNNER_VERSION = "2.336.0";
 const LONG_POLL_TIMEOUT_MS = 55_000;
@@ -870,6 +871,112 @@ export function parseAcquiredJobSteps(acquired) {
       script: script || undefined,
     };
   });
+}
+
+/**
+ * @param {Record<string, unknown>} variable
+ */
+function readVariableValue(variable) {
+  if (variable.value != null) {
+    return String(variable.value);
+  }
+  if (variable.Value != null) {
+    return String(variable.Value);
+  }
+  return "";
+}
+
+/**
+ * @param {Record<string, unknown>} acquired
+ * @param {object} [options]
+ * @param {string} [options.runnerName]
+ * @returns {NodeJS.ProcessEnv}
+ */
+export function parseAcquiredJobEnvironment(acquired, options = {}) {
+  const env = { ...process.env };
+  for (const variable of normalizeVariables(
+    acquired.variables ?? acquired.Variables
+  )) {
+    const name = String(variable.name ?? variable.Name ?? "");
+    if (!name) {
+      continue;
+    }
+    env[name] = readVariableValue(variable);
+  }
+
+  env.RUNNER_OS = env.RUNNER_OS || getRunnerOs();
+  env.RUNNER_ARCH = env.RUNNER_ARCH || process.arch;
+  env.RUNNER_NAME = env.RUNNER_NAME || options.runnerName || "jit-runner";
+  return env;
+}
+
+/**
+ * @param {Record<string, unknown>} acquired
+ * @param {AcquiredJobMetadata} [jobMetadata]
+ */
+export function shouldExecuteAcquiredJob(acquired, jobMetadata = {}) {
+  const github = getGithubContext(acquired);
+  const jobId = String(github.job ?? github.Job ?? "").toLowerCase();
+  if (jobId === "process-video") {
+    return true;
+  }
+
+  return String(jobMetadata.jobName ?? "")
+    .toLowerCase()
+    .includes("process video");
+}
+
+/**
+ * @typedef {object} StepExecutionResult
+ * @property {boolean} success
+ * @property {AcquiredJobStep} [failedStep]
+ * @property {number} [exitCode]
+ */
+
+/**
+ * @param {string} script
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string} [cwd]
+ */
+function runShellScript(script, env, cwd) {
+  return new Promise((resolve) => {
+    const child = spawn("bash", ["-e", "-c", script], {
+      env,
+      cwd: cwd ?? process.cwd(),
+      stdio: "inherit",
+    });
+    child.on("close", (code) => resolve(code ?? 1));
+    child.on("error", () => resolve(1));
+  });
+}
+
+/**
+ * @param {AcquiredJobStep[]} steps
+ * @param {NodeJS.ProcessEnv} env
+ * @param {object} [options]
+ * @param {string} [options.cwd]
+ * @param {(step: AcquiredJobStep) => void} [options.onStepStart]
+ * @param {(step: AcquiredJobStep) => void} [options.onStepSkip]
+ * @returns {Promise<StepExecutionResult>}
+ */
+export async function executeAcquiredJobSteps(steps, env, options = {}) {
+  for (const step of steps) {
+    if (step.kind === "uses") {
+      options.onStepSkip?.(step);
+      continue;
+    }
+    if (step.kind !== "run" || !step.script) {
+      continue;
+    }
+
+    options.onStepStart?.(step);
+    const exitCode = await runShellScript(step.script, env, options.cwd);
+    if (exitCode !== 0) {
+      return { success: false, failedStep: step, exitCode };
+    }
+  }
+
+  return { success: true };
 }
 
 /**

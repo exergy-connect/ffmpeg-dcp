@@ -3,18 +3,17 @@
 ## GitHub Actions runner listener prototype
 
 `runner-listener.js` is a dependency-free Node.js prototype that exercises the
-GitHub Actions self-hosted runner listener path without executing jobs:
+GitHub Actions self-hosted runner listener path and executes `process-video`
+job steps:
 
 1. JIT registration via `generate-jitconfig`
 2. Runner OAuth authentication (RFC 7523 JWT bearer assertion)
 3. Broker session creation
 4. Long-poll on the broker message queue
-5. Decrypt and print job reference metadata
-6. Delete the broker session and exit
+5. Acquire the queued job and run its shell steps (process-video only)
+6. Complete the job and exit
 
-The prototype **does not execute** workflow steps. It acquires the queued job,
-prints redacted metadata, and completes the job as `skipped` so the run does
-not stay locked.
+Jobs that are not `process-video` are completed as `skipped`.
 
 ### Prerequisites
 
@@ -87,10 +86,10 @@ A repository workflow targets the same JIT runner labels (`dcp`, `wasm`, `video`
 2. Post a test video: commit and push an `.mp4` under `xframe/uploads/`, **or** use
    **Actions → Self-hosted runner test → Run workflow** (optional `video_path` input)
 
-The workflow sets `VIDEO_PATH` and `VIDEO_URL` on the runner job. The listener
-should print the broker job reference when the run is queued. The workflow job
-itself will stay queued until a real self-hosted runner executes it; this
-prototype only observes the job message.
+The workflow runs a GitHub-hosted job first to resolve the uploaded file into a
+raw GitHub URL, then queues a self-hosted `process-video` job with only
+`VIDEO_URL`. The listener acquires that job, runs its shell steps locally, and
+reports success or failure to GitHub.
 
 ### Tests
 

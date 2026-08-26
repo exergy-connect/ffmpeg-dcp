@@ -13,10 +13,11 @@ on:
         default: ""
 
 jobs:
-  probe-self-hosted-runner:
-    name: Probe JIT / self-hosted runner
-    runs-on: [dcp, wasm, video]
-    timeout-minutes: 15
+  resolve-video-url:
+    name: Resolve video URL
+    runs-on: ubuntu-latest
+    outputs:
+      video_url: ${{ steps.video.outputs.url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,11 +73,17 @@ jobs:
           URL="$(resolve_url "$REL")"
           echo "path=$REL" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "VIDEO_PATH=$REL" >> "$GITHUB_ENV"
-          echo "VIDEO_URL=$URL" >> "$GITHUB_ENV"
           echo "Resolved video path: $REL"
           echo "Resolved video URL: $URL"
 
+  process-video:
+    name: Process video on self-hosted runner
+    needs: resolve-video-url
+    runs-on: [dcp, wasm, video]
+    timeout-minutes: 15
+    env:
+      VIDEO_URL: ${{ needs.resolve-video-url.outputs.video_url }}
+    steps:
       - name: Print job context
         run: |
           echo "Runner name: ${RUNNER_NAME:-unknown}"
@@ -87,12 +94,9 @@ jobs:
           echo "Repository: ${GITHUB_REPOSITORY}"
           echo "Ref: ${GITHUB_REF}"
           echo "SHA: ${GITHUB_SHA}"
-          echo "VIDEO_PATH=${VIDEO_PATH}"
           echo "VIDEO_URL=${VIDEO_URL}"
 
       - name: Verify runner received video URL
         run: |
           test -n "${VIDEO_URL}"
-          test -n "${VIDEO_PATH}"
-          test -f "${VIDEO_PATH}"
-          echo "Runner job received video URL: ${VIDEO_URL}"
+          echo "Self-hosted runner received video URL: ${VIDEO_URL}"
