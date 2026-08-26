@@ -15,7 +15,7 @@ on:
 jobs:
   probe-self-hosted-runner:
     name: Probe JIT / self-hosted runner
-    runs-on: [self-hosted, dcp, wasm, video]
+    runs-on: [dcp, wasm, video]
     timeout-minutes: 15
     steps:
       - name: Checkout
