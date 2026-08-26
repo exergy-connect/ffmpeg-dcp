@@ -61,6 +61,15 @@
     video { width: 100%; max-height: 280px; border-radius: 8px; background: #000; }
     .outputs { display: grid; gap: 0.5rem; }
     .output-row { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.88rem; }
+    .output-actions { display: flex; gap: 0.45rem; flex: 0 0 auto; }
+    #outputPreviewPanel { margin-top: 1rem; display: grid; gap: 0.85rem; }
+    @media (min-width: 720px) {
+      #outputPreviewPanel { grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 0.8fr); align-items: start; }
+    }
+    #outputPreview { width: 100%; max-height: 360px; border-radius: 8px; background: #000; }
+    .preview-meta { margin: 0; display: grid; grid-template-columns: 8.5rem 1fr; gap: 0.28rem 0.75rem; font-size: 0.82rem; }
+    .preview-meta dt { margin: 0; color: var(--muted); }
+    .preview-meta dd { margin: 0; word-break: break-all; }
     .badge { display: inline-block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 4px; background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.35); }
     .badge.warn { background: rgba(240,136,62,0.15); color: var(--warn); border-color: rgba(240,136,62,0.4); }
     .muted { color: var(--muted); font-size: 0.85rem; }
@@ -211,6 +220,13 @@
     <h2>5. Outputs</h2>
     <p class="muted">One H.264/AAC MP4 upload master per selected placement. Shared Meta encodes appear under each requested name.</p>
     <div id="outputs" class="outputs"></div>
+    <div id="outputPreviewPanel" class="hidden">
+      <video id="outputPreview" controls playsinline></video>
+      <div>
+        <h3 style="margin:0 0 0.5rem;font-size:0.9rem">Preview</h3>
+        <div id="outputPreviewMeta"></div>
+      </div>
+    </div>
     <div class="row" style="margin-top:1rem">
         <button type="button" class="primary hidden" id="saveOutputsBtn">Save all MP4s…</button>
       <span id="saveOutputsStatus" class="muted"></span>

@@ -1248,11 +1248,63 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
   return { bySignature, durations };
 }
 
+function framingLabel() {
+  const v = el('framingSelect')?.value;
+  if (v === 'contain') return 'Fit (pad)';
+  if (v === 'stretch') return 'Stretch';
+  return 'Fill (center crop)';
+}
+
+function showOutputPreview(out) {
+  const panel = el('outputPreviewPanel');
+  const video = el('outputPreview');
+  const meta = el('outputPreviewMeta');
+  if (!panel || !video || !meta) return;
+  panel.classList.remove('hidden');
+  video.src = out.url;
+  const play = video.play();
+  if (play && typeof play.catch === 'function') play.catch(() => {});
+  const a = out.alias || {};
+  const rows = [
+    ['File', out.name],
+    ['Size', formatBytes(out.bytes)],
+    ['Exact size', `${Number(out.bytes || 0).toLocaleString()} bytes`],
+    ['Platform', `${a.platformName || '—'} · ${a.placementLabel || '—'}`],
+    ['Video', `H.264 (${a.encoder || 'libopenh264'}) ${a.width}×${a.height}`],
+    ['Video bitrate', `${a.bitrateKbps} kbps`],
+    ['Audio', `AAC-LC ${a.audioBitrateKbps} kbps`],
+    ['Frame rate', `${a.maxFps || 30} fps (target)`],
+    ['GOP', `${a.gopSeconds || 2}s (~${(a.gopSeconds || 2) * (a.maxFps || 30)} frames)`],
+    ['Framing', framingLabel()],
+    ['Format signature', a.signature || '—'],
+    ['Container', 'MP4 (H.264/AAC, +faststart)'],
+  ];
+  const dl = document.createElement('dl');
+  dl.className = 'preview-meta';
+  for (const [k, v] of rows) {
+    const dt = document.createElement('dt');
+    dt.textContent = k;
+    const dd = document.createElement('dd');
+    dd.textContent = String(v);
+    dl.append(dt, dd);
+  }
+  meta.replaceChildren(dl);
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 async function assembleMasters(bySignature, uniqueFormats, durations, deliverables) {
   const outputs = [];
   el('outputsSection').classList.remove('hidden');
   const host = el('outputs');
   host.innerHTML = '';
+  const previewVideo = el('outputPreview');
+  if (previewVideo) {
+    previewVideo.pause();
+    previewVideo.removeAttribute('src');
+    previewVideo.load();
+  }
+  el('outputPreviewPanel')?.classList.add('hidden');
+  el('outputPreviewMeta')?.replaceChildren();
 
   for (const fmt of uniqueFormats) {
     const segs = bySignature[fmt.signature];
@@ -1270,16 +1322,31 @@ async function assembleMasters(bySignature, uniqueFormats, durations, deliverabl
       const name = `${inputBaseName}-${alias.deliverableId}.mp4`;
       const blob = new Blob([mp4Bytes], { type: 'video/mp4' });
       const url = URL.createObjectURL(blob);
-      outputs.push({ name, blob, url, alias, bytes: mp4Bytes.length });
+      const out = { name, blob, url, alias, bytes: mp4Bytes.length };
+      outputs.push(out);
       const row = document.createElement('div');
       row.className = 'output-row';
-      row.innerHTML = `<div><strong>${alias.platformName}</strong> · ${alias.placementLabel}<div class="muted">${name} · ${alias.width}×${alias.height} · ${formatBytes(mp4Bytes.length)}</div></div>`;
+      const info = document.createElement('div');
+      const title = document.createElement('strong');
+      title.textContent = `${alias.platformName} · ${alias.placementLabel}`;
+      const sub = document.createElement('div');
+      sub.className = 'muted';
+      sub.textContent = `${name} · ${alias.width}×${alias.height} · ${formatBytes(mp4Bytes.length)}`;
+      info.append(title, sub);
+      const actions = document.createElement('div');
+      actions.className = 'output-actions';
+      const previewBtn = document.createElement('button');
+      previewBtn.type = 'button';
+      previewBtn.className = 'btn';
+      previewBtn.textContent = 'Preview';
+      previewBtn.addEventListener('click', () => showOutputPreview(out));
       const a = document.createElement('a');
       a.href = url;
       a.download = name;
       a.textContent = 'Download';
       a.className = 'btn';
-      row.appendChild(a);
+      actions.append(previewBtn, a);
+      row.append(info, actions);
       host.appendChild(row);
     }
   }
@@ -1328,6 +1395,8 @@ el('runBtn').addEventListener('click', async () => {
   hideNofunds();
   el('runBtn').disabled = true;
   el('outputsSection').classList.add('hidden');
+  el('outputPreview')?.pause();
+  el('outputPreviewPanel')?.classList.add('hidden');
   el('fleetBar').style.width = '0%';
   try {
     const uniqueFormats = dedupeFormats(deliverables);
