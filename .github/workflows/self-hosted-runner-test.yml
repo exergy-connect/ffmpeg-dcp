@@ -1,0 +1,98 @@
+name: Self-hosted runner test
+
+on:
+  push:
+    paths:
+      - xframe/uploads/**/*.mp4
+  workflow_dispatch:
+    inputs:
+      video_path:
+        description: Relative path under xframe/uploads/ (optional for manual runs)
+        required: false
+        default: ""
+
+jobs:
+  probe-self-hosted-runner:
+    name: Probe JIT / self-hosted runner
+    runs-on: [self-hosted, dcp, wasm, video]
+    timeout-minutes: 15
+    env:
+      VIDEO_PATH: ${{ steps.video.outputs.path }}
+      VIDEO_URL: ${{ steps.video.outputs.url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Resolve uploaded video URL
+        id: video
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          resolve_url() {
+            local rel="$1"
+            local ref_name="${GITHUB_REF_NAME}"
+            printf '%s' "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${ref_name}/${rel}"
+          }
+
+          pick_from_push() {
+            local before="${{ github.event.before }}"
+            local after="${{ github.sha }}"
+            if [ "$before" = "0000000000000000000000000000000000000000" ]; then
+              find xframe/uploads -type f -name '*.mp4' | head -n 1
+              return
+            fi
+            git diff --name-only "$before" "$after" -- xframe/uploads \
+              | grep -E '\.mp4$' \
+              | head -n 1
+          }
+
+          REL=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            INPUT_PATH="${{ inputs.video_path }}"
+            if [ -n "$INPUT_PATH" ]; then
+              REL="$INPUT_PATH"
+            else
+              REL="$(find xframe/uploads -type f -name '*.mp4' 2>/dev/null | head -n 1 || true)"
+            fi
+          else
+            REL="$(pick_from_push || true)"
+          fi
+
+          if [ -z "$REL" ]; then
+            echo "No .mp4 found under xframe/uploads/ for this run." >&2
+            exit 1
+          fi
+
+          if [ ! -f "$REL" ]; then
+            echo "Video path does not exist in checkout: $REL" >&2
+            exit 1
+          fi
+
+          URL="$(resolve_url "$REL")"
+          echo "path=$REL" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Resolved video path: $REL"
+          echo "Resolved video URL: $URL"
+
+      - name: Print job context
+        run: |
+          echo "Runner name: ${RUNNER_NAME:-unknown}"
+          echo "Runner OS: ${RUNNER_OS}"
+          echo "Runner arch: ${RUNNER_ARCH}"
+          echo "Workflow: ${GITHUB_WORKFLOW}"
+          echo "Run ID: ${GITHUB_RUN_ID}"
+          echo "Repository: ${GITHUB_REPOSITORY}"
+          echo "Ref: ${GITHUB_REF}"
+          echo "SHA: ${GITHUB_SHA}"
+          echo "VIDEO_PATH=${VIDEO_PATH}"
+          echo "VIDEO_URL=${VIDEO_URL}"
+
+      - name: Verify runner received video URL
+        run: |
+          test -n "${VIDEO_URL}"
+          test -n "${VIDEO_PATH}"
+          test -f "${VIDEO_PATH}"
+          echo "Runner job received video URL: ${VIDEO_URL}"

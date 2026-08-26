@@ -11,3 +11,4 @@ output/ffmpeg-wasm/
 node_modules/
 package.json
 package-lock.json
+!test/package.json
