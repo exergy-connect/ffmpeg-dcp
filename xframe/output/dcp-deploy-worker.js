@@ -36,30 +36,41 @@ function extForChunk(bytes, claimed) {
 
 onmessage = ({ data }) => {
   if (data.cmd !== 'prepare') return;
-  const { chunks, formatCount, maxDistribution, container } = data;
-  const chunkBase64ByIndex = chunks.map((c) => bytesToBase64(c));
-  const chunkExtByIndex = chunks.map((c) => extForChunk(c, container));
-  let inputSet;
-  if (maxDistribution) {
-    inputSet = [];
-    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-      for (let formatIndex = 0; formatIndex < formatCount; formatIndex++) {
+  const { maxDistribution } = data;
+  const sourceSets = data.sourceSets || [{
+    sourceId: 'primary',
+    chunks: data.chunks,
+    formatIndexes: Array.from({ length: data.formatCount }, (_, index) => index),
+    container: data.container,
+  }];
+  const inputSet = [];
+  for (const source of sourceSets) {
+    const { sourceId, chunks, formatIndexes, container } = source;
+    const chunkBase64ByIndex = chunks.map((chunk) => bytesToBase64(chunk));
+    const chunkExtByIndex = chunks.map((chunk) => extForChunk(chunk, container));
+    if (maxDistribution) {
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        for (const formatIndex of formatIndexes) {
+          inputSet.push({
+            sourceId,
+            chunkIndex,
+            formatIndexes: [formatIndex],
+            chunkBase64: chunkBase64ByIndex[chunkIndex],
+            chunkExt: chunkExtByIndex[chunkIndex],
+          });
+        }
+      }
+    } else {
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
         inputSet.push({
+          sourceId,
           chunkIndex,
-          formatIndexes: [formatIndex],
+          formatIndexes,
           chunkBase64: chunkBase64ByIndex[chunkIndex],
           chunkExt: chunkExtByIndex[chunkIndex],
         });
       }
     }
-  } else {
-    const allIndexes = Array.from({ length: formatCount }, (_, i) => i);
-    inputSet = chunkBase64ByIndex.map((chunkBase64, chunkIndex) => ({
-      chunkIndex,
-      formatIndexes: allIndexes,
-      chunkBase64,
-      chunkExt: chunkExtByIndex[chunkIndex],
-    }));
   }
   postMessage({ inputSet });
 };

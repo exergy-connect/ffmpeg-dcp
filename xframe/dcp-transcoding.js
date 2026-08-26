@@ -490,13 +490,28 @@ function dedupeFormats(deliverables) {
   return [...bySig.values()];
 }
 
+function sourceIdForFormat(format) {
+  return verticalInputBytes && format.height > format.width ? 'vertical' : 'primary';
+}
+
+function groupFormatsBySource(formats) {
+  const groups = { primary: [], vertical: [] };
+  for (const format of formats) groups[sourceIdForFormat(format)].push(format);
+  return groups;
+}
+
 function updateSelectionSummary() {
   const selected = selectedDeliverables();
   const unique = dedupeFormats(selected);
   const aliasExtra = selected.length - unique.length;
+  const sourceGroups = groupFormatsBySource(unique);
+  const sourceNote = verticalInputBytes && unique.length
+    ? ` · ${sourceGroups.primary.length} horizontal-source / ${sourceGroups.vertical.length} vertical-source encode(s)`
+    : '';
   el('selectionSummary').textContent = selected.length
     ? `${selected.length} placement(s) → ${unique.length} unique encode(s)` +
-      (aliasExtra > 0 ? ` (${aliasExtra} shared via identical signatures)` : '')
+      (aliasExtra > 0 ? ` (${aliasExtra} shared via identical signatures)` : '') +
+      sourceNote
     : 'No placements selected.';
   el('statUnique').textContent = String(unique.length);
   el('statAliases').textContent = String(selected.length);
@@ -531,25 +546,42 @@ function estimateSliceCount(uniqueFormatCount, chunkCount) {
   return maxDistribution ? chunkCount * uniqueFormatCount : chunkCount;
 }
 
-function currentChunkEstimate() {
-  if (lastExactSliceCount != null) return { chunks: null, approx: false, source: 'exact' };
-  const fromDuration = estimateChunkCount(inputDurationSec);
-  if (fromDuration != null) return { chunks: fromDuration, approx: true, source: 'duration' };
-  if (inputBytes?.length) {
-    const fromBytes = estimateChunkCountFromBytes(inputBytes.length);
-    if (fromBytes != null) return { chunks: fromBytes, approx: true, source: 'size' };
+function sourceChunkEstimate(sourceId) {
+  const duration = sourceId === 'vertical' ? verticalInputDurationSec : inputDurationSec;
+  const bytes = sourceId === 'vertical' ? verticalInputBytes : inputBytes;
+  const fromDuration = estimateChunkCount(duration);
+  if (fromDuration != null) return { chunks: fromDuration, source: 'duration' };
+  if (bytes?.length) {
+    const fromBytes = estimateChunkCountFromBytes(bytes.length);
+    if (fromBytes != null) return { chunks: fromBytes, source: 'size' };
   }
-  return { chunks: null, approx: true, source: 'none' };
+  return { chunks: null, source: 'none' };
+}
+
+function estimatedSlicesForFormats(formats) {
+  const groups = groupFormatsBySource(formats);
+  let slices = 0;
+  const details = [];
+  for (const sourceId of ['primary', 'vertical']) {
+    const sourceFormats = groups[sourceId];
+    if (!sourceFormats.length) continue;
+    const chunkInfo = sourceChunkEstimate(sourceId);
+    if (chunkInfo.chunks == null) return { slices: null, details };
+    const sourceSlices = estimateSliceCount(sourceFormats.length, chunkInfo.chunks);
+    slices += sourceSlices;
+    details.push(`${sourceId} ~${chunkInfo.chunks} chunk(s) × ${sourceFormats.length} format(s)`);
+  }
+  return { slices, details };
 }
 
 function updateCostEstimate(exactSliceCount = null) {
   if (exactSliceCount != null) lastExactSliceCount = exactSliceCount;
   const selected = selectedDeliverables();
   const unique = dedupeFormats(selected);
-  const chunkInfo = currentChunkEstimate();
+  const estimate = estimatedSlicesForFormats(unique);
   const slices = lastExactSliceCount != null
     ? lastExactSliceCount
-    : estimateSliceCount(unique.length, chunkInfo.chunks);
+    : estimate.slices;
 
   const costEl = el('costEstimate');
   const detailEl = el('costEstimateDetail');
@@ -592,10 +624,8 @@ function updateCostEstimate(exactSliceCount = null) {
   const approx = lastExactSliceCount == null;
   const chunkNote = lastExactSliceCount != null
     ? `${slices} slice(s)`
-    : `~${slices} slice(s) (~${chunkInfo.chunks} chunk(s) × ${unique.length} format(s)` +
-      `${el('maxDistributionToggle').checked ? '' : ', bundled'})` +
-      `${chunkInfo.source === 'size' ? ', from file size' : ''}` +
-      `${chunkInfo.source === 'duration' && inputDurationSec ? `, ${inputDurationSec.toFixed(1)}s` : ''}`;
+    : `~${slices} slice(s) (${estimate.details.join('; ')}` +
+      `${el('maxDistributionToggle').checked ? '' : ', bundled by source'})`;
   let detail =
     `${approx ? '~' : ''}${chunkNote} × ${slicePaymentDcc} ${CREDIT_SYMBOL}/slice` +
     (approx ? ' — before dispatch' : '');
@@ -668,6 +698,8 @@ async function fetchAccountBalance(existingPayKeystore = null) {
 // ---- Recording / file input ----
 let inputBytes = null;
 let inputBaseName = 'recording';
+let verticalInputBytes = null;
+let verticalInputDurationSec = null;
 let mediaRecorder = null;
 let recordChunks = [];
 let recordStream = null;
@@ -691,15 +723,19 @@ function preferredMime() {
   return 'video/webm';
 }
 
-async function readVideoDuration(url) {
+async function readVideoMetadata(url) {
   return new Promise((resolve) => {
     const v = document.createElement('video');
     let settled = false;
-    const finish = (value) => {
+    const finish = (duration) => {
       if (settled) return;
       settled = true;
       try { URL.revokeObjectURL(v.src); } catch { /* ignore */ }
-      resolve(Number.isFinite(value) && value > 0 ? value : null);
+      resolve({
+        duration: Number.isFinite(duration) && duration > 0 ? duration : null,
+        width: v.videoWidth || null,
+        height: v.videoHeight || null,
+      });
     };
     const timer = setTimeout(() => finish(null), 4000);
     v.preload = 'metadata';
@@ -741,36 +777,70 @@ function outputStemFromFileName(name) {
   return withoutCodec.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'recording';
 }
 
-async function handleFile(file) {
+async function handleFile(file, sourceId = 'primary') {
+  const isVertical = sourceId === 'vertical';
   const sizeStr = formatBytes(file.size);
-  el('inputLoaded').classList.remove('hidden');
-  el('fileInfo').textContent = `${file.name} — ${sizeStr} (${file.type || 'unknown'})`;
-  inputBaseName = outputStemFromFileName(file.name);
-  inputBytes = new Uint8Array(await file.arrayBuffer());
+  const loadedEl = el(isVertical ? 'verticalInputLoaded' : 'inputLoaded');
+  const infoEl = el(isVertical ? 'verticalFileInfo' : 'fileInfo');
+  const previewEl = el(isVertical ? 'verticalPreview' : 'preview');
+  loadedEl.classList.remove('hidden');
+  infoEl.textContent = `${file.name} — ${sizeStr} (${file.type || 'unknown'})`;
+  const bytes = new Uint8Array(await file.arrayBuffer());
   const url = URL.createObjectURL(file);
-  el('preview').src = url;
-  inputDurationSec = await readVideoDuration(URL.createObjectURL(file));
-  if (inputDurationSec != null) {
-    log(`Loaded ${file.name} (${(file.size / 1024).toFixed(0)} KB, ${inputDurationSec.toFixed(1)}s)`);
+  previewEl.src = url;
+  const metadata = await readVideoMetadata(URL.createObjectURL(file));
+  const orientation = metadata.width && metadata.height
+    ? (metadata.height > metadata.width ? 'vertical' : 'horizontal')
+    : 'unknown orientation';
+  infoEl.textContent =
+    `${file.name} — ${sizeStr} · ${metadata.width || '?'}×${metadata.height || '?'} · ${orientation}`;
+  if (isVertical) {
+    verticalInputBytes = bytes;
+    verticalInputDurationSec = metadata.duration;
   } else {
-    log(`Loaded ${file.name} (${(file.size / 1024).toFixed(0)} KB)`);
+    inputBaseName = outputStemFromFileName(file.name);
+    inputBytes = bytes;
+    inputDurationSec = metadata.duration;
   }
+  const expected = isVertical ? 'vertical' : 'horizontal';
+  const orientationWarning = orientation !== 'unknown orientation' && orientation !== expected
+    ? ` Warning: this ${orientation} video is in the ${expected} slot.`
+    : '';
+  log(
+    `Loaded ${sourceId} source ${file.name} (${(file.size / 1024).toFixed(0)} KB` +
+    `${metadata.duration != null ? `, ${metadata.duration.toFixed(1)}s` : ''}).${orientationWarning}`,
+  );
   updateSelectionSummary();
 }
 
-const dropzone = el('dropzone');
-const fileInput = el('fileInput');
-dropzone.addEventListener('click', () => fileInput.click());
-dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
-dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
-dropzone.addEventListener('drop', (e) => {
-  e.preventDefault();
-  dropzone.classList.remove('dragover');
-  const file = e.dataTransfer.files[0];
-  if (file) handleFile(file);
-});
-fileInput.addEventListener('change', () => {
-  if (fileInput.files[0]) handleFile(fileInput.files[0]);
+function wireDropzone(dropzoneId, fileInputId, sourceId) {
+  const dropzone = el(dropzoneId);
+  const fileInput = el(fileInputId);
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+  dropzone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropzone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file, sourceId);
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) handleFile(fileInput.files[0], sourceId);
+  });
+}
+
+wireDropzone('dropzone', 'fileInput', 'primary');
+wireDropzone('verticalDropzone', 'verticalFileInput', 'vertical');
+el('clearVerticalBtn').addEventListener('click', () => {
+  verticalInputBytes = null;
+  verticalInputDurationSec = null;
+  el('verticalFileInput').value = '';
+  el('verticalPreview').removeAttribute('src');
+  el('verticalPreview').load();
+  el('verticalInputLoaded').classList.add('hidden');
+  log('Removed vertical source; the primary source will be used for every placement.');
+  updateSelectionSummary();
 });
 
 el('recordBtn').addEventListener('click', async () => {
@@ -794,7 +864,7 @@ el('recordBtn').addEventListener('click', async () => {
       recordStream = null;
       const blob = new Blob(recordChunks, { type: mime.split(';')[0] });
       el('recordStatus').textContent = 'Recording ready';
-      await handleFile(new File([blob], `browser-recording-${Date.now()}.webm`, { type: blob.type }));
+      await handleFile(new File([blob], `browser-recording-${Date.now()}.webm`, { type: blob.type }), 'primary');
     };
     mediaRecorder.start(1000);
     el('recordBtn').disabled = true;
@@ -875,13 +945,18 @@ function framingModeCode() {
   return 1; // cover
 }
 
-async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, inputBaseName, container) {
+async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBaseName) {
   const { compute, wallet } = window.dcp;
+  const sourceById = new Map(sourcePlans.map((source) => [source.id, source]));
   dbg('dispatchJob start', {
-    chunks: chunks.length,
+    sources: sourcePlans.map((source) => ({
+      id: source.id,
+      chunks: source.chunks.length,
+      formats: uniqueFormats.filter((format) => format.sourceId === source.id).length,
+      container: source.container,
+    })),
     formats: uniqueFormats.length,
     maxDistribution,
-    container: container || '(sniff)',
     paymentPerSlice: slicePaymentDcc,
     package: CONFIG.dcp_package || 'ffmpeg-dcp-social/ffmpeg-wasm.js',
   });
@@ -906,9 +981,13 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
     gopSeconds: f.gopSeconds,
     encoder: f.encoder,
     frameMode: framingModeCode(),
+    sourceId: f.sourceId,
   }));
   const formatsMetaJson = JSON.stringify(formatsMeta);
-  const totalUnits = chunks.length * uniqueFormats.length;
+  const totalUnits = sourcePlans.reduce((total, source) => {
+    const formatCount = uniqueFormats.filter((format) => format.sourceId === source.id).length;
+    return total + source.chunks.length * formatCount;
+  }, 0);
   dbg('formatsMeta', formatsMeta.map((f) => `${f.signature} ${f.width}x${f.height}`));
 
   const prepWorker = new Worker(assetUrl(CONFIG.deploy_worker_script || 'dcp-deploy-worker.js'));
@@ -918,16 +997,22 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
     prepWorker.onerror = (err) => reject(new Error(`prep worker failed: ${err.message || 'script error'}`));
     prepWorker.postMessage({
       cmd: 'prepare',
-      chunks,
-      formatCount: uniqueFormats.length,
+      sourceSets: sourcePlans.map((source) => ({
+        sourceId: source.id,
+        chunks: source.chunks,
+        formatIndexes: uniqueFormats
+          .map((format, index) => (format.sourceId === source.id ? index : -1))
+          .filter((index) => index >= 0),
+        container: source.container,
+      })),
       maxDistribution,
-      container: container || undefined,
     });
   });
   prepWorker.terminate();
 
   const inputSummary = inputSet.map((u, i) => ({
     i,
+    sourceId: u.sourceId,
     chunkIndex: u.chunkIndex,
     formatIndexes: u.formatIndexes,
     chunkExt: u.chunkExt,
@@ -1058,7 +1143,7 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
       }
       Module.FS.unlink(inPath);
       wlog('return', { chunkIndex: unit.chunkIndex, segments: results.length });
-      return { chunkIndex: unit.chunkIndex, segments: results };
+      return { sourceId: unit.sourceId, chunkIndex: unit.chunkIndex, segments: results };
     } catch (err) {
       wlog('FAILED', err && err.message ? err.message : String(err));
       throw err;
@@ -1075,7 +1160,10 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
   let completed = 0;
   let resultEvents = 0;
   const bySignature = {};
-  for (const f of uniqueFormats) bySignature[f.signature] = new Array(chunks.length).fill(null);
+  for (const f of uniqueFormats) {
+    const source = sourceById.get(f.sourceId);
+    bySignature[f.signature] = new Array(source?.chunks.length || 0).fill(null);
+  }
 
   setupGrid(inputSet.length);
   el('statCompleted').textContent = `0 / ${totalUnits}`;
@@ -1145,6 +1233,7 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
       resultKeys: ev?.result && typeof ev.result === 'object' ? Object.keys(ev.result) : undefined,
     });
     const payload = ev?.result ?? ev;
+    const sourceId = payload?.sourceId || 'primary';
     const chunkIndex = payload?.chunkIndex;
     const segments = payload?.segments;
     if (!Array.isArray(segments)) {
@@ -1169,12 +1258,18 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
     }
     log(
       `Received slice ${ev?.sliceNumber ?? unitIndex}: chunk ${chunkIndex}, ` +
-      `${segments.length} segment(s) (${completed}/${totalUnits} format-units)`,
+      `${sourceId} source, ${segments.length} segment(s) (${completed}/${totalUnits} format-units)`,
     );
   });
 
   const groupsLabel = (job.computeGroups || []).map((g) => g.joinKey || g).join(', ') || '(default)';
-  log(`Dispatching ${inputSet.length} slice(s), ${totalUnits} format-units (${chunks.length} chunks × ${uniqueFormats.length} unique formats) → groups: ${groupsLabel}`);
+  const sourceSummary = sourcePlans
+    .map((source) => {
+      const formatCount = uniqueFormats.filter((format) => format.sourceId === source.id).length;
+      return `${source.id}: ${source.chunks.length} chunks × ${formatCount} formats`;
+    })
+    .join('; ');
+  log(`Dispatching ${inputSet.length} slice(s), ${totalUnits} format-units (${sourceSummary}) → groups: ${groupsLabel}`);
   updateCostEstimate(inputSet.length);
 
   const heartbeat = setInterval(() => {
@@ -1292,7 +1387,7 @@ function showOutputPreview(out) {
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-async function assembleMasters(bySignature, uniqueFormats, durations, deliverables) {
+async function assembleMasters(bySignature, uniqueFormats, deliverables) {
   const outputs = [];
   el('outputsSection').classList.remove('hidden');
   const host = el('outputs');
@@ -1381,6 +1476,38 @@ el('saveOutputsBtn').addEventListener('click', async () => {
 
 // ---- Main run ----
 let runInProgress = false;
+
+async function sliceSource(sourceId, bytes, targetFrames) {
+  log(`Slicing ${sourceId} input (client-side WASM)…`);
+  const result = await sliceVideo(bytes, targetFrames);
+  const { chunks, durations, fps, container, slicer } = result;
+  log(
+    `Sliced ${sourceId} input into ${chunks.length} chunk(s) via ${slicer || 'slice'} ` +
+    `→ .${container || '?'}, fps=${(fps || 0).toFixed?.(2) ?? fps}`,
+  );
+  const inputKind = (bytes[0] === 0x1a && bytes[1] === 0x45)
+    ? 'webm'
+    : (bytes.length >= 8 && bytes[4] === 0x66 && bytes[5] === 0x74 ? 'mp4' : 'other');
+  if (inputKind === 'mp4' || inputKind === 'webm') {
+    const bad = chunks.findIndex((chunk) => chunk && chunk[0] === 0x47);
+    if (bad >= 0) {
+      throw new Error(
+        `Slicer ${slicer || 'slice'} turned the ${sourceId} ${inputKind} into MPEG-TS (chunk ${bad}). ` +
+        'VP9 in TS is private data (no video). Hard-refresh so ffmpeg-worker.js keeps .mp4/.webm, then retry.',
+      );
+    }
+  }
+  dbg(`${sourceId} slice summary`, {
+    chunkBytes: chunks.map((chunk) => chunk.length),
+    durations,
+    fps,
+    container,
+    slicer,
+    inputBytes: bytes.length,
+  });
+  return { id: sourceId, ...result };
+}
+
 el('runBtn').addEventListener('click', async () => {
   if (runInProgress) return;
   if (!hasValidApiKey()) {
@@ -1399,46 +1526,43 @@ el('runBtn').addEventListener('click', async () => {
   el('outputPreviewPanel')?.classList.add('hidden');
   el('fleetBar').style.width = '0%';
   try {
-    const uniqueFormats = dedupeFormats(deliverables);
+    const uniqueFormats = dedupeFormats(deliverables).map((format) => ({
+      ...format,
+      sourceId: sourceIdForFormat(format),
+    }));
     el('statUnique').textContent = String(uniqueFormats.length);
     el('statAliases').textContent = String(deliverables.length);
     el('preprocessingStatus').classList.remove('hidden');
-    el('preprocessingStatus').textContent = 'Slicing input at keyframes…';
+    el('preprocessingStatus').textContent = 'Slicing source video(s) at keyframes…';
     const targetFrames = CONFIG.dispatch?.target_chunk_frames || 90;
-    log('Slicing input (client-side WASM)…');
-    const { chunks, durations, fps, container, slicer } = await sliceVideo(inputBytes, targetFrames);
-    log(`Sliced into ${chunks.length} chunk(s) via ${slicer || 'slice'} → .${container || '?'} , fps=${(fps || 0).toFixed?.(2) ?? fps}`);
-    const inputKind = (inputBytes[0] === 0x1a && inputBytes[1] === 0x45)
-      ? 'webm'
-      : (inputBytes.length >= 8 && inputBytes[4] === 0x66 && inputBytes[5] === 0x74 ? 'mp4' : 'other');
-    if (inputKind === 'mp4' || inputKind === 'webm') {
-      const bad = chunks.findIndex((c) => c && c[0] === 0x47);
-      if (bad >= 0) {
-        throw new Error(
-          `Slicer ${slicer || 'slice'} turned ${inputKind} into MPEG-TS (chunk ${bad}). ` +
-          'VP9 in TS is private data (no video). Hard-refresh so ffmpeg-worker.js keeps .mp4/.webm, then retry.',
-        );
+    const usedSourceIds = new Set(uniqueFormats.map((format) => format.sourceId));
+    const sourcePlans = [];
+    if (usedSourceIds.has('primary')) {
+      sourcePlans.push(await sliceSource('primary', inputBytes, targetFrames));
+    }
+    if (usedSourceIds.has('vertical')) {
+      sourcePlans.push(await sliceSource('vertical', verticalInputBytes, targetFrames));
+    }
+    for (const source of sourcePlans) {
+      const slicedDuration = Array.isArray(source.durations)
+        ? source.durations.reduce((sum, duration) => sum + duration, 0)
+        : 0;
+      if (slicedDuration > 0) {
+        if (source.id === 'vertical') verticalInputDurationSec = slicedDuration;
+        else inputDurationSec = slicedDuration;
       }
     }
-    dbg('slice summary', {
-      chunkBytes: chunks.map((c) => c.length),
-      durations,
-      fps,
-      container,
-      slicer,
-      inputBytes: inputBytes.length,
-    });
-    const slicedDuration = Array.isArray(durations) ? durations.reduce((a, b) => a + b, 0) : 0;
-    if (slicedDuration > 0) inputDurationSec = slicedDuration;
     const maxDistribution = el('maxDistributionToggle').checked;
-    updateCostEstimate(maxDistribution ? chunks.length * uniqueFormats.length : chunks.length);
+    const exactSliceCount = sourcePlans.reduce((total, source) => {
+      const formatCount = uniqueFormats.filter((format) => format.sourceId === source.id).length;
+      return total + (maxDistribution ? source.chunks.length * formatCount : source.chunks.length);
+    }, 0);
+    updateCostEstimate(exactSliceCount);
     el('preprocessingStatus').textContent = 'Dispatching to DCP…';
 
-    const { bySignature } = await dispatchJob(
-      chunks, uniqueFormats, durations, maxDistribution, inputBaseName, container,
-    );
+    const { bySignature } = await dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBaseName);
     el('preprocessingStatus').textContent = 'Assembling MP4 masters…';
-    lastOutputs = await assembleMasters(bySignature, uniqueFormats, durations, deliverables);
+    lastOutputs = await assembleMasters(bySignature, uniqueFormats, deliverables);
     el('saveOutputsBtn').classList.toggle('hidden', !lastOutputs.length || !window.showDirectoryPicker);
     el('preprocessingStatus').textContent = `Done — ${lastOutputs.length} deliverable(s).`;
     log(`Produced ${lastOutputs.length} MP4 deliverable(s).`);

@@ -26,9 +26,13 @@
     section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem; }
     section h2 { font-size: 1rem; margin: 0 0 0.75rem; color: #d7dee5; }
     .hidden { display: none !important; }
-    #dropzone { border: 2px dashed #2d3f52; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; }
-    #dropzone.dragover { border-color: var(--accent); background: #0f1a26; }
-    #fileInput, #recordPreviewInput { display: none; }
+    .input-grid { display: grid; gap: 0.85rem; }
+    @media (min-width: 720px) { .input-grid { grid-template-columns: 1fr 1fr; } }
+    .input-card { border: 1px solid var(--border); border-radius: 9px; padding: 0.85rem; min-width: 0; }
+    .input-card h3 { margin: 0 0 0.3rem; font-size: 0.92rem; }
+    .dropzone { border: 2px dashed #2d3f52; border-radius: 8px; padding: 1.25rem; text-align: center; cursor: pointer; margin-top: 0.65rem; }
+    .dropzone.dragover { border-color: var(--accent); background: #0f1a26; }
+    #fileInput, #verticalFileInput, #recordPreviewInput { display: none; }
     button, .btn { background: #1c2733; color: var(--text); border: 1px solid #2d3f52; border-radius: 6px; padding: 0.45rem 0.9rem; cursor: pointer; font-size: 0.9rem; }
     button.primary { background: linear-gradient(90deg, #3fb950, #2ea043); color: #04170a; border: none; font-weight: 700; }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -91,7 +95,7 @@
     </div>
     <div class="page-header-brand">
       <img class="brand-logo" src="./exergy_connect_logo.png" alt="Exergy Connect" width="180" height="48" />
-      <p class="build-stamp" title="Build stamp">2026-08-26T17:03:46Z · 5c8cc6a</p>
+      <p class="build-stamp" title="Build stamp">2026-08-26T20:17:08Z · 5829bfe</p>
     </div>
   </header>
 
@@ -101,23 +105,44 @@
   </div>
 
   <section>
-    <h2>1. Browser recording input</h2>
-    <p class="muted">Accepts a completed <code>MediaRecorder</code> WebM (VP8/VP9 + Opus), or an MP4 (VP9 or H.264). Record in-page or drop a file.</p>
+    <h2>1. Video inputs</h2>
+    <p class="muted">Add a primary horizontal video and, optionally, a vertical version. With two inputs, each selected placement uses the source whose orientation matches its output; with one, the primary is used everywhere.</p>
     <div class="row" style="margin-bottom:0.75rem">
       <button type="button" id="recordBtn">Start recording</button>
       <button type="button" id="stopRecordBtn" disabled>Stop</button>
       <span id="recordStatus" class="muted">Idle</span>
     </div>
     <video id="livePreview" muted playsinline class="hidden"></video>
-    <div id="dropzone" style="margin-top:0.75rem">
-      <p>Drop a WebM recording or MP4 here, or click to choose a file</p>
-      <p class="muted" style="font-size:0.8rem;margin-top:0.4rem">Preferred: video/webm;codecs=vp9,opus (fallback vp8,opus). MP4 with VP9 or H.264 also works.</p>
-      <input id="fileInput" type="file" accept="video/webm,video/mp4,video/*" />
-    </div>
-    <div id="inputLoaded" class="hidden" style="margin-top:0.75rem">
-      <span class="badge">loaded</span>
-      <span id="fileInfo" class="muted" style="margin-left:0.5rem"></span>
-      <video id="preview" controls style="margin-top:0.75rem"></video>
+    <div class="input-grid">
+      <div class="input-card">
+        <h3>Primary · horizontal</h3>
+        <p class="muted">Required. Used for landscape and square outputs, and for every output when no vertical video is supplied.</p>
+        <div id="dropzone" class="dropzone">
+          <p>Drop or choose the primary video</p>
+          <p class="muted" style="font-size:0.8rem;margin-top:0.4rem">WebM or MP4 · landscape recommended</p>
+          <input id="fileInput" type="file" accept="video/webm,video/mp4,video/*" />
+        </div>
+        <div id="inputLoaded" class="hidden" style="margin-top:0.75rem">
+          <span class="badge">loaded</span>
+          <span id="fileInfo" class="muted" style="margin-left:0.5rem"></span>
+          <video id="preview" controls style="margin-top:0.75rem"></video>
+        </div>
+      </div>
+      <div class="input-card">
+        <h3>Secondary · vertical</h3>
+        <p class="muted">Optional. Used automatically for every output that is taller than it is wide.</p>
+        <div id="verticalDropzone" class="dropzone">
+          <p>Drop or choose the vertical video</p>
+          <p class="muted" style="font-size:0.8rem;margin-top:0.4rem">WebM or MP4 · portrait recommended</p>
+          <input id="verticalFileInput" type="file" accept="video/webm,video/mp4,video/*" />
+        </div>
+        <div id="verticalInputLoaded" class="hidden" style="margin-top:0.75rem">
+          <span class="badge">loaded</span>
+          <span id="verticalFileInfo" class="muted" style="margin-left:0.5rem"></span>
+          <video id="verticalPreview" controls style="margin-top:0.75rem"></video>
+          <button type="button" id="clearVerticalBtn" style="margin-top:0.55rem">Remove vertical video</button>
+        </div>
+      </div>
     </div>
   </section>
 
