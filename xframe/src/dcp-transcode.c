@@ -11,6 +11,7 @@
 #include <libswscale/swscale.h>
 #include <libswresample/swresample.h>
 #include <libavutil/opt.h>
+#include <libavutil/dict.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/mastering_display_metadata.h>
@@ -1238,16 +1239,18 @@ static void compute_contain_fit(int src_w, int src_h, int dst_w, int dst_h,
   *pad_y = ((dst_h - *fit_h) / 2) & ~1;
 }
 
-/* Keyframe-aligned WebM stream-copy slicer for MediaRecorder inputs.
- * Writes "{prefix}NNN.webm" and updates g_chunk_frame_counts / g_source_fps. */
-EMSCRIPTEN_KEEPALIVE
-int slice_webm(const char *input_path, const char *output_prefix, int target_chunk_frames) {
+/* Keyframe-aligned stream-copy slicer. Muxer/extension keep the source
+ * codec (WebM for VP8/VP9, MP4 for VP9 or H.264). MPEG-TS (`slice()`)
+ * cannot carry VP9 as video — it becomes a private data stream. */
+static int slice_stream_copy(const char *input_path, const char *output_prefix,
+                             int target_chunk_frames,
+                             const char *muxer_name, const char *file_ext) {
   int ret;
   AVFormatContext *in_fmt = NULL;
   if ((ret = avformat_open_input(&in_fmt, input_path, NULL, NULL)) < 0)
-    TRANSCODE_FAIL("slice_webm: avformat_open_input", ret);
+    TRANSCODE_FAIL("slice_copy: avformat_open_input", ret);
   if ((ret = avformat_find_stream_info(in_fmt, NULL)) < 0)
-    TRANSCODE_FAIL("slice_webm: avformat_find_stream_info", ret);
+    TRANSCODE_FAIL("slice_copy: avformat_find_stream_info", ret);
 
   int video_idx = -1;
   int audio_idx[MAX_AUDIO_STREAMS];
@@ -1257,7 +1260,7 @@ int slice_webm(const char *input_path, const char *output_prefix, int target_chu
     if (t == AVMEDIA_TYPE_VIDEO && video_idx < 0) video_idx = i;
     else if (t == AVMEDIA_TYPE_AUDIO && audio_count < MAX_AUDIO_STREAMS) audio_idx[audio_count++] = i;
   }
-  if (video_idx < 0) { fprintf(stderr, "[slice_webm] no video stream\n"); return -1000; }
+  if (video_idx < 0) { fprintf(stderr, "[slice_copy] no video stream\n"); return -1000; }
 
   AVStream *in_stream = in_fmt->streams[video_idx];
   AVRational fr = in_stream->avg_frame_rate.num ? in_stream->avg_frame_rate : in_stream->r_frame_rate;
@@ -1301,11 +1304,12 @@ int slice_webm(const char *input_path, const char *output_prefix, int target_chu
         avio_closep(&chunk_fmt->pb);
         avformat_free_context(chunk_fmt);
       }
-      if (chunk_count >= MAX_CHUNKS) { fprintf(stderr, "[slice_webm] MAX_CHUNKS exceeded\n"); return -1003; }
-      snprintf(chunk_path, sizeof(chunk_path), "%s%03d.webm", output_prefix, chunk_count);
-      avformat_alloc_output_context2(&chunk_fmt, NULL, "webm", chunk_path);
+      if (chunk_count >= MAX_CHUNKS) { fprintf(stderr, "[slice_copy] MAX_CHUNKS exceeded\n"); return -1003; }
+      snprintf(chunk_path, sizeof(chunk_path), "%s%03d.%s", output_prefix, chunk_count, file_ext);
+      avformat_alloc_output_context2(&chunk_fmt, NULL, muxer_name, chunk_path);
       chunk_stream = avformat_new_stream(chunk_fmt, NULL);
       avcodec_parameters_copy(chunk_stream->codecpar, in_stream->codecpar);
+      chunk_stream->codecpar->codec_tag = 0;
       chunk_stream->time_base = in_stream->time_base;
       for (int a = 0; a < audio_count; a++) {
         AVStream *in_audio_stream = in_fmt->streams[audio_idx[a]];
@@ -1315,9 +1319,13 @@ int slice_webm(const char *input_path, const char *output_prefix, int target_chu
         chunk_audio_streams[a]->time_base = in_audio_stream->time_base;
       }
       if ((ret = avio_open(&chunk_fmt->pb, chunk_path, AVIO_FLAG_WRITE)) < 0)
-        TRANSCODE_FAIL("slice_webm: avio_open", ret);
-      if ((ret = avformat_write_header(chunk_fmt, NULL)) < 0)
-        TRANSCODE_FAIL("slice_webm: avformat_write_header", ret);
+        TRANSCODE_FAIL("slice_copy: avio_open", ret);
+      AVDictionary *opts = NULL;
+      if (strcmp(muxer_name, "mp4") == 0)
+        av_dict_set(&opts, "movflags", "+faststart", 0);
+      if ((ret = avformat_write_header(chunk_fmt, opts ? &opts : NULL)) < 0)
+        TRANSCODE_FAIL("slice_copy: avformat_write_header", ret);
+      av_dict_free(&opts);
       chunk_count++;
       frames_in_chunk = 0;
     }
@@ -1343,6 +1351,17 @@ int slice_webm(const char *input_path, const char *output_prefix, int target_chu
   return chunk_count;
 }
 
+EMSCRIPTEN_KEEPALIVE
+int slice_webm(const char *input_path, const char *output_prefix, int target_chunk_frames) {
+  return slice_stream_copy(input_path, output_prefix, target_chunk_frames, "webm", "webm");
+}
+
+EMSCRIPTEN_KEEPALIVE
+int slice_mp4(const char *input_path, const char *output_prefix, int target_chunk_frames) {
+  return slice_stream_copy(input_path, output_prefix, target_chunk_frames, "mp4", "mp4");
+}
+
+/* Social segment: WebM or MP4 (VP8/VP9/H.264 + Opus/AAC) → H.264(+AAC) MPEG-TS. */
 /* Social segment: WebM/VP8/VP9(+Opus) → H.264(+AAC) MPEG-TS with framing. */
 EMSCRIPTEN_KEEPALIVE
 int transcode_social_segment(const char *input_path, const char *output_path,
@@ -1687,7 +1706,14 @@ int remux_to_mp4(const char *input_path, const char *output_path) {
   AVPacket *pkt = av_packet_alloc();
   int64_t first_pts[32];
   int saw[32];
-  for (int i = 0; i < 32; i++) { first_pts[i] = AV_NOPTS_VALUE; saw[i] = 0; }
+  int64_t last_out_dts[32];
+  int64_t last_out_dur[32];
+  for (int i = 0; i < 32; i++) {
+    first_pts[i] = AV_NOPTS_VALUE;
+    saw[i] = 0;
+    last_out_dts[i] = AV_NOPTS_VALUE;
+    last_out_dur[i] = 0;
+  }
   while (av_read_frame(in_fmt, pkt) >= 0) {
     int in_idx = pkt->stream_index;
     if (in_idx < 0 || in_idx >= (int)in_fmt->nb_streams || stream_map[in_idx] < 0) {
@@ -1696,6 +1722,8 @@ int remux_to_mp4(const char *input_path, const char *output_path) {
     }
     AVStream *in_st = in_fmt->streams[in_idx];
     AVStream *out_st = out_fmt->streams[stream_map[in_idx]];
+    if (pkt->dts == AV_NOPTS_VALUE) pkt->dts = pkt->pts;
+    if (pkt->pts == AV_NOPTS_VALUE) pkt->pts = pkt->dts;
     if (!saw[in_idx] && pkt->pts != AV_NOPTS_VALUE) {
       first_pts[in_idx] = pkt->pts;
       saw[in_idx] = 1;
@@ -1707,6 +1735,23 @@ int remux_to_mp4(const char *input_path, const char *output_path) {
     av_packet_rescale_ts(pkt, in_st->time_base, out_st->time_base);
     pkt->stream_index = out_st->index;
     pkt->pos = -1;
+    /* Concatenated per-chunk MPEG-TS restarts timestamps at 0. Keep DTS
+     * strictly increasing so the MP4 muxer does not reject the join
+     * ("non monotonically increasing dts to muxer"). */
+    {
+      int oi = pkt->stream_index;
+      if (oi >= 0 && oi < 32 && pkt->dts != AV_NOPTS_VALUE
+          && last_out_dts[oi] != AV_NOPTS_VALUE && pkt->dts <= last_out_dts[oi]) {
+        int64_t step = last_out_dur[oi] > 0 ? last_out_dur[oi] : 1;
+        int64_t adj = last_out_dts[oi] + step - pkt->dts;
+        pkt->dts += adj;
+        if (pkt->pts != AV_NOPTS_VALUE) pkt->pts += adj;
+      }
+      if (oi >= 0 && oi < 32) {
+        if (pkt->dts != AV_NOPTS_VALUE) last_out_dts[oi] = pkt->dts;
+        if (pkt->duration > 0) last_out_dur[oi] = pkt->duration;
+      }
+    }
     ret = av_interleaved_write_frame(out_fmt, pkt);
     av_packet_unref(pkt);
     if (ret < 0) TRANSCODE_FAIL("remux: write_frame", ret);

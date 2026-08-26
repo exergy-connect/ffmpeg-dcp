@@ -97,7 +97,7 @@
 
   <section>
     <h2>1. Browser recording input</h2>
-    <p class="muted">Accepts a completed <code>MediaRecorder</code> WebM (VP8/VP9 + Opus), or an MP4/H.264 file. Record in-page or drop a file.</p>
+    <p class="muted">Accepts a completed <code>MediaRecorder</code> WebM (VP8/VP9 + Opus), or an MP4 (VP9 or H.264). Record in-page or drop a file.</p>
     <div class="row" style="margin-bottom:0.75rem">
       <button type="button" id="recordBtn">Start recording</button>
       <button type="button" id="stopRecordBtn" disabled>Stop</button>
@@ -106,7 +106,7 @@
     <video id="livePreview" muted playsinline class="hidden"></video>
     <div id="dropzone" style="margin-top:0.75rem">
       <p>Drop a WebM recording or MP4 here, or click to choose a file</p>
-      <p class="muted" style="font-size:0.8rem;margin-top:0.4rem">Preferred: video/webm;codecs=vp9,opus (fallback vp8,opus). MP4/H.264 also works.</p>
+      <p class="muted" style="font-size:0.8rem;margin-top:0.4rem">Preferred: video/webm;codecs=vp9,opus (fallback vp8,opus). MP4 with VP9 or H.264 also works.</p>
       <input id="fileInput" type="file" accept="video/webm,video/mp4,video/*" />
     </div>
     <div id="inputLoaded" class="hidden" style="margin-top:0.75rem">

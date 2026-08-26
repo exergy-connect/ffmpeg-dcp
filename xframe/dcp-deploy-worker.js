@@ -19,6 +19,11 @@ function sniffChunkExt(bytes) {
       bytes[2] === 0xdf && bytes[3] === 0xa3) {
     return 'webm';
   }
+  if (bytes && bytes.length >= 8 &&
+      bytes[4] === 0x66 && bytes[5] === 0x74 &&
+      bytes[6] === 0x79 && bytes[7] === 0x70) {
+    return 'mp4';
+  }
   return 'ts';
 }
 

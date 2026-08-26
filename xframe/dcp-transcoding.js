@@ -220,7 +220,7 @@ function showRunError(error) {
   } else if (/fetchModuleURL|Could not locate module|package\.dcp|ffmpeg-wasm-social/i.test(message)) {
     remedy = 'Publish the DCP package: cd xframe && node package/build-bravojs-bundle.js && node package/publish.js';
   } else if (/slice_webm|Only VP8 or VP9|MediaRecorder|\.webm/i.test(message)) {
-    remedy = 'Use an in-page recording or drop a browser MediaRecorder WebM (VP8/VP9 + Opus). MP4/H.264 files are also accepted now via the MPEG-TS slicer — hard-refresh if you still see a WebM-only error.';
+    remedy = 'Drop a MediaRecorder .webm (VP8/VP9) or an .mp4 (VP9 or H.264). Hard-refresh if a stale worker is still slicing MP4 into MPEG-TS.';
   } else if (/vp8|vp9|opus|decoder|wasm/i.test(message)) {
     remedy = 'Rebuild the xframe WASM package (see xframe/README.md) and publish ffmpeg-wasm-social.';
   }
@@ -731,11 +731,21 @@ async function readVideoDuration(url) {
   });
 }
 
+const CONTAINER_EXT_RE = /\.(mp4|webm|mkv|mov|m4v|ts|m2ts|avi|ogv)$/i;
+const SOURCE_CODEC_SUFFIX_RE = /(?:[._-](?:vp8|vp9|vp09|av1|avc1|h263|h264|h265|hevc|hev1|hvc1|mpeg2|mpeg4|theora|prores|dnxhd|cfhd|opus|vorbis|aac|mp3|flac|pcm|ac3|eac3|truehd))+$/i;
+
+function outputStemFromFileName(name) {
+  const base = String(name || '').replace(/^.*[/\\]/, '');
+  const withoutContainer = base.replace(CONTAINER_EXT_RE, '');
+  const withoutCodec = withoutContainer.replace(SOURCE_CODEC_SUFFIX_RE, '');
+  return withoutCodec.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'recording';
+}
+
 async function handleFile(file) {
   const sizeStr = formatBytes(file.size);
   el('inputLoaded').classList.remove('hidden');
   el('fileInfo').textContent = `${file.name} — ${sizeStr} (${file.type || 'unknown'})`;
-  inputBaseName = file.name.replace(/\.[^./\\]+$/, '').replace(/[^a-zA-Z0-9_-]+/g, '_') || 'recording';
+  inputBaseName = outputStemFromFileName(file.name);
   inputBytes = new Uint8Array(await file.arrayBuffer());
   const url = URL.createObjectURL(file);
   el('preview').src = url;
@@ -981,13 +991,17 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
       const isEbml = chunkBytes.length >= 4 &&
         chunkBytes[0] === 0x1a && chunkBytes[1] === 0x45 &&
         chunkBytes[2] === 0xdf && chunkBytes[3] === 0xa3;
-      const inExt = unit.chunkExt || (isEbml ? 'webm' : 'ts');
+      const isMp4 = chunkBytes.length >= 8 &&
+        chunkBytes[4] === 0x66 && chunkBytes[5] === 0x74 &&
+        chunkBytes[6] === 0x79 && chunkBytes[7] === 0x70;
+      const inExt = unit.chunkExt || (isEbml ? 'webm' : (isMp4 ? 'mp4' : 'ts'));
       const inPath = `/chunk-in.${inExt}`;
       wlog('write input', {
         inPath,
         bytes: chunkBytes.length,
         magic: [...chunkBytes.slice(0, 8)].map((x) => x.toString(16).padStart(2, '0')).join(''),
         isEbml,
+        isMp4,
       });
       Module.FS.writeFile(inPath, chunkBytes);
 
@@ -1065,7 +1079,7 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
   job.computeGroups = getComputeGroups();
   job.public = {
     name: `🎞️ Social transcoder: ${inputBaseName}`,
-    description: 'Browser WebM → social H.264/AAC masters via DCP',
+    description: 'WebM or MP4 → social H.264/AAC masters via DCP',
   };
   job.greedyEstimation = true;
   job.estimationSlices = inputSet.length;
@@ -1241,12 +1255,9 @@ async function assembleMasters(bySignature, uniqueFormats, durations, deliverabl
     }
     const parts = segs.map((b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
     const total = parts.reduce((n, p) => n + p.length, 0);
-    const concat = new Uint8Array(total);
-    let off = 0;
-    for (const p of parts) { concat.set(p, off); off += p.length; }
 
-    log(`Remuxing ${fmt.signature} → MP4 (${formatBytes(concat.length)} TS)…`);
-    const mp4Bytes = await remuxToMp4(concat);
+    log(`Remuxing ${fmt.signature} → MP4 (${formatBytes(total)} TS, ${parts.length} segment(s))…`);
+    const mp4Bytes = await remuxToMp4(parts);
     const aliases = fmt.aliases || deliverables.filter((d) => d.signature === fmt.signature);
     for (const alias of aliases) {
       const name = `${inputBaseName}-${alias.deliverableId}.mp4`;
@@ -1316,9 +1327,9 @@ el('runBtn').addEventListener('click', async () => {
     el('statUnique').textContent = String(uniqueFormats.length);
     el('statAliases').textContent = String(deliverables.length);
     el('preprocessingStatus').classList.remove('hidden');
-    el('preprocessingStatus').textContent = 'Slicing WebM at keyframes…';
+    el('preprocessingStatus').textContent = 'Slicing input at keyframes…';
     const targetFrames = CONFIG.dispatch?.target_chunk_frames || 90;
-    log('Slicing browser recording (client-side WASM)…');
+    log('Slicing input (client-side WASM)…');
     const { chunks, durations, fps, container, slicer } = await sliceVideo(inputBytes, targetFrames);
     log(`Sliced into ${chunks.length} chunk(s) via ${slicer || 'slice'} → .${container || '?'} , fps=${(fps || 0).toFixed?.(2) ?? fps}`);
     dbg('slice summary', {
@@ -1329,9 +1340,8 @@ el('runBtn').addEventListener('click', async () => {
       slicer,
       inputBytes: inputBytes.length,
     });
-    if (Array.isArray(durations) && durations.length) {
-      inputDurationSec = durations.reduce((a, b) => a + b, 0);
-    }
+    const slicedDuration = Array.isArray(durations) ? durations.reduce((a, b) => a + b, 0) : 0;
+    if (slicedDuration > 0) inputDurationSec = slicedDuration;
     const maxDistribution = el('maxDistributionToggle').checked;
     updateCostEstimate(maxDistribution ? chunks.length * uniqueFormats.length : chunks.length);
     el('preprocessingStatus').textContent = 'Dispatching to DCP…';
