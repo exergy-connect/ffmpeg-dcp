@@ -27,11 +27,18 @@ function sniffChunkExt(bytes) {
   return 'ts';
 }
 
+function extForChunk(bytes, claimed) {
+  const sniffed = sniffChunkExt(bytes);
+  // Magic wins: a claimed "ts" must not override VP9-in-MP4.
+  if (sniffed === 'webm' || sniffed === 'mp4') return sniffed;
+  return claimed || sniffed;
+}
+
 onmessage = ({ data }) => {
   if (data.cmd !== 'prepare') return;
   const { chunks, formatCount, maxDistribution, container } = data;
   const chunkBase64ByIndex = chunks.map((c) => bytesToBase64(c));
-  const chunkExtByIndex = chunks.map((c) => container || sniffChunkExt(c));
+  const chunkExtByIndex = chunks.map((c) => extForChunk(c, container));
   let inputSet;
   if (maxDistribution) {
     inputSet = [];

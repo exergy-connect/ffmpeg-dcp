@@ -994,7 +994,14 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
       const isMp4 = chunkBytes.length >= 8 &&
         chunkBytes[4] === 0x66 && chunkBytes[5] === 0x74 &&
         chunkBytes[6] === 0x79 && chunkBytes[7] === 0x70;
-      const inExt = unit.chunkExt || (isEbml ? 'webm' : (isMp4 ? 'mp4' : 'ts'));
+      const sniffed = isEbml ? 'webm' : (isMp4 ? 'mp4' : 'ts');
+      const inExt = (sniffed === 'webm' || sniffed === 'mp4') ? sniffed : (unit.chunkExt || 'ts');
+      if (inExt === 'ts' && chunkBytes[0] === 0x47) {
+        throw new Error(
+          'Chunk is MPEG-TS. VP9/VP8 in TS is private data, so transcode_social_segment reports no video. ' +
+          'Reload so the client slicer keeps WebM/MP4 (not slice() → .ts).',
+        );
+      }
       const inPath = `/chunk-in.${inExt}`;
       wlog('write input', {
         inPath,
@@ -1332,6 +1339,18 @@ el('runBtn').addEventListener('click', async () => {
     log('Slicing input (client-side WASM)…');
     const { chunks, durations, fps, container, slicer } = await sliceVideo(inputBytes, targetFrames);
     log(`Sliced into ${chunks.length} chunk(s) via ${slicer || 'slice'} → .${container || '?'} , fps=${(fps || 0).toFixed?.(2) ?? fps}`);
+    const inputKind = (inputBytes[0] === 0x1a && inputBytes[1] === 0x45)
+      ? 'webm'
+      : (inputBytes.length >= 8 && inputBytes[4] === 0x66 && inputBytes[5] === 0x74 ? 'mp4' : 'other');
+    if (inputKind === 'mp4' || inputKind === 'webm') {
+      const bad = chunks.findIndex((c) => c && c[0] === 0x47);
+      if (bad >= 0) {
+        throw new Error(
+          `Slicer ${slicer || 'slice'} turned ${inputKind} into MPEG-TS (chunk ${bad}). ` +
+          'VP9 in TS is private data (no video). Hard-refresh so ffmpeg-worker.js keeps .mp4/.webm, then retry.',
+        );
+      }
+    }
     dbg('slice summary', {
       chunkBytes: chunks.map((c) => c.length),
       durations,

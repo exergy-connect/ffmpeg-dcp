@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-26T15:50:38.719Z",
-    "modifiedAt": "2026-08-26T15:50:38.719Z",
+    "createdAt": "2026-08-26T16:58:17.668Z",
+    "modifiedAt": "2026-08-26T16:58:17.668Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp",
-      "hash": "sha256:f151cc8c2e87737b9c6f7dea218c9b33633fc966a86cb7999449796405c13cee",
+      "hash": "sha256:91c191c83eb2358b36c24abe6f3bf3ef6e58d0f8ae08c651b930a0ab22e83e44",
       "createdAt": "2026-08-24T19:23:37.516Z",
-      "modifiedAt": "2026-08-26T15:30:35.923Z"
+      "modifiedAt": "2026-08-26T16:51:12.149Z"
     }
   ],
   "_concepts": {
@@ -238,7 +238,7 @@
       "deploy_worker_script": "dcp-deploy-worker.js",
       "wasm_glue": "ffmpeg-wasm/dcp-transcode-glue.js",
       "wasm_binary": "ffmpeg-wasm/dcp-transcode.wasm",
-      "dcp_package": "ffmpeg-wasm-social/ffmpeg-wasm.js",
+      "dcp_package": "ffmpeg-dcp-social/ffmpeg-wasm.js",
       "codecs": {
         "vp8": {
           "_concept": "video_codec",
@@ -351,7 +351,7 @@
       },
       "dispatch": {
         "_concept": "dcp_dispatch_policy",
-        "package_name": "ffmpeg-wasm-social/ffmpeg-wasm.js",
+        "package_name": "ffmpeg-dcp-social/ffmpeg-wasm.js",
         "target_chunk_frames": 90,
         "dedupe_identical_formats": true,
         "unit": "(chunk, unique format signature)",
