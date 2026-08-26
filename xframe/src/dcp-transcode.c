@@ -1425,8 +1425,22 @@ int transcode_social_segment(const char *input_path, const char *output_path,
   enc_ctx->width = dst_w;
   enc_ctx->height = dst_h;
   enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-  enc_ctx->time_base = (AVRational){1, 30};
-  enc_ctx->framerate = (AVRational){30, 1};
+  /*
+   * Keep the source timestamp clock.  This path used to force 30 fps and
+   * assign frame PTS as 0,1,2,... below.  That changes the playback speed of
+   * every non-30-fps (and every variable-frame-rate) source while audio keeps
+   * its real sample-clock duration -- e.g. 6 fps video ran exactly 5x fast.
+   */
+  AVRational source_tb = in_video->time_base;
+  if (source_tb.num <= 0 || source_tb.den <= 0)
+    source_tb = (AVRational){1, 1000};
+  AVRational source_fr = in_video->avg_frame_rate.num > 0
+      ? in_video->avg_frame_rate : in_video->r_frame_rate;
+  double source_fps = source_fr.den > 0 ? av_q2d(source_fr) : 0.0;
+  if (source_fps < 1.0 || source_fps > 120.0)
+    source_fr = (AVRational){30, 1};
+  enc_ctx->time_base = source_tb;
+  enc_ctx->framerate = source_fr;
   enc_ctx->gop_size = gop_size;
   enc_ctx->max_b_frames = 0;
   enc_ctx->thread_count = 1;
@@ -1511,7 +1525,11 @@ int transcode_social_segment(const char *input_path, const char *output_path,
   AVPacket *out_pkt = av_packet_alloc();
   AVFrame *aframe = aud_dec ? av_frame_alloc() : NULL;
   AVFrame *aframe_res = aud_enc ? av_frame_alloc() : NULL;
-  int64_t video_pts = 0;
+  int64_t first_video_pts = AV_NOPTS_VALUE;
+  int64_t last_video_pts = AV_NOPTS_VALUE;
+  int64_t fallback_frame_step =
+      av_rescale_q(1, av_inv_q(enc_ctx->framerate), enc_ctx->time_base);
+  if (fallback_frame_step < 1) fallback_frame_step = 1;
   int64_t audio_pts = 0;
   uint8_t *audio_fifo = NULL;
   int audio_fifo_samples = 0;
@@ -1625,7 +1643,27 @@ int transcode_social_segment(const char *input_path, const char *output_path,
         sws_scale(sws, (const uint8_t *const *)frame->data, frame->linesize,
                   0, dec_ctx->height, scaled->data, scaled->linesize);
       }
-      scaled->pts = video_pts++;
+      /*
+       * Preserve elapsed source time, but make each independently processed
+       * segment start at zero for the TS stitcher.  best_effort_timestamp is
+       * in the input stream time base and also handles reordered decode.
+       * Only synthesize a nominal frame interval when the decoder supplies no
+       * timestamp (or a broken/non-increasing one).
+       */
+      int64_t source_pts = frame->best_effort_timestamp;
+      int64_t next_video_pts;
+      if (source_pts != AV_NOPTS_VALUE) {
+        if (first_video_pts == AV_NOPTS_VALUE) first_video_pts = source_pts;
+        next_video_pts = av_rescale_q(source_pts - first_video_pts,
+                                      source_tb, enc_ctx->time_base);
+      } else {
+        next_video_pts = last_video_pts == AV_NOPTS_VALUE
+            ? 0 : last_video_pts + fallback_frame_step;
+      }
+      if (last_video_pts != AV_NOPTS_VALUE && next_video_pts <= last_video_pts)
+        next_video_pts = last_video_pts + fallback_frame_step;
+      scaled->pts = next_video_pts;
+      last_video_pts = next_video_pts;
       scaled->pict_type = AV_PICTURE_TYPE_NONE;
       avcodec_send_frame(enc_ctx, scaled);
       while (avcodec_receive_packet(enc_ctx, out_pkt) >= 0) {
