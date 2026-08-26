@@ -31,8 +31,8 @@ The page itself has a "Your DCP account" section, persisted in this
 browser's local storage across reloads (a "clear" link resets it):
 
 - **API key** - your DCP identity key, from your account on
-  [your DCP portal](https://dcp.cloud/). Leave blank to fall back
-  to the built-in demo key (`DEFAULT_API_KEY` in `app.js`).
+  [your DCP portal](https://dcp.cloud/). Required; it is stored only in
+  this browser's local storage, not in the repo.
 - **Compute group(s)** - one row per group, each a `joinKey` field and
   a masked `joinSecret` field (secret optional). Leave a row's key
   blank to dispatch to the public compute group. "+ Add another group"

@@ -61,7 +61,7 @@ Publish for DCP:
 cd xframe
 bash ffmpeg-wasm/build.sh          # if WASM artifacts are missing
 node package/build-bravojs-bundle.js
-node package/publish.js            # optional: --apiKey=0x…
+node package/publish.js --apiKey=0x…   # or DCP_API_KEY
 ```
 
 `publish.js` deploys `ffmpeg-wasm-social` to the DCP package manager so

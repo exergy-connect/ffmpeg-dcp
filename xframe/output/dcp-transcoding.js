@@ -235,7 +235,6 @@ function assetUrl(rel) {
 }
 
 // ---- Account persistence ----
-const DEFAULT_API_KEY = '0x8dc846130f8d909129b83a155a3c8818d8b146e00412169e10161d49725b6f36';
 const API_KEY_STORAGE_KEY = 'xframe-social:apiKey';
 const COMPUTE_GROUPS_STORAGE_KEY = 'xframe-social:computeGroups';
 const API_KEY_PATTERN = /^0x[0-9a-fA-F]{64}$/;
@@ -262,7 +261,11 @@ el('computeGroupsForm').addEventListener('submit', (e) => e.preventDefault());
 validateApiKeyField(false);
 
 function getApiKey() {
-  return apiKeyInput.value.trim() || DEFAULT_API_KEY;
+  return apiKeyInput.value.trim();
+}
+
+function hasValidApiKey() {
+  return API_KEY_PATTERN.test(getApiKey());
 }
 
 /** identity.set() may only run once per page load (EHAVEIDENTITY). */
@@ -629,7 +632,7 @@ async function fetchAccountBalance(existingPayKeystore = null) {
     log('Balance refresh failed: dcp-bank-account.js is not loaded.');
     return;
   }
-  if (!validateApiKeyField()) {
+  if (!hasValidApiKey()) {
     el('accountBalance').textContent = '—';
     log('Balance refresh failed: enter a valid DCP identity API key first.');
     return;
@@ -1295,8 +1298,8 @@ el('saveOutputsBtn').addEventListener('click', async () => {
 let runInProgress = false;
 el('runBtn').addEventListener('click', async () => {
   if (runInProgress) return;
-  if (!validateApiKeyField()) {
-    showRunError(new Error('Invalid DCP identity API key format.'));
+  if (!hasValidApiKey()) {
+    showRunError(new Error('Enter a valid DCP identity API key first.'));
     return;
   }
   const deliverables = selectedDeliverables();

@@ -12,12 +12,8 @@
 const path = require('path');
 const fs = require('fs');
 
-const DEFAULT_API_KEY =
-  process.env.DCP_API_KEY ||
-  '0x8dc846130f8d909129b83a155a3c8818d8b146e00412169e10161d49725b6f36';
-
 function parseArgs(argv) {
-  const out = { apiKey: DEFAULT_API_KEY };
+  const out = { apiKey: process.env.DCP_API_KEY || '' };
   for (const arg of argv) {
     if (arg.startsWith('--apiKey=')) out.apiKey = arg.slice('--apiKey='.length);
   }
@@ -26,6 +22,9 @@ function parseArgs(argv) {
 
 async function main() {
   const { apiKey } = parseArgs(process.argv.slice(2));
+  if (!/^0x[0-9a-fA-F]{64}$/.test(apiKey)) {
+    throw new Error('Pass a DCP identity key via --apiKey=0x… or DCP_API_KEY');
+  }
   const pkgDir = __dirname;
   const bundlePath = path.join(pkgDir, 'ffmpeg-wasm.js');
   const manifestPath = path.join(pkgDir, 'package.dcp');

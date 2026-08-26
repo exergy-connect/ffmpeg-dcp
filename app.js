@@ -101,7 +101,6 @@ function showRunError(error) {
 }
 
 // ---- DCP account settings: API key + compute group(s), persisted locally ----
-const DEFAULT_API_KEY = '0x8dc846130f8d909129b83a155a3c8818d8b146e00412169e10161d49725b6f36';
 const API_KEY_STORAGE_KEY = 'ffmpeg-dcp:apiKey';
 const COMPUTE_GROUPS_STORAGE_KEY = 'ffmpeg-dcp:computeGroups';
 const API_KEY_PATTERN = /^0x[0-9a-fA-F]{64}$/;
@@ -129,11 +128,16 @@ apiKeyInput.addEventListener('change', () => {
   }
   hideRunError();
 });
-el('accountForm').addEventListener('submit', (event) => event.preventDefault());
+el('identityForm').addEventListener('submit', (event) => event.preventDefault());
+el('computeGroupsForm').addEventListener('submit', (event) => event.preventDefault());
 validateApiKeyField(false);
 
 function getApiKey() {
-  return apiKeyInput.value.trim() || DEFAULT_API_KEY;
+  return apiKeyInput.value.trim();
+}
+
+function hasValidApiKey() {
+  return API_KEY_PATTERN.test(getApiKey());
 }
 
 // Compute group rows: one {joinKey, joinSecret} pair per row, rendered
@@ -385,8 +389,8 @@ function endRun() {
 }
 
 async function runWithBytes(inputBytes, inputBaseName) {
-  if (!validateApiKeyField()) {
-    showRunError(new Error(API_KEY_VALIDATION_MESSAGE));
+  if (!hasValidApiKey()) {
+    showRunError(new Error('Enter a valid DCP identity API key first.'));
     apiKeyInput.focus();
     return;
   }
