@@ -27,7 +27,7 @@ cd xframe
 bash ffmpeg-wasm/build.sh
 bash scripts/compile.sh
 # equivalent:
-#   node ../.cursor/skills/xform-run/scripts/xform.min.js dcp-transcoding.xp
+#   node ../.cursor/skills/xform-run/scripts/xform.min.js dcp-transcoding.xp --tree --final html
 #   node scripts/build-html.js
 node scripts/verify-concepts.js
 ```

@@ -374,8 +374,12 @@ el('clearAccountBtn').addEventListener('click', (e) => {
 });
 
 // ---- Platform UI from concepts ----
+function conceptEntries(obj) {
+  return Object.entries(obj || {}).filter(([k, v]) => !k.startsWith('_') && v && typeof v === 'object');
+}
+
 function platformEntries() {
-  return Object.entries(CONFIG.platforms || {}).map(([key, p]) => ({ key, ...p }));
+  return conceptEntries(CONFIG.platforms).map(([key, p]) => ({ key, ...p }));
 }
 
 function formatOf(placement) {
@@ -383,7 +387,7 @@ function formatOf(placement) {
   if (f && typeof f === 'object' && f.width) return f;
   // Unresolved Jinja leave-behind: look up by placement id in formats
   const formats = CONFIG.formats || {};
-  for (const v of Object.values(formats)) {
+  for (const v of conceptEntries(formats).map(([, fmt]) => fmt)) {
     if (v && v.id === placement.id) return v;
   }
   return f || {};
@@ -416,7 +420,7 @@ function renderPlatforms() {
     heading.append(platformLogo(platform.id), title);
     card.appendChild(heading);
     const placements = platform.placements || {};
-    for (const [pkey, placement] of Object.entries(placements)) {
+    for (const [pkey, placement] of conceptEntries(placements)) {
       const fmt = formatOf(placement);
       const row = document.createElement('label');
       row.className = 'placement';
@@ -506,7 +510,7 @@ function formatCredits(n, digits = 3) {
 function estimateChunkCount(durationSec) {
   if (!(durationSec > 0)) return null;
   const targetFrames = CONFIG.dispatch?.target_chunk_frames || 90;
-  const fps = CONFIG.timing?.output_fps || CONFIG.timing?.target_fps || 30;
+  const fps = CONFIG.timing?.social_default?.output_fps || CONFIG.timing?.social_default?.target_fps || 30;
   return Math.max(1, Math.ceil((durationSec * fps) / targetFrames));
 }
 
@@ -620,6 +624,11 @@ async function fetchAccountBalance(existingPayKeystore = null) {
     el('accountBalance').textContent = '—';
     return;
   }
+  if (!window.dcpBankAccount?.viewAccountBalance) {
+    el('accountBalance').textContent = '—';
+    log('Balance refresh failed: dcp-bank-account.js is not loaded.');
+    return;
+  }
   if (!validateApiKeyField()) {
     el('accountBalance').textContent = '—';
     log('Balance refresh failed: enter a valid DCP identity API key first.');
@@ -634,31 +643,16 @@ async function fetchAccountBalance(existingPayKeystore = null) {
     await ensureIdentity();
     const pay = existingPayKeystore || await wallet.get();
     if (!existingPayKeystore) await wallet.add(pay);
-    const bankTeller = new protocol.Connection(window.dcpConfig.bank.services.bankTeller);
-    try {
-      const req = new bankTeller.Request('viewAccounts', {
-        addresses: [pay.address],
-      });
-      // authorize() expects a Keystore (or PrivateKey), not an Address.
-      await req.authorize(pay);
-      const res = await req.send();
-      if (!res?.success) {
-        const detail = res?.payload?.message || res?.payload?.code || JSON.stringify(res?.payload || res);
-        throw new Error(detail || 'Bank balance request failed');
-      }
-      const raw = res.payload?.accounts?.[0]?.balance;
-      let balance;
-      if (raw == null) balance = NaN;
-      else if (typeof raw === 'number') balance = raw;
-      else if (typeof raw === 'string') balance = Number(raw);
-      else if (typeof raw.toNumber === 'function') balance = raw.toNumber();
-      else balance = Number(String(raw));
-      lastKnownBalanceDcc = balance;
-      balEl.textContent = formatCredits(balance);
-      updateCostEstimate();
-    } finally {
-      bankTeller.close();
-    }
+    // Same viewAccount protocol as test/accountBalance.js (bank concept in .xp).
+    const { balance } = await window.dcpBankAccount.viewAccountBalance({
+      Connection: protocol.Connection,
+      dcpConfig: window.dcpConfig,
+      fromKey: pay,
+      bank: CONFIG.bank,
+    });
+    lastKnownBalanceDcc = balance;
+    balEl.textContent = formatCredits(balance);
+    updateCostEstimate();
   } catch (err) {
     lastKnownBalanceDcc = null;
     balEl.textContent = '—';
@@ -676,7 +670,7 @@ let recordChunks = [];
 let recordStream = null;
 
 renderPlatforms();
-el('framingSelect').value = CONFIG.defaultFraming || 'cover';
+el('framingSelect').value = CONFIG.default_framing || 'cover';
 
 function formatBytes(n) {
   return n >= 1024 * 1024 ? `${(n / (1024 * 1024)).toFixed(1)} MB` : `${(n / 1024).toFixed(0)} KB`;
@@ -807,7 +801,7 @@ el('stopRecordBtn').addEventListener('click', () => {
 });
 
 // ---- ffmpeg worker RPC ----
-const ffmpegWorker = new Worker(assetUrl(CONFIG.workerScript || 'ffmpeg-worker.js'));
+const ffmpegWorker = new Worker(assetUrl(CONFIG.worker_script || 'ffmpeg-worker.js'));
 let nextRpcId = 1;
 const pendingRpcCalls = new Map();
 
@@ -876,7 +870,7 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
     maxDistribution,
     container: container || '(sniff)',
     paymentPerSlice: slicePaymentDcc,
-    package: CONFIG.dcpPackage || 'ffmpeg-wasm-social/ffmpeg-wasm.js',
+    package: CONFIG.dcp_package || 'ffmpeg-wasm-social/ffmpeg-wasm.js',
   });
   dbg('ensureIdentity…');
   await ensureIdentity();
@@ -904,8 +898,8 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
   const totalUnits = chunks.length * uniqueFormats.length;
   dbg('formatsMeta', formatsMeta.map((f) => `${f.signature} ${f.width}x${f.height}`));
 
-  const prepWorker = new Worker(assetUrl(CONFIG.deployWorkerScript || 'dcp-deploy-worker.js'));
-  dbg('prep worker start', assetUrl(CONFIG.deployWorkerScript || 'dcp-deploy-worker.js'));
+  const prepWorker = new Worker(assetUrl(CONFIG.deploy_worker_script || 'dcp-deploy-worker.js'));
+  dbg('prep worker start', assetUrl(CONFIG.deploy_worker_script || 'dcp-deploy-worker.js'));
   const inputSet = await new Promise((resolve, reject) => {
     prepWorker.onmessage = ({ data }) => resolve(data.inputSet);
     prepWorker.onerror = (err) => reject(new Error(`prep worker failed: ${err.message || 'script error'}`));
@@ -1064,7 +1058,7 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
 
   dbg('compute.for…', { slices: inputSet.length, argsBytes: formatsMetaJson.length });
   const job = compute.for(inputSet, workFunction, [formatsMetaJson]);
-  job.requires([CONFIG.dcpPackage || 'ffmpeg-wasm-social/ffmpeg-wasm.js']);
+  job.requires([CONFIG.dcp_package || 'ffmpeg-wasm-social/ffmpeg-wasm.js']);
   job.computeGroups = getComputeGroups();
   job.public = {
     name: `🎞️ Social transcoder: ${inputBaseName}`,
@@ -1356,7 +1350,7 @@ el('runBtn').addEventListener('click', async () => {
   }
 });
 
-log(`Config loaded: ${platformEntries().length} platforms, package ${CONFIG.dcpPackage}`);
+log(`Config loaded: ${platformEntries().length} platforms, package ${CONFIG.dcp_package}`);
 el('maxDistributionToggle').addEventListener('change', () => {
   clearExactCostBasis();
   updateCostEstimate();

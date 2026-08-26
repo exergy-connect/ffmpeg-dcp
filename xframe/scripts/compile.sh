@@ -3,6 +3,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 XFORM="${XFORM:-../.cursor/skills/xform-run/scripts/xform.min.js}"
-node "$XFORM" dcp-transcoding.xp
+node "$XFORM" dcp-transcoding.xp --tree --final html
 node scripts/build-html.js
 echo "Open via: cd output && python3 -m http.server 8765"

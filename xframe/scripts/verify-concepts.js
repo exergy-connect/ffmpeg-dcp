@@ -25,9 +25,12 @@ assert(
   'IG/FB reels signatures must match',
 );
 assert(cfg.platforms.youtube.placements.feed.format.width === 1920, 'yt feed width');
-assert(cfg.timing.output_fps === 30 || cfg.timing.output_fps === undefined || concepts.timing.social_default.output_fps === 30, '30 fps');
+assert(cfg.timing.social_default.output_fps === 30, '30 fps');
 assert(cfg.dispatch.dedupe_identical_formats === true, 'dedupe enabled');
-assert(cfg.dcpPackage === 'ffmpeg-wasm-social/ffmpeg-wasm.js', 'distinct package name');
+assert(cfg.dcp_package === 'ffmpeg-wasm-social/ffmpeg-wasm.js', 'distinct package name');
+assert(cfg.bank?.operation === 'viewAccount', 'bank.operation must be viewAccount');
+assert(cfg.bank?.balance_field === 'payload.balance', 'bank.balance_field must be payload.balance');
+assert(html.includes('dcp-bank-account.js'), 'HTML must load dcp-bank-account.js');
 
 // Dedupe simulation
 const selected = [
