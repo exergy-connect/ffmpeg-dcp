@@ -25,5 +25,8 @@ thumbnails-output/
 # Local scratch input for manual testing - not a fixture.
 test-input/
 
+# Local environment variables and secrets.
+.env
+
 # macOS Finder metadata
 .DS_Store

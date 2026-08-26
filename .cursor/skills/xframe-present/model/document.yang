@@ -1,0 +1,1284 @@
+module document {
+  yang-version 1.1;
+  namespace "urn:xframe:present:document";
+  prefix "doc";
+
+  organization "Exergy LLC";
+  contact "https://github.com/exergy-connect/xFrame.present";
+
+  description
+    "Schema for xFrame.present authoring documents: YAML front matter plus Markdown
+     segments (.xp / .md). Instance JSON represents the normalized parse result
+     (ParsedDocument) — one root ``document`` object with ``meta``, ``scope``,
+     optional ``data``, and ``segments`` whose bodies are semantic content nodes.
+
+     Template libraries (presentation, layout, style, theme) use the same meta
+     vocabulary under a ``template`` root with an optional ``structure`` tree.
+
+     Compiled portable IR (``.xp.json``) is validated separately by ``ir.yang``.";
+
+  revision "2026-08-25" {
+    description
+      "Add document-meta css_imports (stylesheet URLs emitted as CSS @import
+       before rules) and embed_images boolean so HTML builds can inline local
+       Media as data URIs from front matter / presentation defaults, matching
+       the --embed-images CLI flag.";
+  }
+  revision "2026-08-22" {
+    description
+      "Add page-break header.continue (default true) so forced letter-page
+       breaks can repeat the interrupted section heading.";
+  }
+  revision "2026-08-21" {
+    description
+      "Add document-meta paginate boolean so overflowing letter-page content is
+       split into additional IR segments with section Continued headings.";
+  }
+  revision "2026-08-10" {
+    description
+      "Add document-meta canvas boolean so fixed-canvas HTML framing is declared
+       on presentation templates instead of hardcoded presentation names.";
+  }
+  revision "2026-07-21" {
+    description
+      "Add format-name typedef (desktop, tablet, mobile, poster, video) and
+       format/formats on document-meta and segment; add slide_number boolean;
+       add video container (outro_delay, ai_context) for html2mp4 defaults.";
+  }
+  revision "2026-07-20" {
+    description
+      "Replace llm/text_to_speech invite_only with authorized (boolean or invite-feature);
+       add invite-feature typedef including text_to_speech.";
+  }
+  revision "2026-07-13" {
+    description
+      "Initial document model for xframe-present v3 authoring sources and parsed IR.";
+  }
+
+  typedef invite-feature {
+    type enumeration {
+      enum pdf_extract {
+        description "Authorize generating a PDF extract from deck content.";
+      }
+      enum text_to_speech {
+        description "Authorize proxy-backed text-to-speech (Gemini TTS / Live).";
+      }
+    }
+    description
+      "Invite-granted runtime capabilities. Mirrored by runtime.invite.features
+       and the Cloudflare proxy invite allowlist.";
+  }
+
+  typedef invite-authorization {
+    type union {
+      type boolean;
+      type invite-feature;
+    }
+    description
+      "true: the operation is authorized without an invite.
+       false: the operation is not authorized (proxy calls fall back / are denied).
+       invite-feature: authorized only when that feature is present in
+       runtime.invite.features (requires a matching invite grant).";
+  }
+
+  typedef evaluation-mode {
+    type enumeration {
+      enum static {
+        description
+          "Evaluate template expressions and LLM filters at compile time.";
+      }
+      enum dynamic {
+        description
+          "Defer selected expressions to the browser runtime.";
+      }
+    }
+    description "When template and widget content is evaluated.";
+  }
+
+  typedef positioning-strategy {
+    type enumeration { enum static; enum dynamic; }
+    description "Whether layout geometry is solved during compilation or by the output runtime.";
+  }
+
+  typedef narrative-voice {
+    type enumeration {
+      enum male;
+      enum female;
+    }
+    description "Preferred synthesized voice gender inherited by every @narrative control.";
+  }
+
+  typedef narrative-track {
+    type enumeration {
+      enum slides;
+      enum combined;
+    }
+    description
+      "Narration packaging: per-slide clips (slides) or one deck track with long "
+      + "pauses and content markers between segments (combined; Gemini TTS).";
+  }
+
+  typedef presentation-name {
+    type enumeration {
+      enum slidedeck;
+      enum poster;
+      enum cover-letter {
+        description
+          "Single-segment US Letter cover letter (letterhead, meta, body, sign-off).";
+      }
+      enum readout {
+        description
+          "Linear text-only document of each segment (no slide chrome, media, or controls).";
+      }
+      enum report;
+      enum dashboard;
+      enum website;
+    }
+    description "Built-in presentation shell registered under src/xp2ir/templates/presentations/.";
+  }
+
+  typedef format-name {
+    type enumeration {
+      enum desktop;
+      enum tablet;
+      enum mobile;
+      enum poster;
+      enum cover-letter {
+        description "US Letter page for presentation: cover-letter.";
+      }
+      enum video {
+        description
+          "Full-HD capture/export canvas; default constraints 1920×1080
+           from presentations/slidedeck-video.xpt (author-overridable).";
+      }
+    }
+    description
+      "Built-in format qualifier paired with a presentation kind
+       (loads presentations/<presentation>-<format>.xpt when present).";
+  }
+
+  typedef template-kind {
+    type enumeration {
+      enum presentation;
+      enum layout;
+      enum style;
+      enum theme;
+    }
+    description "Template layer kind in the present v3 registry.";
+  }
+
+  typedef theme-name {
+    type enumeration {
+      enum light;
+      enum dark;
+    }
+    description "Named color theme invoked from front matter or @theme directives.";
+  }
+
+  typedef content-kind {
+    type enumeration {
+      enum heading;
+      enum paragraph;
+      enum list;
+      enum table;
+      enum media;
+      enum html;
+      enum qr_code;
+      enum page_break;
+      enum widget;
+      enum raw;
+      enum annotation;
+    }
+    description "Semantic content node produced by the Markdown parser.";
+  }
+
+  typedef container-mode {
+    type enumeration {
+      enum stack;
+      enum grid;
+      enum overlay;
+      enum flow;
+      enum flex;
+    }
+    description "Layout container directive (@stack, @grid, @overlay, @flow, @flex).";
+  }
+
+  typedef axis-align {
+    type enumeration {
+      enum start;
+      enum center;
+      enum end;
+      enum stretch;
+    }
+    description "Main- or cross-axis alignment for structure constraints.";
+  }
+
+  typedef content-align {
+    type enumeration {
+      enum start;
+      enum center;
+      enum end;
+      enum stretch;
+    }
+    description "Alignment applied to routed region content.";
+  }
+
+  typedef widget-type {
+    type string {
+      pattern '^[a-z][a-z0-9-]*$';
+    }
+    description
+      "Fenced-code info string (for example xframe-mermaid, xframe-graph, html).
+       Built-in widgets are registered in src/widget/.";
+  }
+
+  grouping provenance {
+    description "Optional source location for a parsed node.";
+    leaf source {
+      type string;
+      description "Originating file path or URI.";
+    }
+    leaf line {
+      type uint32;
+      description "1-based line number in the source segment or template body.";
+    }
+  }
+
+  grouping scope-declaration {
+    description "Partial evaluation scope before inheritance is resolved.";
+    leaf evaluation {
+      type evaluation-mode;
+      description "Compile-time vs browser evaluation for this scope.";
+    }
+  }
+
+  grouping resolved-scope {
+    description "Evaluation scope after defaults and inheritance.";
+    leaf evaluation {
+      type evaluation-mode;
+      default "static";
+      description "Effective evaluation mode for this document or segment.";
+    }
+  }
+
+  grouping data-ref {
+    description
+      "Consolidated xFrame data binding from deck front matter.
+       A bare string path is normalized to ``static`` only.";
+    leaf static {
+      type string;
+      description
+        "Compile-time JSON path or URL (for example xframe/output/consolidated_data.json).";
+    }
+    leaf dynamic {
+      type string;
+      description
+        "Runtime JS module path (for example xframe/output/consolidated_data.js).";
+    }
+  }
+
+  grouping style-colors {
+    description "Per-theme or deck-wide CSS color overrides (snake_case keys in YAML).";
+    leaf primary-color {
+      type string;
+      description "Accent color mapped to CSS --accent.";
+    }
+    leaf background-color {
+      type string;
+      description "Page background mapped to CSS --bg.";
+    }
+    leaf slide-background {
+      type string;
+      description "Slide surface mapped to CSS --slide-bg.";
+    }
+    leaf text-color {
+      type string;
+      description "Body text mapped to CSS --fg.";
+    }
+    leaf muted-color {
+      type string;
+      description "Secondary text mapped to CSS --muted.";
+    }
+    leaf border-color {
+      type string;
+      description "Borders and rules mapped to CSS --border.";
+    }
+    leaf code-background {
+      type string;
+      description "Code blocks mapped to CSS --code-bg.";
+    }
+  }
+
+  grouping deck-style {
+    description "Nested style block from v1/v2 deck front matter.";
+    uses style-colors;
+    container light {
+      presence "Light-theme-only color overrides.";
+      uses style-colors;
+    }
+    container dark {
+      presence "Dark-theme-only color overrides.";
+      uses style-colors;
+    }
+  }
+
+  grouping capture-options {
+    description "Viewport settings for maintainer snapshot/cover refresh scripts.";
+    leaf width {
+      type uint16;
+    }
+    leaf height {
+      type uint16;
+    }
+    leaf delay {
+      type uint16;
+      description "Extra milliseconds to wait after the slide is active.";
+    }
+  }
+
+  grouping length-value {
+    description "Layout length: absolute pixels or percentage string.";
+    choice length {
+      case pixels {
+        leaf pixels {
+          type uint32;
+          description "Absolute length in CSS pixels.";
+        }
+      }
+      case percent {
+        leaf percent {
+          type string {
+            pattern '^[0-9]+%$';
+          }
+          description "Percentage length (for example 80%).";
+        }
+      }
+      case token {
+        leaf token {
+          type string;
+          description "CSS length token (for example 2rem, 10vh).";
+        }
+      }
+    }
+  }
+
+  grouping box-edges {
+    description "Per-edge padding or inset lengths.";
+    leaf top {
+      type string;
+    }
+    leaf right {
+      type string;
+    }
+    leaf bottom {
+      type string;
+    }
+    leaf left {
+      type string;
+    }
+  }
+
+  grouping constraints {
+    description "Layout constraints from front matter or structure directives.";
+    leaf weight {
+      type decimal64 {
+        fraction-digits 4;
+      }
+      description "Relative flex/grid weight.";
+    }
+    leaf min-width {
+      type string;
+      description "Minimum width (pixels or CSS length).";
+    }
+    leaf max-width {
+      type string;
+      description "Maximum width (pixels or CSS length).";
+    }
+    leaf min-height {
+      type string;
+      description "Minimum height (pixels or CSS length).";
+    }
+    leaf max-height {
+      type string;
+      description "Maximum height (pixels or CSS length).";
+    }
+    leaf width {
+      type string;
+      description "Fixed or percentage width.";
+    }
+    leaf height {
+      type string;
+      description "Fixed or percentage height.";
+    }
+    leaf max-segments {
+      type uint32 {
+        range "1..max";
+      }
+      description
+        "When set, compile fails if the active presentation has more segments
+         than this limit (e.g. poster declares 1).";
+    }
+    leaf align-main {
+      type axis-align;
+      description "Main-axis alignment (justify-content).";
+    }
+    leaf align-cross {
+      type axis-align;
+      description "Cross-axis alignment (align-items).";
+    }
+    leaf horizontal-align {
+      type string {
+        pattern '^(left|center|right)$';
+      }
+      description "Semantic horizontal alignment for routed region content.";
+    }
+    leaf vertical-align {
+      type string {
+        pattern '^(top|center|bottom)$';
+      }
+      description "Semantic vertical alignment for routed region content.";
+    }
+    leaf aspect-ratio {
+      type decimal64 {
+        fraction-digits 6;
+      }
+      description "Width divided by height.";
+    }
+    leaf gap {
+      type string;
+      description "Gap between children.";
+    }
+    container padding {
+      uses box-edges;
+      description "Inner padding on a structure node.";
+    }
+  }
+
+  grouping segment-defaults {
+    description "Presentation-template defaults applied to each segment.";
+    leaf layout {
+      type string;
+      description "Default per-segment layout name (for example slide-frame).";
+    }
+  }
+
+  grouping document-meta {
+    description
+      "YAML front matter for an authoring document (.xp / .md).
+       Keys use kebab-case in source files and camelCase in normalized JSON.";
+
+    leaf canvas {
+      type boolean;
+      default false;
+      description
+        "When true, HTML uses a fixed logical canvas (data-xframe-canvas deck
+         framing and viewport scaling). Declared on presentation templates
+         (for example slidedeck, poster, cover-letter); not derived from the
+         presentation name in code.";
+    }
+    leaf paginate {
+      type boolean;
+      default false;
+      description
+        "When true, xp2ir splits overflowing segment content into additional
+         page segments using constraints.height, inserting a heading with
+         continued=true at the interrupted section level when content spans
+         pages. Declared on presentation templates (for example cover-letter).";
+    }
+    leaf embed_images {
+      type boolean;
+      default false;
+      description
+        "When true, HTML builds rewrite local Media sources as data URIs
+         (same as --embed-images). Can be set in document front matter or on
+         a presentation template so portable HTML is the default.";
+    }
+    leaf presentation {
+      type presentation-name;
+      description
+        "Active presentation kind for this compile. When omitted, defaults to
+         the first entry in presentations, otherwise slidedeck.";
+    }
+    anydata presentations {
+      description
+        "Presentations this document may be built as. YAML list of template
+         names, or a map of template name to optional property overlays merged
+         when that presentation is selected. Each key loads
+         presentations/<name>.xpt.";
+    }
+    leaf format {
+      type format-name;
+      description
+        "Active format qualifier for this compile. Sugar for a single-entry formats map.";
+    }
+    anydata formats {
+      description
+        "Formats this document may be built as. YAML list of format names, or a map
+         of format name to optional property overlays. Keys are format-name values.";
+    }
+    leaf layout {
+      type string;
+      description "Shell layout override (for example framed-deck, report-page).";
+    }
+    leaf-list themes {
+      type theme-name;
+      description "Default theme names cycled by the deck chrome.";
+    }
+    leaf theme {
+      type theme-name;
+      description "Legacy single-theme key from xframe-present v1 decks.";
+    }
+    leaf title {
+      type string;
+      description "Document or deck title.";
+    }
+    leaf subtitle {
+      type string;
+      description "Secondary title, often on cover slides.";
+    }
+    leaf author {
+      type string;
+      description "Author metadata.";
+    }
+    leaf slide_number {
+      type boolean;
+      default true;
+      description
+        "When true (default), slide-frame footers show presentation slide
+         (segment.runtime.index + 1) / runtime.segments.length after ir-select
+         hydrates those bindings. Deferred as Jinja until select runs.";
+    }
+    leaf topic {
+      type string;
+      description "Free-text topic for LLM-assisted template filters.";
+    }
+    leaf lang {
+      type string;
+      description "BCP 47 language tag for html lang.";
+    }
+    leaf-list styles {
+      type string;
+      description "Presentation style template names (for example deck, base).";
+    }
+    leaf-list css_imports {
+      type string;
+      description
+        "Stylesheet URLs (or full @import rules) for this document. HTML emit
+         writes them as link rel=stylesheet in the document head so adaptive
+         format-pane style blocks stay import-free. Style and theme templates
+         may also declare css_imports in their front matter; plugins contribute
+         via runtime cssImports versus css.";
+    }
+    leaf header {
+      type string;
+      description "Running header text in framed layouts.";
+    }
+    leaf header-image {
+      type string;
+      description "Header logo path relative to the document.";
+    }
+    leaf header-image-alt {
+      type string;
+      description "Alt text for the header logo.";
+    }
+    leaf header-image-align {
+      type string {
+        pattern '^(left|right)$';
+      }
+      default "right";
+      description "Horizontal placement of the header logo.";
+    }
+    leaf footer {
+      type string;
+      description "Running footer text in framed layouts.";
+    }
+    leaf footer-image {
+      type string;
+      description "Footer logo path relative to the document.";
+    }
+    leaf footer-image-alt {
+      type string;
+      description "Alt text for the footer logo.";
+    }
+    leaf cover-image {
+      type string;
+      description "Git-tracked cover PNG for faithful PPTX export.";
+    }
+    leaf cover-image-alt {
+      type string;
+      description "Alt text for the cover snapshot image.";
+    }
+    container cover-capture {
+      presence "Capture settings for the cover refresh script.";
+      uses capture-options;
+    }
+    container style {
+      presence "Deck-wide CSS color overrides.";
+      uses deck-style;
+    }
+    container constraints {
+      presence "Document-level layout constraints (for example canvas width).";
+      uses constraints;
+    }
+    container segment {
+      presence "Per-segment defaults inherited from the presentation template.";
+      uses segment-defaults;
+    }
+    container data {
+      presence "Consolidated xFrame data binding.";
+      uses data-ref;
+    }
+    container llm {
+      presence "Runtime LLM configuration.";
+      leaf authorized {
+        type invite-authorization;
+        default "true";
+        description
+          "Authorize proxy-backed LLM and translation operations.
+           true (default) allows origin-gated proxy access without an invite;
+           false denies proxy LLM; an invite-feature requires that feature on the invite.
+           Direct BYOA credentials remain authorized independently.";
+      }
+    }
+    container text_to_speech {
+      presence "Runtime text-to-speech authorization configuration.";
+      leaf authorized {
+        type invite-authorization;
+        default "false";
+        description
+          "Authorize proxy-backed text-to-speech operations.
+           false (default) denies proxy TTS (Edge/browser providers still work);
+           true allows origin-gated proxy TTS without an invite; invite-feature
+           (typically text_to_speech) requires that feature on the invite.
+           Direct BYOA credentials remain authorized independently.";
+      }
+    }
+    container video {
+      presence "Defaults for html2mp4 / narrated video export.";
+      description
+        "Document-level video encode options. CLI flags override these values.";
+      leaf outro_delay {
+        type decimal64 {
+          fraction-digits 2;
+          range "0..max";
+        }
+        description
+          "Seconds to hold the final slide after narration (html2mp4 default 7;
+           overridden by --outro-delay).";
+      }
+      leaf ai_context {
+        type string;
+        description
+          "Viewer notes for --ai-path (LLM input), or a path relative to the "
+          + "document for a .md/.txt notes file. Overridden by --ai-context.";
+      }
+    }
+    container narrative {
+      presence "Document-wide defaults inherited by every @narrative control.";
+      leaf voice {
+        type narrative-voice;
+        default "female";
+        description "Synthesized voice gender for all narrative language entries.";
+      }
+      leaf track {
+        type narrative-track;
+        default "slides";
+        description
+          "When combined, compile synthesizes one audio/deck-<locale>.wav with "
+          + "configurable silence between slides, silent [xframe-marker:ID] tags, a "
+          + "markers JSON sidecar, and per-slide splits for HTML/MP4.";
+      }
+      leaf pause_seconds {
+        type decimal64 {
+          fraction-digits 2;
+          range "0..max";
+        }
+        default "3.0";
+        description
+          "Silence between slides on a combined deck track (seconds). Exact PCM "
+          + "silence is inserted when rebuilding the deck WAV after TTS.";
+      }
+      list groups {
+        key "index";
+        ordered-by user;
+        description
+          "Ordered batches of slide ids. Each batch is synthesized in a separate TTS API "
+          + "request, preserved as deck-<locale>-group-N.wav, and joined into the "
+          + "combined deck track.";
+        leaf index { type uint16; }
+        leaf-list slide {
+          type string;
+          ordered-by user;
+        }
+      }
+      leaf soundbites {
+        type boolean;
+        default false;
+        description
+          "When true, slides may declare @narrative soundbites ranges and HTML emits a "
+          + "runtime control that plays only those fragments from the narration audio.";
+      }
+    }
+    leaf evaluation {
+      type evaluation-mode;
+      description
+        "Document-level evaluation mode; copied into resolved scope when present.";
+    }
+    container runtime {
+      description
+        "Browser runtime features this document depends on. Declare a feature with an "
+        + "empty child (for example `invite:`) to opt in.";
+
+      container invite {
+        presence "Invite URL context is required for deferred Jinja.";
+        description
+          "Decode invite URL context in the browser and expose it to runtime templates "
+          + "as runtime.invite.context.";
+      }
+    }
+    leaf positioning {
+      type positioning-strategy;
+      description "Layout positioning strategy; dynamic preserves backend runtime layout.";
+    }
+  }
+
+  grouping key-value {
+    description "String attribute on a widget or directive.";
+    leaf name {
+      type string {
+        length "1..128";
+      }
+      mandatory true;
+    }
+    leaf value {
+      type string;
+      mandatory true;
+    }
+  }
+
+  grouping content-node {
+    description "One semantic node in a segment or region body.";
+    leaf kind {
+      type content-kind;
+      mandatory true;
+    }
+    container provenance {
+      uses provenance;
+    }
+    leaf region {
+      type string;
+      description "Target layout region from a leading @region directive.";
+    }
+    leaf align {
+      type content-align;
+      description "Content alignment inside the target region.";
+    }
+    list options {
+      key name;
+      description "Directive or widget options as string pairs.";
+      uses key-value;
+    }
+    list expressions {
+      key name;
+      description "Parsed Jinja option expressions keyed by option name.";
+      leaf name {
+        type string;
+        mandatory true;
+      }
+      leaf source {
+        type string;
+        mandatory true;
+      }
+      leaf-list dependencies {
+        type string;
+        ordered-by user;
+      }
+      anydata tree {
+        mandatory true;
+        description "Serialized Jinja abstract syntax tree.";
+      }
+    }
+
+    choice content {
+      mandatory true;
+      case heading {
+        container heading {
+          presence "Markdown heading (# … ######).";
+          leaf level {
+            type uint8 {
+              range "1..6";
+            }
+            mandatory true;
+          }
+          leaf text {
+            type string;
+            mandatory true;
+          }
+          leaf continued {
+            type boolean;
+            default false;
+            description
+              "Set by paginate when this heading continues a section from the
+               previous page. Display layers append ' (Continued)'; text stays
+               the original section title.";
+          }
+        }
+      }
+      case paragraph {
+        container paragraph {
+          presence "Markdown paragraph.";
+          leaf text {
+            type string;
+            mandatory true;
+          }
+        }
+      }
+      case list-content {
+        container list {
+          presence "Markdown bullet or numbered list.";
+          leaf ordered {
+            type boolean;
+            default "false";
+          }
+          leaf-list items {
+            type string;
+            min-elements 1;
+          }
+        }
+      }
+      case table {
+        container table {
+          presence "GitHub-flavored Markdown table.";
+          list rows {
+            key index;
+            leaf index {
+              type uint32;
+              mandatory true;
+            }
+            leaf-list cells {
+              type string;
+            }
+          }
+        }
+      }
+      case media {
+        container media {
+          presence "Markdown image (![alt](src)).";
+          leaf src {
+            type string;
+            mandatory true;
+          }
+          leaf alt {
+            type string;
+          }
+          leaf caption {
+            type string;
+          }
+        }
+      }
+      case html {
+        container html {
+          presence "Interactive HTML artifact hosted by an @html directive.";
+          leaf src {
+            type string;
+            description "Local path or http(s) URL for the HTML artifact.";
+          }
+          leaf title {
+            type string;
+            description "Accessible title for the iframe host.";
+          }
+          leaf mode {
+            type enumeration {
+              enum iframe;
+              enum inline;
+              enum srcdoc;
+            }
+            default "iframe";
+            description
+              "iframe isolates a full document; inline/srcdoc accept fragments only.";
+          }
+          leaf sandbox {
+            type string;
+            description
+              "iframe sandbox tokens (default: allow-scripts allow-same-origin).";
+          }
+          leaf embed {
+            type boolean;
+            default "false";
+            description
+              "When true, gzip+base64 the artifact into the deck and inflate on load.";
+          }
+          leaf click-to-zoom {
+            type boolean;
+            default "true";
+            description
+              "When true, host chrome opens a full-viewport overlay of the artifact.";
+          }
+          leaf content {
+            type string;
+            description "Fragment body for mode inline or srcdoc (mutually exclusive with src).";
+          }
+        }
+      }
+      case page-break {
+        container page-break {
+          presence "Forced letter-page break from an @page-break directive.";
+          container header {
+            leaf continue {
+              type boolean;
+              default true;
+              description
+                "When true, the next page repeats the interrupted section heading
+                 with continued=true. Set false to start the new page with no
+                 continuation heading.";
+            }
+          }
+        }
+      }
+      case qr-code {
+        container qr-code {
+          presence "QR code generated from an @qr_code directive.";
+          leaf url {
+            type string;
+            mandatory true;
+          }
+          leaf logo {
+            type string;
+            description "Optional center logo path (deck-relative) or data URI; implies ecl H when ecl is omitted.";
+          }
+          leaf logo-scale {
+            type decimal64 {
+              fraction-digits 2;
+            }
+            description "Logo width as a fraction of the QR symbol (default 0.13).";
+          }
+          leaf brand {
+            type string;
+            description "Optional eyebrow / brand line above the QR (qr-code layout).";
+          }
+          leaf title {
+            type string;
+            description "Optional headline above the QR (qr-code layout).";
+          }
+          leaf subtitle {
+            type string;
+            description "Optional supporting line above the QR (qr-code layout).";
+          }
+          leaf cta {
+            type string;
+            description "Optional call-to-action below the QR (qr-code layout).";
+          }
+          leaf color {
+            type string;
+            description "Module (foreground) color.";
+          }
+          leaf background {
+            type string;
+            description "Quiet-zone / background color.";
+          }
+          leaf ecl {
+            type enumeration {
+              enum L;
+              enum M;
+              enum Q;
+              enum H;
+            }
+            description "Error-correction level; use H when overlaying a center logo.";
+          }
+        }
+      }
+      case widget {
+        container widget {
+          presence "Fenced code block with a registered widget info string.";
+          leaf type {
+            type widget-type;
+            mandatory true;
+          }
+          leaf body {
+            type string;
+            mandatory true;
+            description "Raw fenced block body (often JSON spec).";
+          }
+        }
+      }
+      case raw {
+        container raw {
+          presence "Unclassified fenced markdown block.";
+          leaf value {
+            type string;
+            mandatory true;
+          }
+        }
+      }
+      case annotation {
+        container annotation {
+          presence "Hover annotation extracted from @annotation directives.";
+          leaf text {
+            type string;
+            mandatory true;
+            description "Trigger label shown in slide chrome.";
+          }
+          leaf body {
+            type string;
+            mandatory true;
+            description "Popup body source.";
+          }
+        }
+      }
+    }
+  }
+
+  grouping segment {
+    description
+      "One --- delimited segment in the authoring source.
+       Segment directives (@id, @class, @layout, @theme, @evaluation) map to leaves here.";
+
+    leaf index {
+      type uint32;
+      mandatory true;
+      description "Zero-based segment order in the source body.";
+    }
+    container runtime {
+      description
+        "Presentation position assigned by ir-select (phased hydration).";
+
+      leaf index {
+        type uint32;
+        description "Zero-based index within the selected presentation deck.";
+      }
+    }
+    leaf id {
+      type string {
+        pattern '^[a-z][a-z0-9_-]*$';
+      }
+      description "Stable slide id from @id (hash navigation).";
+    }
+    leaf-list classes {
+      type string {
+        pattern '^[a-z][a-z0-9_-]*$';
+      }
+      description "Authoring classes from @class (prompt filters, HTML class list).";
+    }
+    leaf title {
+      type string;
+      description "First heading text in the segment, when present.";
+    }
+    leaf notes {
+      type string;
+      description "Speaker notes (Note: lines in v1 decks).";
+    }
+    leaf layout {
+      type string;
+      description "Per-segment layout override from @layout.";
+    }
+    leaf template {
+      type string;
+      description
+        "Source template filename assigned when an ancestor layout applies to segments.";
+    }
+    leaf-list themes {
+      type theme-name;
+      description "Per-segment theme opt-in from @theme.";
+    }
+    leaf-list presentations {
+      type string;
+      description
+        "When set (from @presentation), include this segment only for these
+         presentation kinds. Omitted means every presentation.";
+    }
+    leaf-list formats {
+      type format-name;
+      description
+        "When set (from @format), include this segment only for these format
+         qualifiers. Omitted means every format.";
+    }
+    container scope {
+      uses scope-declaration;
+      description "Segment-level evaluation scope from @evaluation.";
+    }
+    list content {
+      key index;
+      description "Parsed Markdown body as semantic content nodes.";
+      leaf index {
+        type uint32;
+        mandatory true;
+      }
+      uses content-node;
+    }
+    list annotations {
+      key index;
+      description "Annotations kept separate from visible slide content.";
+      leaf index {
+        type uint32;
+        mandatory true;
+      }
+      leaf text {
+        type string;
+        mandatory true;
+      }
+      leaf body {
+        type string;
+        mandatory true;
+      }
+    }
+  }
+
+  grouping structure-node-flat {
+    description
+      "One node in a flat structure tree. Parent links use parent-index leafrefs
+       to avoid recursive groupings unsupported by xYang.";
+
+    leaf index {
+      type uint32;
+      mandatory true;
+      description "Stable node index within the template structure list.";
+    }
+    leaf parent-index {
+      type leafref {
+        path "../../structure-nodes/index";
+      }
+      description "Parent container index; omit for root nodes.";
+    }
+    leaf kind {
+      type enumeration {
+        enum container;
+        enum region;
+      }
+      mandatory true;
+    }
+    leaf name {
+      type string;
+      description "Region name or optional container namespace.";
+    }
+    leaf template {
+      type string;
+      description "Source template filename applied to this node's children.";
+    }
+    container provenance {
+      uses provenance;
+    }
+    container constraints {
+      uses constraints;
+    }
+    leaf-list theme-names {
+      type theme-name;
+      description "Themes scoped to this structure subtree.";
+    }
+    container scope {
+      uses scope-declaration;
+    }
+    leaf mode {
+      type container-mode;
+      description "Container mode when kind is container.";
+    }
+    leaf direction {
+      type enumeration {
+        enum vertical;
+        enum horizontal;
+      }
+      description "Stack/flex main axis when kind is container.";
+    }
+    leaf columns {
+      type uint8 {
+        range "1..64";
+      }
+      description "Grid column count when kind is container.";
+    }
+    leaf rows {
+      type uint8 {
+        range "1..64";
+      }
+      description "Grid row count when kind is container.";
+    }
+    leaf segment-default {
+      type boolean;
+      default "false";
+      description
+        "When kind is region, route segment content without @region here.";
+    }
+    list content {
+      key content-index;
+      description "Content attached to a region node.";
+      leaf content-index {
+        type uint32;
+        mandatory true;
+      }
+      uses content-node;
+    }
+  }
+
+  grouping template-meta {
+    description "YAML front matter shared by bundled template documents.";
+    uses document-meta;
+    leaf kind {
+      type template-kind;
+      description "Template registry layer for this file.";
+    }
+    leaf extends {
+      type string;
+      description "Parent template merged before this one.";
+    }
+  }
+
+  container document {
+    description
+      "Root for a parsed authoring document. JSON instances use this key.
+       Corresponds to ParsedDocument in ts/present_v3.";
+
+    container meta {
+      presence "Document front matter.";
+      uses document-meta;
+    }
+
+    container scope {
+      presence "Resolved evaluation scope.";
+      uses resolved-scope;
+    }
+
+    container data {
+      uses data-ref;
+      description "Normalized consolidated data references.";
+    }
+
+    list segments {
+      key index;
+      min-elements 1;
+      uses segment;
+    }
+  }
+
+  container template {
+    description
+      "Root for a parsed template document from src/templates/.
+       Structure directives in the body become the structure list.";
+
+    leaf name {
+      type string {
+        length "1..128";
+      }
+      mandatory true;
+      description "Template registry name (basename without .md).";
+    }
+
+    leaf path {
+      type string;
+      description "Filesystem path when loaded from the template registry.";
+    }
+
+    container meta {
+      presence "Template front matter.";
+      uses template-meta;
+    }
+
+    container scope {
+      presence "Resolved evaluation scope.";
+      uses resolved-scope;
+    }
+
+    list structure-nodes {
+      key index;
+      min-elements 1;
+      uses structure-node-flat;
+    }
+  }
+}

@@ -61,7 +61,7 @@
     video { width: 100%; max-height: 280px; border-radius: 8px; background: #000; }
     .outputs { display: grid; gap: 0.5rem; }
     .output-row { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.88rem; }
-    .output-actions { display: flex; gap: 0.45rem; flex: 0 0 auto; }
+    .output-actions { display: flex; gap: 0.45rem; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
     #outputPreviewPanel { margin-top: 1rem; display: grid; gap: 0.85rem; }
     @media (min-width: 720px) {
       #outputPreviewPanel { grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 0.8fr); align-items: start; }
@@ -95,7 +95,7 @@
     </div>
     <div class="page-header-brand">
       <img class="brand-logo" src="./exergy_connect_logo.png" alt="Exergy Connect" width="180" height="48" />
-      <p class="build-stamp" title="Build stamp">2026-08-26T20:23:52Z · 7016664</p>
+      <p class="build-stamp" title="Build stamp">2026-08-26T20:26:34Z · dd97d2a</p>
     </div>
   </header>
 
@@ -239,7 +239,7 @@
 
   <section id="outputsSection" class="hidden">
     <h2>5. Outputs</h2>
-    <p class="muted">One H.264/AAC MP4 upload master per selected placement. Shared Meta encodes appear under each requested name.</p>
+    <p class="muted">One H.264/AAC MP4 upload master per selected placement. Shared Meta encodes appear under each requested name. LinkedIn outputs can be sent to the device share sheet for posting in the LinkedIn app.</p>
     <div id="outputs" class="outputs"></div>
     <div id="outputPreviewPanel" class="hidden">
       <video id="outputPreview" controls playsinline></video>

@@ -1,0 +1,74 @@
+module ir {
+  yang-version 1.1;
+  namespace "urn:xframe:present:ir";
+  prefix "ir";
+
+  organization "Exergy LLC";
+  contact "https://github.com/exergy-connect/xFrame.present";
+
+  description
+    "Schema for xFrame.present phase-1 intermediate representation (.xp.json).
+
+     Authoring sources (.xp) are described by ``document.yang``. This module
+     validates the compiled IR JSON consumed by backends (ir2html, ir2pptx,
+     html2mp4, …).
+
+     Instance data uses RFC 7951 JSON encoding with unprefixed local names
+     (same shape as emitted ``.xp.json`` fragments). Structured BYOA endpoint
+     lists are validated under ``byoa-endpoints``; control widgets store that
+     list as a JSON string in ``options.endpoints`` and backends re-validate
+     after parse.";
+
+  revision "2026-07-19" {
+    description
+      "Initial IR model with BYOA endpoint list requiring base_url.";
+  }
+
+  typedef non-empty-string {
+    type string {
+      length "1..max";
+    }
+    description "Trimmed non-empty string.";
+  }
+
+  grouping byoa-endpoint {
+    description
+      "One OpenAI-compatible endpoint preset for ``@control type=byoa``.
+       Keys are snake_case in both authoring YAML and IR JSON.";
+    leaf label {
+      type non-empty-string;
+      mandatory true;
+      description "Display label in the BYOA endpoint dropdown.";
+    }
+    leaf base_url {
+      type string {
+        length "1..2048";
+        pattern 'https?://.*';
+      }
+      mandatory true;
+      description
+        "OpenAI-compatible API base URL (must include scheme). Required in IR.";
+    }
+    leaf model {
+      type non-empty-string;
+      description "Default model id applied when this endpoint is selected.";
+    }
+    leaf api_key {
+      type string;
+      description
+        "Optional non-secret placeholder (e.g. cloudflare-proxy) prefilled in the form.
+         Never a long-lived Gemini secret.";
+    }
+  }
+
+  container byoa-endpoints {
+    description
+      "Decoded ``options.endpoints`` payload for a BYOA control.
+       Validated whenever endpoints are authored or loaded from IR.";
+    list endpoint {
+      key "label";
+      description "Preset endpoint entry; ``label`` is unique within the control.";
+      uses byoa-endpoint;
+    }
+  }
+}

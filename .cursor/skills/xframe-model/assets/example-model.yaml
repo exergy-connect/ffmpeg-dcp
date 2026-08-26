@@ -1,0 +1,64 @@
+# Example xFrame model: Company -> Department -> Employee
+# Use with example-data.yaml and run xframe-consolidate (model-dir and data_dir pointing at assets or copies).
+name: "Example Model"
+version: "25.03.16.1"
+author: "xFrame"
+
+entities:
+  - name: company
+    brief: "Top-level company"
+    primary_key: company_id
+    fields:
+      - name: company_id
+        type: string
+        required: true
+      - name: company_name
+        type: string
+        required: true
+      - name: departments
+        type: array
+        required: false
+        item_type:
+          entity: department
+
+  - name: department
+    brief: "Department under company"
+    primary_key: department_id
+    fields:
+      - name: department_id
+        type: string
+        required: true
+      - name: department_name
+        type: string
+        required: true
+      - name: company_id
+        type: string
+        required: true
+        foreignKeys:
+          - entity: company
+            parent_array: departments
+      - name: employees
+        type: array
+        required: false
+        item_type:
+          entity: employee
+
+  - name: employee
+    brief: "Employee under department"
+    primary_key: employee_id
+    fields:
+      - name: employee_id
+        type: string
+        required: true
+      - name: employee_name
+        type: string
+        required: true
+      - name: department_id
+        type: string
+        required: true
+        foreignKeys:
+          - entity: department
+            parent_array: employees
+      - name: email
+        type: string
+        required: false

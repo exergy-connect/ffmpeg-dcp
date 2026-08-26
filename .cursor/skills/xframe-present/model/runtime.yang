@@ -1,0 +1,133 @@
+module runtime {
+  yang-version 1.1;
+  namespace "urn:xframe:present:runtime";
+  prefix "runtime";
+
+  import document {
+    prefix doc;
+  }
+
+  organization "Exergy LLC";
+  contact "https://github.com/exergy-connect/xFrame.present";
+
+  description
+    "Schema for values made available to deferred Jinja expressions in the
+     browser runtime. It validates the compiled IR runtime-context capability
+     declaration that corresponds to document.meta.runtime feature opt-ins.";
+
+  revision "2026-07-22" {
+    description
+      "Add runtime.segments list for presentation-deck hydration after ir-select.
+       Slide footers use segment.runtime.index + runtime.segments.length.";
+  }
+
+  revision "2026-07-21" {
+    description
+      "Add runtime.invite.opportunity boolean claim alongside invite context;
+       add runtime.invite.short_url for length-bounded presentation links.";
+  }
+
+  revision "2026-07-20" {
+    description
+      "Invite features from document.invite-feature (pdf_extract, text_to_speech),
+       session URL, runtime.all_features, narration language/locale, and runtime
+       context model.";
+  }
+
+  augment "/doc:document" {
+    description
+      "Attach the runtime capability declaration to the compile-time document
+       solely for schema validation.";
+
+    container runtime {
+      description "Runtime-visible root Jinja context declared by the IR.";
+
+      leaf-list all_features {
+        type doc:invite-feature;
+        description
+          "Complete set of invite-feature enum values from document.yang. Used for
+           local file:// / 127.0.0.1 testing and feature enumeration; ideally
+           generated from the typedef at build time.";
+      }
+
+      leaf language {
+        type string;
+        description
+          "English display name of the viewer's preferred narration language "
+          + "(for example English, Spanish). Bound live from the language control.";
+      }
+
+      leaf locale {
+        type string;
+        description
+          "BCP-47 locale for narration and speech synthesis (for example en-US). "
+          + "Bound live from the language control.";
+      }
+
+      container invite {
+        when "../../meta/runtime/invite";
+        presence "Invite processing is enabled for this document.";
+        description "Values decoded from the xFrame invite token.";
+
+        leaf context {
+          type string;
+          mandatory true;
+          description "Invite-provided context text.";
+        }
+
+        leaf opportunity {
+          type boolean;
+          default false;
+          description
+            "When true, invite context describes a specific opportunity rather than
+             general interest. Presentations may route context into an opportunity
+             input.";
+        }
+
+        leaf url {
+          type string;
+          mandatory true;
+          description
+            "Full presentation URL for this session, including the xframe_invite "
+            + "query token when present.";
+        }
+
+        leaf short_url {
+          type string;
+          mandatory true;
+          description
+            "Presentation URL suitable for compact links: the full url when shorter "
+            + "than 256 characters, otherwise the same URL with query and fragment "
+            + "stripped.";
+        }
+
+        leaf-list features {
+          type doc:invite-feature;
+          description "Capabilities granted by the invite token.";
+        }
+      }
+
+      list segments {
+        key slide;
+        description
+          "Ordered presentation deck after ir-select. Each entry summarizes one
+           slide in the active cut (presentation slide number + source index).";
+
+        leaf slide {
+          type uint32;
+          description "One-based slide number in the presentation cut.";
+        }
+
+        leaf index {
+          type uint32;
+          description "Zero-based source segment index (document.segments[].index).";
+        }
+
+        leaf id {
+          type string;
+          description "Stable segment id when authored.";
+        }
+      }
+    }
+  }
+}

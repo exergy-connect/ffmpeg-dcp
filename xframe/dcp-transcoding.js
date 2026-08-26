@@ -1387,6 +1387,29 @@ function showOutputPreview(out) {
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+async function shareOutputToLinkedIn(out) {
+  const status = el('saveOutputsStatus');
+  const file = new File([out.blob], out.name, { type: 'video/mp4' });
+  const shareData = {
+    title: `${out.alias?.platformName || 'LinkedIn'} video`,
+    text: `${out.alias?.placementLabel || 'Video'} prepared by DCP Social Media Transcoder`,
+    files: [file],
+  };
+  if (!navigator.share || (navigator.canShare && !navigator.canShare(shareData))) {
+    status.textContent =
+      'Direct LinkedIn sharing is unavailable in this browser. Download the MP4 and attach it in LinkedIn.';
+    return;
+  }
+  try {
+    await navigator.share(shareData);
+    status.textContent = `${out.name} was handed to your device's share sheet.`;
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      status.textContent = `Could not share ${out.name}: ${err.message}`;
+    }
+  }
+}
+
 async function assembleMasters(bySignature, uniqueFormats, deliverables) {
   const outputs = [];
   el('outputsSection').classList.remove('hidden');
@@ -1440,7 +1463,16 @@ async function assembleMasters(bySignature, uniqueFormats, deliverables) {
       a.download = name;
       a.textContent = 'Download';
       a.className = 'btn';
-      actions.append(previewBtn, a);
+      actions.append(previewBtn);
+      if (alias.platformId === 'linkedin') {
+        const linkedInBtn = document.createElement('button');
+        linkedInBtn.type = 'button';
+        linkedInBtn.className = 'btn';
+        linkedInBtn.textContent = 'Post to LinkedIn';
+        linkedInBtn.addEventListener('click', () => shareOutputToLinkedIn(out));
+        actions.append(linkedInBtn);
+      }
+      actions.append(a);
       row.append(info, actions);
       host.appendChild(row);
     }

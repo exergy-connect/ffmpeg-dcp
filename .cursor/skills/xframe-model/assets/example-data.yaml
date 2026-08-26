@@ -1,0 +1,25 @@
+# Example xFrame data for example-model.yaml
+# Structure: Company -> Department -> Employee (nested under entity array keys)
+
+company:
+  - company_id: "acme"
+    company_name: "ACME Corp"
+    departments:
+      - department_id: "eng"
+        department_name: "Engineering"
+        employees:
+          - employee_id: "alice"
+            employee_name: "Alice"
+            email: "alice@acme.com"
+          - employee_id: "bob"
+            employee_name: "Bob"
+            email: "bob@acme.com"
+      - department_id: "sales"
+        department_name: "Sales"
+        employees:
+          - employee_id: "charlie"
+            employee_name: "Charlie"
+            email: "charlie@acme.com"
+  - company_id: "other"
+    company_name: "Other Co"
+    departments: []
