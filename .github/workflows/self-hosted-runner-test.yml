@@ -3,6 +3,7 @@ name: Self-hosted runner test
 on:
   push:
     paths:
+      - xframe/uploads/*.mp4
       - xframe/uploads/**/*.mp4
   workflow_dispatch:
     inputs:
