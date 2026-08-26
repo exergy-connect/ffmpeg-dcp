@@ -3,9 +3,8 @@
  *
  * Minimal dependency-free client for the GitHub Actions broker listener
  * protocol. Supports JIT config decoding, runner OAuth, broker session
- * creation, long-poll message retrieval, and message-body decryption.
- *
- * This prototype intentionally does not call /acquirejob or acknowledge jobs.
+ * creation, long-poll message retrieval, message-body decryption, and job
+ * acquisition via the run service.
  */
 
 import {
@@ -60,6 +59,134 @@ const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
  * @property {string} runServiceUrl
  * @property {string} billingOwnerId
  */
+
+/**
+ * @typedef {object} AcquiredJob
+ * @property {string} planId
+ * @property {string} jobAuthToken
+ * @property {Record<string, unknown>} payload
+ */
+
+/**
+ * @typedef {object} AcquiredJobMetadata
+ * @property {string} planId
+ * @property {string} jobId
+ * @property {string} jobName
+ * @property {string} workflowFile
+ * @property {string} workflowRef
+ * @property {string} repository
+ * @property {string[]} secretVariableNames
+ */
+
+/**
+ * @typedef {object} AcquiredJobStep
+ * @property {number} order
+ * @property {string} displayName
+ * @property {"run" | "uses" | "unknown"} kind
+ * @property {string} [uses]
+ * @property {string} [script]
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {unknown}
+ */
+function unwrapContextNode(value) {
+  if (value == null || typeof value !== "object") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(unwrapContextNode);
+  }
+
+  const node = /** @type {Record<string, unknown>} */ (value);
+  if ("t" in node || "type" in node) {
+    const tokenType = node.t ?? node.type;
+    if (tokenType === 0) {
+      return node.s ?? node.lit ?? node.str ?? "";
+    }
+    if (tokenType === 1) {
+      return (node.a ?? node.seq ?? []).map(unwrapContextNode);
+    }
+    if (tokenType === 2) {
+      const entries = /** @type {Array<Record<string, unknown>>} */ (
+        node.d ?? node.dict ?? node.map ?? []
+      );
+      const mapped = {};
+      for (const entry of entries) {
+        const key = unwrapContextNode(entry.k ?? entry.Key ?? entry.key);
+        mapped[String(key)] = unwrapContextNode(
+          entry.v ?? entry.Value ?? entry.value
+        );
+      }
+      return mapped;
+    }
+    if (tokenType === 3) {
+      if ("expr" in node) {
+        return `\${{ ${String(node.expr)} }}`;
+      }
+      return node.b ?? node.bool ?? false;
+    }
+    if (tokenType === 5) {
+      return node.b ?? node.bool ?? false;
+    }
+    if (tokenType === 4 || tokenType === 6) {
+      return node.n ?? node.num ?? 0;
+    }
+  }
+
+  const unwrapped = {};
+  for (const [key, nested] of Object.entries(node)) {
+    unwrapped[key] = unwrapContextNode(nested);
+  }
+  return unwrapped;
+}
+
+/**
+ * @param {Record<string, unknown>} acquired
+ * @returns {Record<string, unknown>}
+ */
+function getGithubContext(acquired) {
+  const contextData = unwrapContextNode(
+    acquired.contextData ?? acquired.ContextData ?? {}
+  );
+  if (!contextData || typeof contextData !== "object" || Array.isArray(contextData)) {
+    return {};
+  }
+  const github = /** @type {Record<string, unknown>} */ (
+    contextData.github ?? contextData.GitHub ?? {}
+  );
+  return github && typeof github === "object" && !Array.isArray(github)
+    ? github
+    : {};
+}
+
+/**
+ * @param {unknown} rawVariables
+ * @param {string} name
+ */
+function getVariableString(rawVariables, name) {
+  const target = name.toLowerCase();
+  for (const variable of normalizeVariables(rawVariables)) {
+    if (String(variable.name ?? "").toLowerCase() === target) {
+      return String(variable.value ?? "");
+    }
+  }
+  return "";
+}
+
+/**
+ * @param {...string} values
+ */
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    if (value != null && String(value) !== "") {
+      return String(value);
+    }
+  }
+  return "";
+}
 
 /**
  * @param {Buffer} data
@@ -549,6 +676,289 @@ export function parseJobReferenceBody(bodyText) {
 }
 
 /**
+ * @returns {string}
+ */
+export function getRunnerOs() {
+  if (process.platform === "win32") {
+    return "Windows";
+  }
+  if (process.platform === "darwin") {
+    return "macOS";
+  }
+  return "Linux";
+}
+
+/**
+ * @param {string} runServiceUrl
+ */
+export function buildRunServiceUrl(runServiceUrl) {
+  return runServiceUrl.replace(/\/$/, "");
+}
+
+/**
+ * @param {Record<string, unknown>} acquired
+ */
+export function extractJobAuthToken(acquired) {
+  const resources = /** @type {Record<string, unknown>} */ (
+    acquired.resources ?? acquired.Resources ?? {}
+  );
+  const endpoints = /** @type {Array<Record<string, unknown>>} */ (
+    resources.endpoints ?? resources.Endpoints ?? []
+  );
+
+  for (const endpoint of endpoints) {
+    const name = String(endpoint.name ?? endpoint.Name ?? "");
+    if (name.toLowerCase() !== "systemvssconnection") {
+      continue;
+    }
+    const authorization = /** @type {Record<string, unknown>} */ (
+      endpoint.authorization ?? endpoint.Authorization ?? {}
+    );
+    const parameters = /** @type {Record<string, unknown>} */ (
+      authorization.parameters ?? authorization.Parameters ?? {}
+    );
+    for (const [key, value] of Object.entries(parameters)) {
+      if (key.toLowerCase() === "accesstoken" && value) {
+        return String(value);
+      }
+    }
+  }
+  return "";
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {Array<Record<string, unknown>>}
+ */
+function normalizeVariables(raw) {
+  if (Array.isArray(raw)) {
+    return raw;
+  }
+  if (raw && typeof raw === "object") {
+    return Object.entries(/** @type {Record<string, unknown>} */ (raw)).map(
+      ([name, value]) => {
+        if (value && typeof value === "object") {
+          return {
+            name,
+            ...(/** @type {Record<string, unknown>} */ (value)),
+          };
+        }
+        return { name, value };
+      }
+    );
+  }
+  return [];
+}
+
+/**
+ * @param {Record<string, unknown>} acquired
+ * @param {JobReference} jobReference
+ * @param {string} [planId]
+ * @returns {AcquiredJobMetadata}
+ */
+export function parseAcquiredJobMetadata(acquired, jobReference, planId = "") {
+  const job = /** @type {Record<string, unknown>} */ (
+    acquired.job ?? acquired.Job ?? {}
+  );
+  const github = getGithubContext(acquired);
+  const rawVariables = acquired.variables ?? acquired.Variables;
+  const resolvedPlanId = String(
+    planId ||
+      pickField(acquired, ["planId", "PlanId"]) ||
+      pickField(
+        /** @type {Record<string, unknown>} */ (acquired.plan ?? acquired.Plan ?? {}),
+        ["planId", "PlanId"]
+      )
+  );
+
+  const variables = normalizeVariables(rawVariables);
+  const secretVariableNames = variables
+    .filter(
+      (variable) =>
+        variable.isSecret === true ||
+        variable.IsSecret === true ||
+        variable.secret === true ||
+        variable.Secret === true
+    )
+    .map((variable) => String(variable.name ?? variable.Name ?? ""))
+    .filter(Boolean);
+
+  const jobName = firstNonEmpty(
+    pickField(acquired, ["jobDisplayName", "JobDisplayName"]),
+    pickField(job, ["displayName", "DisplayName", "name", "Name"]),
+    getVariableString(rawVariables, "system.jobDisplayName"),
+    pickField(github, ["job", "Job"])
+  );
+  const workflowFile = firstNonEmpty(
+    pickField(github, ["workflow", "Workflow"]),
+    pickField(acquired, ["workflow", "Workflow"])
+  );
+  const workflowRef = firstNonEmpty(
+    pickField(github, ["ref", "Ref"]),
+    pickField(job, ["workflowRef", "WorkflowRef", "ref", "Ref"])
+  );
+  const repository = firstNonEmpty(
+    pickField(github, ["repository", "Repository"]),
+    pickField(job, ["repositoryName", "RepositoryName", "repository", "Repository"])
+  );
+
+  return {
+    planId: resolvedPlanId,
+    jobId: jobReference.runnerRequestId,
+    jobName,
+    workflowFile,
+    workflowRef,
+    repository,
+    secretVariableNames,
+  };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {Record<string, unknown>}
+ */
+function asObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  return /** @type {Record<string, unknown>} */ (value);
+}
+
+/**
+ * @param {Record<string, unknown>} acquired
+ * @returns {AcquiredJobStep[]}
+ */
+export function parseAcquiredJobSteps(acquired) {
+  const steps = unwrapContextNode(acquired.steps ?? acquired.Steps ?? []);
+  if (!Array.isArray(steps)) {
+    return [];
+  }
+
+  return steps.map((rawStep, index) => {
+    const step = asObject(rawStep);
+    const reference = asObject(unwrapContextNode(step.reference ?? step.Reference));
+    const inputs = asObject(unwrapContextNode(step.inputs ?? step.Inputs));
+
+    const refType = String(reference.type ?? reference.Type ?? "").toLowerCase();
+    const refName = String(reference.name ?? reference.Name ?? "").toLowerCase();
+    const script = firstNonEmpty(
+      inputs.script,
+      inputs.run,
+      refType === "script" || refName === "script" ? reference.path : ""
+    );
+    const uses = firstNonEmpty(
+      inputs.uses,
+      reference.path,
+      reference.image,
+      reference.name
+    );
+
+    let kind = /** @type {"run" | "uses" | "unknown"} */ ("unknown");
+    if (script) {
+      kind = "run";
+    } else if (uses || refType === "node" || refType === "action") {
+      kind = "uses";
+    }
+
+    return {
+      order: Number(step.order ?? step.Order ?? index + 1),
+      displayName: String(
+        step.displayName ?? step.DisplayName ?? `Step ${index + 1}`
+      ),
+      kind,
+      uses: uses || undefined,
+      script: script || undefined,
+    };
+  });
+}
+
+/**
+ * @param {BrokerSession} session
+ * @param {JobReference} jobReference
+ * @param {typeof fetch} fetchImpl
+ * @returns {Promise<AcquiredJob>}
+ */
+export async function acquireJob(session, jobReference, fetchImpl = fetch) {
+  const runServiceUrl = buildRunServiceUrl(jobReference.runServiceUrl);
+  const response = await fetchImpl(`${runServiceUrl}/acquirejob`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${session.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      jobMessageId: jobReference.runnerRequestId,
+      runnerOS: getRunnerOs(),
+      billingOwnerId: jobReference.billingOwnerId,
+    }),
+  });
+
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      `Run service AcquireJob failed (${response.status}): ${responseText}`
+    );
+  }
+
+  const payload = JSON.parse(responseText);
+  const planId =
+    response.headers.get("x-plan-id") ??
+    String(
+      pickField(
+        /** @type {Record<string, unknown>} */ (payload.plan ?? payload.Plan ?? {}),
+        ["planId", "PlanId"]
+      )
+    );
+  const jobAuthToken = extractJobAuthToken(payload);
+
+  return {
+    planId,
+    jobAuthToken,
+    payload,
+  };
+}
+
+/**
+ * @param {string} runServiceUrl
+ * @param {object} request
+ * @param {string} request.planId
+ * @param {string} request.jobId
+ * @param {string} request.result
+ * @param {string} request.authToken
+ * @param {typeof fetch} fetchImpl
+ */
+export async function completeJob(
+  runServiceUrl,
+  { planId, jobId, result, authToken },
+  fetchImpl = fetch
+) {
+  const baseUrl = buildRunServiceUrl(runServiceUrl);
+  const response = await fetchImpl(`${baseUrl}/completejob`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${authToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      planId,
+      jobId,
+      result,
+    }),
+  });
+
+  if (response.status === 204 || response.ok) {
+    return;
+  }
+
+  const body = await response.text();
+  throw new Error(
+    `Run service CompleteJob failed (${response.status}): ${body}`
+  );
+}
+
+/**
  * @param {BrokerSession} session
  * @param {typeof fetch} fetchImpl
  * @param {AbortSignal} [signal]
@@ -692,7 +1102,16 @@ export async function connectAndPollForJobReference(
       fetchImpl,
       options.signal
     );
-    return { identity, session, jobReference };
+    const result = { identity, session, jobReference };
+    if (options.acquire) {
+      result.acquiredJob = await acquireJob(session, jobReference, fetchImpl);
+      result.jobMetadata = parseAcquiredJobMetadata(
+        result.acquiredJob.payload,
+        jobReference,
+        result.acquiredJob.planId
+      );
+    }
+    return result;
   } finally {
     await deleteBrokerSession(session, fetchImpl).catch(() => {});
   }

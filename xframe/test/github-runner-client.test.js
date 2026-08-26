@@ -8,10 +8,13 @@ import {
 import test from "node:test";
 
 import {
+  acquireJob,
   connectAndPollForJobReference,
   decodeJitConfig,
   decryptMessageBody,
   decryptSessionKey,
+  parseAcquiredJobMetadata,
+  parseAcquiredJobSteps,
   parseJobReferenceBody,
   parseRunnerIdentity,
   reconstructPrivateKey,
@@ -182,7 +185,7 @@ test("parseJobReferenceBody extracts non-secret job metadata", () => {
   );
 });
 
-test("pollForJobReference retries on 202 and never calls acquirejob", async () => {
+test("pollForJobReference retries on 202 without acquiring by default", async () => {
   const fixture = buildFixture();
   const requests = [];
   let pollCount = 0;
@@ -290,4 +293,210 @@ test("deleteBrokerSession is invoked during connectAndPoll cleanup", async () =>
 
   await connectAndPollForJobReference(fixture.encodedJitConfig, { fetchImpl });
   assert.equal(deleteCalled, true);
+});
+
+test("connectAndPollForJobReference can acquire jobs when requested", async () => {
+  const fixture = buildFixture();
+  let acquireBody = null;
+
+  const fetchImpl = async (url, init = {}) => {
+    if (String(url).includes("/oauth2/token")) {
+      return new Response(JSON.stringify({ access_token: "oauth-token" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (String(url).endsWith("/session") && init.method === "POST") {
+      return new Response(
+        JSON.stringify({
+          sessionId: "session-1",
+          encryptionKey: {
+            encrypted: true,
+            value: fixture.encryptedSessionKey.toString("base64"),
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (String(url).includes("/message")) {
+      return new Response(
+        JSON.stringify({
+          messageId: 1,
+          messageType: "RunnerJobRequest",
+          body: fixture.encryptedBody,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (String(url).includes("/acquirejob")) {
+      acquireBody = JSON.parse(String(init.body));
+      return new Response(
+        JSON.stringify({
+          plan: { planId: "plan-123" },
+          job: {
+            displayName: "Probe JIT / self-hosted runner",
+            workflowRef: "refs/heads/main",
+            repositoryName: "exergy-connect/ffmpeg-dcp",
+          },
+          contextData: {
+            github: {
+              repository: "exergy-connect/ffmpeg-dcp",
+              workflow: ".github/workflows/ci.yml",
+              ref: "refs/heads/main",
+              job: "probe-self-hosted-runner",
+            },
+          },
+          resources: {
+            endpoints: [
+              {
+                name: "SystemVssConnection",
+                authorization: {
+                  parameters: {
+                    AccessToken: "job-token",
+                  },
+                },
+              },
+            ],
+          },
+          variables: [{ name: "GITHUB_TOKEN", isSecret: true }],
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "x-plan-id": "plan-header",
+          },
+        }
+      );
+    }
+    if (String(url).endsWith("/session") && init.method === "DELETE") {
+      return new Response("", { status: 204 });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+
+  const result = await connectAndPollForJobReference(fixture.encodedJitConfig, {
+    fetchImpl,
+    acquire: true,
+  });
+
+  assert.deepEqual(acquireBody, {
+    jobMessageId: "req-abc",
+    runnerOS: "Linux",
+    billingOwnerId: "owner-xyz",
+  });
+  assert.equal(result.acquiredJob.planId, "plan-header");
+  assert.equal(result.acquiredJob.jobAuthToken, "job-token");
+  assert.equal(result.jobMetadata.jobName, "Probe JIT / self-hosted runner");
+  assert.equal(result.jobMetadata.workflowRef, "refs/heads/main");
+  assert.equal(result.jobMetadata.workflowFile, ".github/workflows/ci.yml");
+  assert.deepEqual(result.jobMetadata.secretVariableNames, ["GITHUB_TOKEN"]);
+});
+
+test("parseAcquiredJobMetadata reads contextData and system variables", () => {
+  const metadata = parseAcquiredJobMetadata(
+    {
+      plan: { planId: "plan-123" },
+      jobDisplayName: "Probe JIT / self-hosted runner",
+      contextData: {
+        github: {
+          repository: { t: 0, s: "exergy-connect/ffmpeg-dcp" },
+          workflow: { t: 0, s: ".github/workflows/self-hosted-runner-test.yml" },
+          ref: { t: 0, s: "refs/heads/main" },
+          job: { t: 0, s: "probe-self-hosted-runner" },
+        },
+      },
+      variables: {
+        "system.jobDisplayName": { value: "ignored when top-level present", isSecret: false },
+        GITHUB_TOKEN: { isSecret: true },
+      },
+    },
+    {
+      messageId: 1,
+      messageType: "RunnerJobRequest",
+      runnerRequestId: "req-abc",
+      runServiceUrl: "https://run.example.test/",
+      billingOwnerId: "owner",
+    }
+  );
+
+  assert.equal(metadata.jobName, "Probe JIT / self-hosted runner");
+  assert.equal(metadata.repository, "exergy-connect/ffmpeg-dcp");
+  assert.equal(
+    metadata.workflowFile,
+    ".github/workflows/self-hosted-runner-test.yml"
+  );
+  assert.equal(metadata.workflowRef, "refs/heads/main");
+  assert.deepEqual(metadata.secretVariableNames, ["GITHUB_TOKEN"]);
+});
+
+test("parseAcquiredJobMetadata accepts object-shaped variables", () => {
+  const metadata = parseAcquiredJobMetadata(
+    {
+      plan: { planId: "plan-123" },
+      job: { displayName: "probe" },
+      variables: {
+        GITHUB_TOKEN: { isSecret: true },
+        VIDEO_URL: { isSecret: false },
+      },
+    },
+    {
+      messageId: 1,
+      messageType: "RunnerJobRequest",
+      runnerRequestId: "req-abc",
+      runServiceUrl: "https://run.example.test/",
+      billingOwnerId: "owner",
+    }
+  );
+
+  assert.deepEqual(metadata.secretVariableNames, ["GITHUB_TOKEN"]);
+});
+
+test("parseAcquiredJobSteps reads plain run and uses steps", () => {
+  const steps = parseAcquiredJobSteps({
+    steps: [
+      {
+        order: 1,
+        displayName: "Checkout",
+        reference: { type: "node", path: "actions/checkout" },
+        inputs: { fetchDepth: "2" },
+      },
+      {
+        order: 2,
+        displayName: "Probe runner",
+        reference: { type: "script", name: "script" },
+        inputs: {
+          script: "echo \"Runner OS: ${RUNNER_OS}\"\necho \"Video path: ${VIDEO_PATH}\"",
+        },
+      },
+    ],
+  });
+
+  assert.equal(steps.length, 2);
+  assert.equal(steps[0].kind, "uses");
+  assert.equal(steps[0].uses, "actions/checkout");
+  assert.equal(steps[1].kind, "run");
+  assert.equal(steps[1].displayName, "Probe runner");
+  assert.match(steps[1].script, /echo "Runner OS:/);
+});
+
+test("parseAcquiredJobSteps unwraps TemplateToken-encoded scripts", () => {
+  const steps = parseAcquiredJobSteps({
+    steps: [
+      {
+        displayName: "Resolve uploaded video",
+        reference: { type: "script", name: "script" },
+        inputs: {
+          script: {
+            t: 0,
+            s: "echo \"Video URL: ${VIDEO_URL}\"",
+          },
+        },
+      },
+    ],
+  });
+
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].kind, "run");
+  assert.equal(steps[0].script, 'echo "Video URL: ${VIDEO_URL}"');
 });

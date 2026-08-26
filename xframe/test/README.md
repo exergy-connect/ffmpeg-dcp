@@ -12,8 +12,9 @@ GitHub Actions self-hosted runner listener path without executing jobs:
 5. Decrypt and print job reference metadata
 6. Delete the broker session and exit
 
-The prototype **does not** call `/acquirejob`, acknowledge jobs, or run workflow
-steps. That keeps the workflow from being claimed by this metadata-only tool.
+The prototype **does not execute** workflow steps. It acquires the queued job,
+prints redacted metadata, and completes the job as `skipped` so the run does
+not stay locked.
 
 ### Prerequisites
 
