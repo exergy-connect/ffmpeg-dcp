@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Publish xframe/package as DCP package ffmpeg-wasm-social.
+ * Publish xframe/package as DCP package ffmpeg-dcp-social.
  *
  * Usage:
  *   node package/publish.js [--apiKey=0x…]

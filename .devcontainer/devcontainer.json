@@ -20,6 +20,6 @@
         ]
       }
     },
-    "postStartCommand": "git config core.sshCommand 'ssh -F /workspaces/DeepWaterModel/.devcontainer/ssh_config' && mkdir -p .cursor && echo '[xFrame] refreshing skills' >&2 && /usr/local/bin/install-xFrame-ai-skills.sh >&2"
+    "postStartCommand": "mkdir -p .cursor && echo '[xFrame] refreshing skills' >&2 && /usr/local/bin/install-xFrame-ai-skills.sh >&2"
   }
   

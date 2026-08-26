@@ -165,7 +165,7 @@ app:
   deploy_worker_script: dcp-deploy-worker.js
   wasm_glue: ffmpeg-wasm/dcp-transcode-glue.js
   wasm_binary: ffmpeg-wasm/dcp-transcode.wasm
-  dcp_package: ffmpeg-wasm-social/ffmpeg-wasm.js
+  dcp_package: ffmpeg-dcp-social/ffmpeg-wasm.js
 
   codecs:
     vp8:
@@ -260,7 +260,7 @@ app:
 
   dispatch:
     _concept: dcp_dispatch_policy
-    package_name: ffmpeg-wasm-social/ffmpeg-wasm.js
+    package_name: ffmpeg-dcp-social/ffmpeg-wasm.js
     target_chunk_frames: 90
     dedupe_identical_formats: true
     unit: "(chunk, unique format signature)"

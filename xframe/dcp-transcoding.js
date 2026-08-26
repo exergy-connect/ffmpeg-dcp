@@ -217,12 +217,12 @@ function showRunError(error) {
     remedy = 'Check network access to scheduler.distributed.computer.';
   } else if (/nofunds|insufficient funds/i.test(message)) {
     remedy = 'Fund the DCP payment account shown above, then retry.';
-  } else if (/fetchModuleURL|Could not locate module|package\.dcp|ffmpeg-wasm-social/i.test(message)) {
+  } else if (/fetchModuleURL|Could not locate module|package\.dcp|ffmpeg-dcp-social/i.test(message)) {
     remedy = 'Publish the DCP package: cd xframe && node package/build-bravojs-bundle.js && node package/publish.js';
   } else if (/slice_webm|Only VP8 or VP9|MediaRecorder|\.webm/i.test(message)) {
     remedy = 'Drop a MediaRecorder .webm (VP8/VP9) or an .mp4 (VP9 or H.264). Hard-refresh if a stale worker is still slicing MP4 into MPEG-TS.';
   } else if (/vp8|vp9|opus|decoder|wasm/i.test(message)) {
-    remedy = 'Rebuild the xframe WASM package (see xframe/README.md) and publish ffmpeg-wasm-social.';
+    remedy = 'Rebuild the xframe WASM package (see xframe/README.md) and publish ffmpeg-dcp-social.';
   }
   el('runErrorMessage').textContent = message;
   el('runErrorRemedy').textContent = remedy;
@@ -883,7 +883,7 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
     maxDistribution,
     container: container || '(sniff)',
     paymentPerSlice: slicePaymentDcc,
-    package: CONFIG.dcp_package || 'ffmpeg-wasm-social/ffmpeg-wasm.js',
+    package: CONFIG.dcp_package || 'ffmpeg-dcp-social/ffmpeg-wasm.js',
   });
   dbg('ensureIdentity…');
   await ensureIdentity();
@@ -1075,7 +1075,7 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
 
   dbg('compute.for…', { slices: inputSet.length, argsBytes: formatsMetaJson.length });
   const job = compute.for(inputSet, workFunction, [formatsMetaJson]);
-  job.requires([CONFIG.dcp_package || 'ffmpeg-wasm-social/ffmpeg-wasm.js']);
+  job.requires([CONFIG.dcp_package || 'ffmpeg-dcp-social/ffmpeg-wasm.js']);
   job.computeGroups = getComputeGroups();
   job.public = {
     name: `🎞️ Social transcoder: ${inputBaseName}`,
@@ -1100,7 +1100,7 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
   job.on('accepted', () => {
     log(
       `Job accepted id=${job.id || '(unknown)'} — waiting for workers. ` +
-      `Each worker must download/instantiate ffmpeg-wasm-social (~8MB); first result often takes 1–3+ minutes.`,
+      `Each worker must download/instantiate ffmpeg-dcp-social (~8MB); first result often takes 1–3+ minutes.`,
     );
   });
   job.on('status', (ev) => {
@@ -1195,7 +1195,7 @@ async function dispatchJob(chunks, uniqueFormats, durations, maxDistribution, in
     if (Number(st.distributed) > 0 && Number(st.computed) === 0 && resultEvents === 0 && Number(sec) >= 45) {
       dbg(
         'hint: slices are distributed but none computed yet — workers are likely still loading ' +
-        'ffmpeg-wasm-social WASM; watch for job.console [social-wf] lines',
+        'ffmpeg-dcp-social WASM; watch for job.console [social-wf] lines',
       );
     }
     const status = el('preprocessingStatus');

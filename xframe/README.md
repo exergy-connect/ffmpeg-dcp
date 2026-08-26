@@ -15,7 +15,7 @@ Accepts a browser `MediaRecorder` WebM (VP8/VP9 + Opus), lets the user pick any 
 | [`dcp-deploy-worker.js`](dcp-deploy-worker.js) | Base64 input-set prep |
 | [`src/dcp-transcode.c`](src/dcp-transcode.c) | Forked work-function + social APIs |
 | [`build.sh`](build.sh) | WASM build with VP8/VP9/Opus |
-| [`package/`](package/) | Distinct DCP package `ffmpeg-wasm-social` |
+| [`package/`](package/) | Distinct DCP package `ffmpeg-dcp-social` |
 | [`output/dcp-transcoding.html`](output/dcp-transcoding.html) | Compiled app (after xForm) |
 
 ## Compile the UI
@@ -64,10 +64,10 @@ node package/build-bravojs-bundle.js
 node package/publish.js --apiKey=0x…   # or DCP_API_KEY
 ```
 
-`publish.js` deploys `ffmpeg-wasm-social` to the DCP package manager so
-`job.requires(['ffmpeg-wasm-social/ffmpeg-wasm.js'])` resolves. Until that
+`publish.js` deploys `ffmpeg-dcp-social` to the DCP package manager so
+`job.requires(['ffmpeg-dcp-social/ffmpeg-wasm.js'])` resolves. Until that
 package is published, fleet jobs fail with `Could not locate module
-/packages/ffmpeg-wasm-social/package.dcp`.
+/packages/ffmpeg-dcp-social/package.dcp`.
 
 The Docker build fetches and compiles the required Emscripten, FFmpeg, and
 OpenH264 sources without using the root app’s build cache.

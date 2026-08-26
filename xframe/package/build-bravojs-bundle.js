@@ -1,7 +1,7 @@
 /**
  * @file        build-bravojs-bundle.js
  * @description Bundles the single-threaded dcp-transcode glue + WASM into bravojs
- *              for DCP package `ffmpeg-wasm-social`.
+ *              for DCP package `ffmpeg-dcp-social`.
  * @usage       node build-bravojs-bundle.js
  */
 'use strict';
@@ -20,9 +20,9 @@ const wasmBytes = fs.readFileSync(wasmPath);
 const wasmBase64 = wasmBytes.toString('base64');
 
 const bundle = `/**
- * @file        ffmpeg-wasm.js (published bundle for ffmpeg-wasm-social)
+ * @file        ffmpeg-wasm.js (published bundle for ffmpeg-dcp-social)
  * @description Embedded single-threaded dcp-transcode WASM API.
- * @usage       job.requires(['ffmpeg-wasm-social/ffmpeg-wasm.js']);
+ * @usage       job.requires(['ffmpeg-dcp-social/ffmpeg-wasm.js']);
  *              const { createFfmpegModule } = require('ffmpeg-wasm.js');
  */
 module.declare([], function (require, exports, module) {
