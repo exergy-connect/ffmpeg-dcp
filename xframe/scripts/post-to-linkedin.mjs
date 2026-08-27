@@ -8,7 +8,7 @@
  * Env:
  *   LINKEDIN_ACCESS_TOKEN  (required unless --dry-run)
  *   LINKEDIN_AUTHOR_URN    (required unless --dry-run) urn:li:person:… or urn:li:organization:…
- *   LINKEDIN_API_VERSION   (optional) YYYYMM, default 202401
+ *   LINKEDIN_API_VERSION   (optional) YYYYMM, default 202608
  */
 
 import fs from 'node:fs';
@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const MAX_TEXT_CHARS = 1200;
-const DEFAULT_API_VERSION = '202401';
+const DEFAULT_API_VERSION = '202608';
 const API_BASE = 'https://api.linkedin.com/rest';
 const POLL_INTERVAL_MS = 5_000;
 const POLL_TIMEOUT_MS = 15 * 60 * 1000;

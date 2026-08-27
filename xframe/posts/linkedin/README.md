@@ -34,7 +34,7 @@ does not match the workflow trigger).
 | --- | --- | --- |
 | `LINKEDIN_ACCESS_TOKEN` | secret | OAuth token with `w_member_social` and/or `w_organization_social` |
 | `LINKEDIN_AUTHOR_URN` | secret or variable | `urn:li:person:{id}` **or** `urn:li:organization:{id}` |
-| `LINKEDIN_API_VERSION` | variable (optional) | YYYYMM; defaults to `202401` if unset |
+| `LINKEDIN_API_VERSION` | variable (optional) | YYYYMM; defaults to `202608` if unset (must be an active LinkedIn Marketing API version) |
 
 - **Person feed:** token needs `w_member_social`; author is `urn:li:person:…`.
 - **Organization Page:** token needs `w_organization_social` and Page admin;
