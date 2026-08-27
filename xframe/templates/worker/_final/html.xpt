@@ -81,6 +81,7 @@
       margin-bottom: 0.3rem;
     }
     input[type="text"],
+    select#workerCommentLanguage,
     textarea#workerComment {
       width: 100%;
       background: #0d1117;
@@ -215,6 +216,8 @@
       spellcheck="false"
       enterkeyhint="next"
     />
+    <label for="workerCommentLanguage" style="margin-top:0.75rem">Comment language</label>
+    <select id="workerCommentLanguage" aria-label="Comment language for text-to-speech"></select>
     <label for="workerComment" style="margin-top:0.75rem">Comment</label>
     <textarea
       id="workerComment"

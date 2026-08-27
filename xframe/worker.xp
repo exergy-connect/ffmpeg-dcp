@@ -45,6 +45,12 @@ worker_identity_policy:
     placeholder: _string
     notes: _string
 
+worker_language_policy:
+  _attributes:
+    storage_key: _string
+    default: _string
+    notes: _string
+
 demo_comment:
   _attributes:
     title: { _type: _string, _required: true }
@@ -68,6 +74,7 @@ browser_worker_app:
     defaults: { _concept: browser_worker_defaults }
     identity: { _concept: worker_identity_policy }
     comment: { _concept: worker_comment_policy }
+    language: { _concept: worker_language_policy }
     demo_comments: [demo_comment]
     url_options: { _dict: url_option }
 
@@ -114,7 +121,18 @@ app:
     notes: >-
       Set via the Comment field, ?comment= / ?workerComment=,
       ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage.
-      Sent to the platform as "<identity>: <comment>" in dcpWorkerContext.
+      Sent to the platform as
+      { text: "<identity>: <comment>", language, demoCommentIndex? } in
+      dcpWorkerContext. The optional index is inferred when the comment matches
+      one of the standard demo quotes (legacy plain strings remain accepted).
+
+  language:
+    _concept: worker_language_policy
+    storage_key: xframe.worker.language
+    default: "en-US"
+    notes: >-
+      BCP 47 tag from the Comment language selector (browser speech voices).
+      Passed with each worker comment for transcoder text-to-speech.
 
   demo_comments:
     - _concept: demo_comment
@@ -180,6 +198,11 @@ app:
       name: demoCommentIndex
       description: "1..4 selects a Think Different demo quote as the worker comment"
       default: ""
+    language:
+      _concept: url_option
+      name: language
+      description: BCP 47 language tag for comment text-to-speech on the transcoder
+      default: "en-US"
 
 _assert:
   - test: "{{ app.runtime_script == 'worker.js' }}"
@@ -194,6 +217,8 @@ _assert:
     message: Demo scenario must define exactly four quotes
   - test: "{{ app.defaults.max_sandboxes >= 1 }}"
     message: Default maxSandboxes must be at least 1
+  - test: "{{ app.language.default == 'en-US' }}"
+    message: Worker comment language must default to en-US
 ---
 _id: app
 ===

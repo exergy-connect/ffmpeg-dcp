@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-27T15:06:06.710Z",
-    "modifiedAt": "2026-08-27T15:06:06.710Z",
+    "createdAt": "2026-08-27T16:04:12.750Z",
+    "modifiedAt": "2026-08-27T16:04:12.750Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/worker.xp",
-      "hash": "sha256:cc7c51afe8d29b2d3e2d979e3f20a9008e096036edd161bb1fec5f936f2aca3f",
+      "hash": "sha256:bc3a3c1a5616af21beaf3fdae035a5dd958fe7bfaa9a668062f4bab76d4bce47",
       "createdAt": "2026-08-27T13:25:30.585Z",
-      "modifiedAt": "2026-08-27T14:32:53.467Z"
+      "modifiedAt": "2026-08-27T15:59:30.844Z"
     }
   ],
   "_concepts": {
@@ -65,6 +65,13 @@
         "notes": "_string"
       }
     },
+    "worker_language_policy": {
+      "_attributes": {
+        "storage_key": "_string",
+        "default": "_string",
+        "notes": "_string"
+      }
+    },
     "demo_comment": {
       "_attributes": {
         "title": {
@@ -98,6 +105,7 @@
         "defaults": "browser_worker_defaults",
         "identity": "worker_identity_policy",
         "comment": "worker_comment_policy",
+        "language": "worker_language_policy",
         "demo_comments": [
           "demo_comment"
         ],
@@ -144,7 +152,13 @@
         "max_length": 280,
         "exposure": "sandbox_context_and_results",
         "placeholder": "Optional label",
-        "notes": "Set via the Comment field, ?comment= / ?workerComment=, ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage. Sent to the platform as \"<identity>: <comment>\" in dcpWorkerContext."
+        "notes": "Set via the Comment field, ?comment= / ?workerComment=, ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage. Sent to the platform as { text: \"<identity>: <comment>\", language, demoCommentIndex? } in dcpWorkerContext. The optional index is inferred when the comment matches one of the standard demo quotes (legacy plain strings remain accepted)."
+      },
+      "language": {
+        "_concept": "worker_language_policy",
+        "storage_key": "xframe.worker.language",
+        "default": "en-US",
+        "notes": "BCP 47 tag from the Comment language selector (browser speech voices). Passed with each worker comment for transcoder text-to-speech."
       },
       "demo_comments": [
         {
@@ -179,7 +193,7 @@
               "_payload": "0xf221901f78c5407ca5c2837bdc4fc49ede0b8fe8",
               "_provenance": {
                 "source": 0,
-                "line": 147,
+                "line": 165,
                 "path": "file:///workspaces/ffmpeg-dcp/xframe/worker.xp"
               }
             }
@@ -226,6 +240,12 @@
           "name": "demoCommentIndex",
           "description": "1..4 selects a Think Different demo quote as the worker comment",
           "default": ""
+        },
+        "language": {
+          "_concept": "url_option",
+          "name": "language",
+          "description": "BCP 47 language tag for comment text-to-speech on the transcoder",
+          "default": "en-US"
         }
       },
       "_id": "app"
@@ -265,7 +285,7 @@
             "_resolved": {
               "_provenance": {
                 "source": 0,
-                "line": 200,
+                "line": 225,
                 "path": "file:///workspaces/ffmpeg-dcp/xframe/worker.xp"
               }
             }

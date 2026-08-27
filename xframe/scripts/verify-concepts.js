@@ -36,6 +36,20 @@ assert(
   'app.worker_invite.url must point at public worker.html',
 );
 assert(
+  cfg.worker_invite?.demo_audio_base === 'crazyOnes/audio/gemini',
+  'worker demo audio base must point at generated Crazy Ones clips',
+);
+assert(
+  JSON.stringify(cfg.worker_invite?.demo_audio_slides) ===
+    JSON.stringify(['non-conformists', 'impact', 'visionaries', 'the-ones-who-do']),
+  'worker demo audio slide order must match demoCommentIndex 1..4',
+);
+assert(
+  JSON.stringify(cfg.worker_invite?.demo_audio_locales) ===
+    JSON.stringify(['en-US', 'fr-FR', 'es-ES', 'de-DE', 'nl-NL']),
+  'worker demo audio locales must list each generated language once',
+);
+assert(
   fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8').includes(
     "require('ffmpeg-dcp-social/ffmpeg-wasm.js')",
   ),
@@ -53,6 +67,19 @@ assert(
 assert(
   fs.readFileSync(path.join(root, 'ffmpeg-worker.js'), 'utf8').includes('stageDirectorsCut'),
   'worker must expose stageDirectorsCut',
+);
+const workerRuntime = fs.readFileSync(path.join(root, 'worker.js'), 'utf8');
+assert(
+  workerRuntime.includes('standardDemoCommentIndex') &&
+    workerRuntime.includes('payload.demoCommentIndex = demoCommentIndex'),
+  'browser worker must include the inferred demo comment index',
+);
+const transcoderRuntime = fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8');
+assert(
+  transcoderRuntime.includes('demoCommentAudioUrl') &&
+    transcoderRuntime.includes('reserveDemoAudioLocale') &&
+    transcoderRuntime.includes('speakCommentWithBrowser'),
+  'web UI must rotate demo WAV languages with browser speech fallback',
 );
 assert(
   fs.readFileSync(path.join(root, 'src/dcp-transcode.c'), 'utf8').includes('extract_time_range'),

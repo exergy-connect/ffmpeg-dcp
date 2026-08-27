@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-27T15:23:12.472Z",
-    "modifiedAt": "2026-08-27T15:23:12.472Z",
+    "createdAt": "2026-08-27T16:04:12.396Z",
+    "modifiedAt": "2026-08-27T16:04:12.396Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp",
-      "hash": "sha256:2060272e7c855f615b730e71392db03f93d6dd31fd82173079deb08374a29b75",
+      "hash": "sha256:6dcef10c001dbbef0e3d2658d0ba834e3bd43220ef567056ff43f8ad11bf1d85",
       "createdAt": "2026-08-24T19:23:37.516Z",
-      "modifiedAt": "2026-08-27T15:08:54.429Z"
+      "modifiedAt": "2026-08-27T16:03:17.705Z"
     }
   ],
   "_concepts": {
@@ -195,6 +195,13 @@
           "_required": true,
           "_type": "_string"
         },
+        "demo_audio_base": "_string",
+        "demo_audio_slides": [
+          "_string"
+        ],
+        "demo_audio_locales": [
+          "_string"
+        ],
         "notes": "_string"
       }
     },
@@ -252,6 +259,20 @@
       "worker_invite": {
         "_concept": "browser_worker_invite",
         "url": "https://exergy-connect.github.io/ffmpeg-dcp/worker.html",
+        "demo_audio_base": "crazyOnes/audio/gemini",
+        "demo_audio_slides": [
+          "non-conformists",
+          "impact",
+          "visionaries",
+          "the-ones-who-do"
+        ],
+        "demo_audio_locales": [
+          "en-US",
+          "fr-FR",
+          "es-ES",
+          "de-DE",
+          "nl-NL"
+        ],
         "notes": "Public GitHub Pages browser worker encoded by the account QR code (replaces dcp.live)."
       },
       "codecs": {
@@ -593,7 +614,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 479,
+                    "line": 494,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -628,7 +649,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 486,
+                    "line": 501,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -671,7 +692,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 499,
+                    "line": 514,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -706,7 +727,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 506,
+                    "line": 521,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -749,7 +770,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 519,
+                    "line": 534,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -784,7 +805,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 526,
+                    "line": 541,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -827,7 +848,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 539,
+                    "line": 554,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -862,7 +883,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 546,
+                    "line": 561,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -905,7 +926,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 559,
+                    "line": 574,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -940,7 +961,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 566,
+                    "line": 581,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -987,7 +1008,7 @@
             "_resolved": {
               "_provenance": {
                 "source": 0,
-                "line": 572,
+                "line": 587,
                 "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
               }
             }

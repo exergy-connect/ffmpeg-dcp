@@ -51,11 +51,17 @@ python3 -m http.server 8765
 ### Browser worker page
 
 Mobile-first Start/Stop page at [`worker.html`](output/worker.html). Optional
-comment is persisted and prefixed onto this page’s log. URL options:
-`paymentAddress`, `jobIds`, `computeGroups`, `leavePublicGroup`, `maxSandboxes`,
-`identity` (default `(anonymous)`), `comment` (alias `workerComment`),
-`demoCommentIndex` (1–4 Think Different quotes). Platform results use
-`<identity>: <comment>`.
+comment and a Comment language selector (from browser speech voices) are
+persisted locally. URL options: `paymentAddress`, `jobIds`, `computeGroups`,
+`leavePublicGroup`, `maxSandboxes`, `identity` (default `(anonymous)`),
+`comment` (alias `workerComment`), `language` (BCP 47 tag for transcoder TTS),
+`demoCommentIndex` (1–4 Think Different quotes). Platform results carry
+`{ text: "<identity>: <comment>", language, demoCommentIndex? }`. The index is
+inferred whenever the comment matches a standard demo quote. The transcoder
+plays its generated `crazyOnes` WAV in the selected language when available,
+then rotates through the other generated languages instead of replaying one.
+Each language is played at most once per job; missing WAVs fall back to queued
+browser text-to-speech. Slice callouts show a Unicode language flag.
 
 The custom WASM module is single-threaded and does not require
 `SharedArrayBuffer` or cross-origin isolation headers.

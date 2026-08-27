@@ -4,7 +4,8 @@
  * xFrame browser worker runtime.
  * Simplified dcp.live-style participant page driven by concepts in #app-config.
  * Identity + comment are persisted locally; logs use identity; sandboxes receive
- * dcpWorkerContext.comment as "<identity>: <comment>".
+ * dcpWorkerContext.comment as
+ * { text: "<identity>: <comment>", language, demoCommentIndex? }.
  */
 
 const CONFIG = JSON.parse(document.getElementById('app-config').textContent);
@@ -15,6 +16,8 @@ const COMMENT_MAX = Math.max(1, Number(CONFIG.comment?.max_length) || 280);
 const IDENTITY_KEY = CONFIG.identity?.storage_key || 'xframe.worker.identity';
 const IDENTITY_MAX = Math.max(1, Number(CONFIG.identity?.max_length) || 40);
 const IDENTITY_DEFAULT = String(CONFIG.identity?.default || '(anonymous)');
+const LANGUAGE_KEY = CONFIG.language?.storage_key || 'xframe.worker.language';
+const DEFAULT_LANGUAGE = String(CONFIG.language?.default || 'en-US');
 const DEFAULTS = CONFIG.defaults || {};
 const DEMO_COMMENTS = Array.isArray(CONFIG.demo_comments) ? CONFIG.demo_comments : [];
 
@@ -26,7 +29,7 @@ let activeSandboxes = 0;
 /** @type {null | (() => void)} */
 let unpatchWorker = null;
 /** Mutable so sandbox creation (after start) sees the resolved worker id. */
-const sandboxContextRef = { comment: '', identity: '', workerId: '' };
+const sandboxContextRef = { comment: { text: '', language: DEFAULT_LANGUAGE }, identity: '', workerId: '' };
 
 function log(msg) {
   const logEl = el('log');
@@ -51,6 +54,31 @@ function platformComment() {
   return `${getWorkerIdentity()}: ${getComment()}`.slice(0, IDENTITY_MAX + COMMENT_MAX + 2);
 }
 
+function standardDemoCommentIndex(comment = getComment()) {
+  const normalized = String(comment || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+  for (let index = 1; index <= DEMO_COMMENTS.length; index += 1) {
+    if (demoCommentByIndex(index)?.quote === normalized) return index;
+  }
+  return null;
+}
+
+function getCommentLanguage() {
+  const select = el('workerCommentLanguage');
+  return String(select?.value || DEFAULT_LANGUAGE).trim() || DEFAULT_LANGUAGE;
+}
+
+/** Platform-facing comment payload for sandbox context and DCP results. */
+function platformCommentPayload() {
+  const payload = {
+    text: platformComment(),
+    language: getCommentLanguage(),
+  };
+  const demoCommentIndex = standardDemoCommentIndex();
+  if (demoCommentIndex != null) payload.demoCommentIndex = demoCommentIndex;
+  return payload;
+}
+
 function saveWorkerFields() {
   try {
     localStorage.setItem(IDENTITY_KEY, getWorkerIdentity());
@@ -58,6 +86,56 @@ function saveWorkerFields() {
   try {
     localStorage.setItem(COMMENT_KEY, getComment());
   } catch (_) { /* ignore */ }
+  try {
+    localStorage.setItem(LANGUAGE_KEY, getCommentLanguage());
+  } catch (_) { /* ignore */ }
+}
+
+function collectSpeechLanguages() {
+  if (!('speechSynthesis' in window)) return [DEFAULT_LANGUAGE];
+  const langs = new Set();
+  for (const voice of speechSynthesis.getVoices()) {
+    if (voice.lang) langs.add(voice.lang);
+  }
+  if (!langs.size) langs.add(DEFAULT_LANGUAGE);
+  return [...langs].sort((a, b) => a.localeCompare(b));
+}
+
+function resolveLanguageSelection(langs, preferred) {
+  const want = String(preferred || DEFAULT_LANGUAGE).trim();
+  if (langs.includes(want)) return want;
+  const base = want.split(/[-_]/)[0];
+  const partial = langs.find((tag) => tag === base || tag.startsWith(`${base}-`) || tag.startsWith(`${base}_`));
+  return partial || langs[0] || DEFAULT_LANGUAGE;
+}
+
+function populateLanguageSelect(preferred) {
+  const select = el('workerCommentLanguage');
+  if (!select) return;
+  const langs = collectSpeechLanguages();
+  const selected = resolveLanguageSelection(langs, preferred);
+  select.innerHTML = '';
+  for (const lang of langs) {
+    const option = document.createElement('option');
+    option.value = lang;
+    option.textContent = lang;
+    if (lang === selected) option.selected = true;
+    select.appendChild(option);
+  }
+}
+
+function loadCommentLanguage(params) {
+  const fromUrl = params.get('language');
+  if (fromUrl != null && String(fromUrl).trim()) {
+    populateLanguageSelect(String(fromUrl).trim());
+    return;
+  }
+  let saved = DEFAULT_LANGUAGE;
+  try {
+    const stored = localStorage.getItem(LANGUAGE_KEY);
+    if (stored != null && String(stored).trim()) saved = String(stored).trim();
+  } catch (_) { /* ignore */ }
+  populateLanguageSelect(saved);
 }
 
 function demoCommentByIndex(raw) {
@@ -80,6 +158,7 @@ function setDemoHint(text) {
 
 function loadWorkerFields() {
   const params = queryParams();
+  loadCommentLanguage(params);
 
   const identityFromUrl = params.get('identity');
   if (identityFromUrl != null) {
@@ -141,6 +220,8 @@ function setStatus(state, label) {
   const lockFields = state === 'running' || state === 'starting' || state === 'stopping';
   el('workerComment').disabled = lockFields;
   el('workerIdentity').disabled = lockFields;
+  const langSelect = el('workerCommentLanguage');
+  if (langSelect) langSelect.disabled = lockFields;
   if (state === 'running') {
     btn.textContent = 'Stop';
     btn.classList.remove('primary');
@@ -179,9 +260,18 @@ function patchWorkerForContext(contextRef) {
   const RealWorker = window.Worker;
 
   function ContextInjectingWorker(scriptURL, options) {
+    const payload = contextRef.comment && typeof contextRef.comment === 'object'
+      ? contextRef.comment
+      : { text: String(contextRef.comment || ''), language: DEFAULT_LANGUAGE };
     const ctx = {
       identity: String(contextRef.identity || IDENTITY_DEFAULT).slice(0, IDENTITY_MAX),
-      comment: String(contextRef.comment || '').slice(0, IDENTITY_MAX + COMMENT_MAX + 2),
+      comment: {
+        text: String(payload.text || '').slice(0, IDENTITY_MAX + COMMENT_MAX + 2),
+        language: String(payload.language || DEFAULT_LANGUAGE).slice(0, 35),
+        ...(Number.isInteger(payload.demoCommentIndex)
+          ? { demoCommentIndex: payload.demoCommentIndex }
+          : {}),
+      },
       workerId: String(contextRef.workerId || ''),
     };
     // Always importScripts an absolute URL. Relative sandbox paths like
@@ -542,7 +632,7 @@ async function startWorker() {
     }
     paintConfig(config);
     sandboxContextRef.identity = getWorkerIdentity();
-    sandboxContextRef.comment = platformComment();
+    sandboxContextRef.comment = platformCommentPayload();
     sandboxContextRef.workerId = '';
     patchWorkerForContext(sandboxContextRef);
     worker = new window.dcp.worker.DistributiveWorker(config);
@@ -556,7 +646,8 @@ async function startWorker() {
     diag('worker started', {
       identity: getWorkerIdentity(),
       comment: getComment() || '(none)',
-      platformComment: platformComment(),
+      language: getCommentLanguage(),
+      platformComment: platformCommentPayload(),
       demoCommentIndex: demoCommentByIndex(queryParams().get('demoCommentIndex'))?.index || false,
       paymentAddress: String(config.paymentAddress),
       maxSandboxes: config.maxSandboxes,
@@ -596,6 +687,13 @@ el('workerIdentity').addEventListener('change', saveWorkerFields);
 el('workerIdentity').addEventListener('blur', saveWorkerFields);
 el('workerComment').addEventListener('change', saveWorkerFields);
 el('workerComment').addEventListener('blur', saveWorkerFields);
+el('workerCommentLanguage').addEventListener('change', saveWorkerFields);
+
+if ('speechSynthesis' in window) {
+  speechSynthesis.addEventListener('voiceschanged', () => {
+    populateLanguageSelect(getCommentLanguage());
+  });
+}
 
 loadWorkerFields();
 paintConfig(buildWorkerConfig());

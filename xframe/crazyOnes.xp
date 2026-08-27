@@ -1,0 +1,166 @@
+---
+presentation: slidedeck
+format: desktop
+title: The Crazy Ones
+subtitle: Gemini voice narration demo
+author: Steve Jobs
+lang: en-US
+themes: [dark]
+text_to_speech:
+  authorized: true
+narrative:
+  provider: gemini
+  model: gemini-3.1-flash-tts-preview
+  voice: male
+  track: combined
+  pause_seconds: 3
+  groups:
+    - index: 1
+      slide:
+        - non-conformists
+        - impact
+        - visionaries
+        - the-ones-who-do
+  direction:
+    profile: >-
+      For Speaker 1: A warm, reflective male campaign-film narrator. Keep the
+      delivery original; do not imitate any specific person's voice.
+    scene: >-
+      A sparse recording studio. The words accompany a black-and-white montage
+      celebrating people who challenge convention.
+    style: Intimate, assured, idealistic, and cinematic without sounding theatrical.
+    accent: Native pronunciation for the selected language.
+    pacing: Deliberate, with clean pauses between short sentences.
+    notes: Let each final phrase land before the audio ends.
+---
+@id non-conformists
+@layout cover
+
+# Here’s to the crazy ones.
+
+The misfits. The rebels. The troublemakers.  
+The round pegs in the square holes.  
+The ones who see things differently.
+
+@narrative
+  direction:
+    notes: Begin as a quiet toast, then add warmth and conviction with each phrase.
+  entries:
+    - en-US: >-
+        Here’s to the crazy ones. The misfits. The rebels. The troublemakers.
+        The round pegs in the square holes. The ones who see things differently.
+    - fr-FR: >-
+        Hommage aux fous. Aux marginaux. Aux rebelles. Aux fauteurs de troubles.
+        Aux chevilles rondes dans les trous carrés. À ceux qui voient les choses
+        différemment.
+    - es-ES: >-
+        Esto es para los locos. Los inadaptados. Los rebeldes. Los alborotadores.
+        Las clavijas redondas en los agujeros cuadrados. Los que ven las cosas de
+        forma diferente.
+    - de-DE: >-
+        Ein Hoch auf die Verrückten. Die Außenseiter. Die Rebellen. Die Unruhestifter.
+        Die runden Stifte in den eckigen Löchern. Diejenigen, die die Dinge anders sehen.
+    - nl-NL: >-
+        Een ode aan de dwazen. De buitenbeentjes. De rebellen. De onruststokers.
+        De ronde pinnen in de vierkante gaten. Degenen die de dingen anders zien.
+
+---
+@id impact
+@layout cover
+
+# They’re not fond of rules.
+
+And they have no respect for the status quo.
+
+You can quote them, disagree with them, glorify or vilify them.  
+About the only thing you can’t do is ignore them.
+
+@narrative
+  direction:
+    pacing: Measured and conversational; pause noticeably before the final sentence.
+    notes: Give “ignore them” restrained emphasis, never a shout.
+  entries:
+    - en-US: >-
+        They’re not fond of rules. And they have no respect for the status quo.
+        You can quote them, disagree with them, glorify or vilify them.
+        About the only thing you can’t do is ignore them.
+    - fr-FR: >-
+        Ils n’aiment pas les règles. Et ils n’ont aucun respect pour le statu quo.
+        Vous pouvez les citer, être en désaccord avec eux, les glorifier ou les
+        dénigrer. La seule chose que vous ne pouvez pas faire, c’est les ignorer.
+    - es-ES: >-
+        No les gustan las reglas. Y no sienten respeto por el statu quo.
+        Puedes citarlos, discrepar con ellos, glorificarlos o vilipendiarlos.
+        Lo único que no puedes hacer es ignorarlos.
+    - de-DE: >-
+        Sie halten nicht viel von Regeln. Und sie haben keinen Respekt vor dem
+        Status quo. Man kann sie zitieren, ihnen widersprechen, sie verherrlichen
+        oder verteufeln. Nur eines kann man nicht: sie ignorieren.
+    - nl-NL: >-
+        Ze houden niet van regels. En ze hebben geen respect voor de status quo.
+        Je kunt ze citeren, het met hen oneens zijn, ze verheerlijken of zwartmaken.
+        Het enige wat je niet kunt doen is ze negeren.
+
+---
+@id visionaries
+@layout cover
+
+# Because they change things.
+
+They push the human race forward.
+
+@narrative
+  direction:
+    style: Clear, hopeful, and quietly expansive.
+    pacing: Slow enough to give both sentences equal weight.
+  entries:
+    - en-US: >-
+        Because they change things. They push the human race forward.
+    - fr-FR: >-
+        Parce qu’ils changent les choses. Ils font avancer l’humanité.
+    - es-ES: >-
+        Porque cambian las cosas. Hacen avanzar a la humanidad.
+    - de-DE: >-
+        Denn sie verändern die Dinge. Sie bringen die Menschheit voran.
+    - nl-NL: >-
+        Omdat zij dingen veranderen. Zij stuwen de mensheid vooruit.
+
+---
+@id the-ones-who-do
+@layout cover
+
+# We see genius.
+
+And while some may see them as the crazy ones, we see genius.
+
+Because the people who are crazy enough  
+to think they can change the world,  
+are the ones who do.
+
+@narrative
+  direction:
+    style: Build from reflection to calm certainty.
+    pacing: Pause after “genius,” then finish with a firm, unhurried cadence.
+    notes: Land the final four words simply and confidently.
+  entries:
+    - en-US: >-
+        And while some may see them as the crazy ones, we see genius.
+        Because the people who are crazy enough
+        to think they can change the world,
+        are the ones who do.
+    - fr-FR: >-
+        Et tandis que certains les voient comme des fous, nous voyons du génie.
+        Parce que ceux qui sont assez fous pour penser qu’ils peuvent changer le
+        monde sont ceux qui le font.
+    - es-ES: >-
+        Y mientras algunos los ven como locos, nosotros vemos genios.
+        Porque quienes están lo bastante locos como para pensar que pueden cambiar
+        el mundo son quienes lo hacen.
+    - de-DE: >-
+        Und während manche in ihnen Verrückte sehen, sehen wir Genies.
+        Denn diejenigen, die verrückt genug sind zu glauben, sie könnten die Welt
+        verändern, sind diejenigen, die es tun.
+    - nl-NL: >-
+        En terwijl sommigen hen als dwazen zien, zien wij genialiteit.
+        Omdat de mensen die gek genoeg zijn om te denken dat ze de wereld kunnen
+        veranderen, degenen zijn die het doen.

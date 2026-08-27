@@ -1328,10 +1328,215 @@ async function stageDirectorsCut(bytes, slices, durationSec, onProgress) {
 
 // ---- Grid / progress ----
 let gridCells = {};
+const spokenCommentKeys = new Set();
+const commentSpeechQueue = [];
+let commentSpeechActive = false;
+let currentCommentAudio = null;
+let commentSpeechGeneration = 0;
+const playedDemoAudioLocales = new Set();
+const DEMO_COMMENT_AUDIO_BASE =
+  String(CONFIG.worker_invite?.demo_audio_base || 'crazyOnes/audio/gemini').replace(/\/+$/, '');
+const DEMO_COMMENT_AUDIO_SLIDES = Array.isArray(CONFIG.worker_invite?.demo_audio_slides)
+  ? CONFIG.worker_invite.demo_audio_slides.map(String)
+  : ['non-conformists', 'impact', 'visionaries', 'the-ones-who-do'];
+const DEMO_COMMENT_AUDIO_LOCALES = Array.isArray(CONFIG.worker_invite?.demo_audio_locales)
+  ? CONFIG.worker_invite.demo_audio_locales.map(String)
+  : ['en-US', 'fr-FR', 'es-ES', 'de-DE', 'nl-NL'];
+const FEMALE_US_VOICE_HINTS = [
+  'samantha', 'victoria', 'karen', 'moira', 'tessa', 'fiona', 'allison', 'ava',
+  'susan', 'zira', 'jenny', 'aria', 'google us english', 'microsoft zira',
+];
+
+function languageFlag(lang) {
+  const tag = String(lang || '').trim();
+  const parts = tag.split(/[-_]/);
+  const region = (parts.length >= 2 ? parts[parts.length - 1] : '').toUpperCase();
+  if (!/^[A-Z]{2}$/.test(region)) return '🌐';
+  return String.fromCodePoint(...[...region].map((c) => 0x1F1E6 + c.charCodeAt(0) - 65));
+}
+
+function normalizeWorkerComment(raw, defaultLanguage = 'en-US') {
+  if (raw == null) return null;
+  if (typeof raw === 'object' && raw !== null) {
+    const text = String(raw.text ?? raw.comment ?? '').trim();
+    const language = String(raw.language || defaultLanguage).trim() || defaultLanguage;
+    const parsedDemoIndex = Number.parseInt(
+      raw.demoCommentIndex ?? raw.demoIndex ?? raw.demo_index,
+      10,
+    );
+    const demoCommentIndex = Number.isInteger(parsedDemoIndex)
+      && parsedDemoIndex >= 1
+      && parsedDemoIndex <= DEMO_COMMENT_AUDIO_SLIDES.length
+      ? parsedDemoIndex
+      : null;
+    if (!text) return null;
+    return {
+      text,
+      language,
+      ...(demoCommentIndex != null ? { demoCommentIndex } : {}),
+      flag: languageFlag(language),
+      key: `${language}\0${text}\0${demoCommentIndex || 0}`,
+      display: `${languageFlag(language)} ${text}`,
+    };
+  }
+  const value = String(raw).trim();
+  if (!value) return null;
+  if (value.startsWith('{')) {
+    try {
+      return normalizeWorkerComment(JSON.parse(value), defaultLanguage);
+    } catch (_) { /* fall through */ }
+  }
+  return {
+    text: value,
+    language: defaultLanguage,
+    flag: languageFlag(defaultLanguage),
+    key: `${defaultLanguage}\0${value}`,
+    display: `${languageFlag(defaultLanguage)} ${value}`,
+  };
+}
+
+function pickSpeechVoice(language) {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = speechSynthesis.getVoices();
+  const tag = String(language || 'en-US').trim().toLowerCase();
+  const base = tag.split(/[-_]/)[0];
+  const matching = voices.filter((voice) => {
+    const lang = String(voice.lang || '').toLowerCase();
+    return lang === tag || lang.startsWith(`${base}-`) || lang.startsWith(`${base}_`) || lang === base;
+  });
+  if (tag === 'en-us' || tag.startsWith('en-us')) {
+    const female = matching.find((voice) => FEMALE_US_VOICE_HINTS.some((hint) =>
+      voice.name.toLowerCase().includes(hint)));
+    if (female) return female;
+  }
+  return matching[0] || voices.find((voice) => String(voice.lang || '').toLowerCase().startsWith(base)) || null;
+}
+
+function demoAudioLocaleForLanguage(language) {
+  const tag = String(language || '').trim().toLowerCase();
+  const base = tag.split(/[-_]/)[0];
+  return DEMO_COMMENT_AUDIO_LOCALES.find((locale) => locale.toLowerCase() === tag)
+    || DEMO_COMMENT_AUDIO_LOCALES.find((locale) =>
+      locale.toLowerCase() === base || locale.toLowerCase().startsWith(`${base}-`))
+    || null;
+}
+
+function reserveDemoAudioLocale(language) {
+  const preferred = demoAudioLocaleForLanguage(language);
+  const candidates = preferred
+    ? [preferred, ...DEMO_COMMENT_AUDIO_LOCALES.filter((locale) => locale !== preferred)]
+    : DEMO_COMMENT_AUDIO_LOCALES;
+  const locale = candidates.find((candidate) => !playedDemoAudioLocales.has(candidate));
+  if (locale) playedDemoAudioLocales.add(locale);
+  return locale || null;
+}
+
+function demoCommentAudioUrl(normalized) {
+  const index = normalized?.demoCommentIndex;
+  const slide = Number.isInteger(index) ? DEMO_COMMENT_AUDIO_SLIDES[index - 1] : null;
+  const locale = normalized?.demoAudioLocale;
+  if (!slide || !locale) return null;
+  return assetUrl(`${DEMO_COMMENT_AUDIO_BASE}/${slide}-${locale}.wav`);
+}
+
+function playCommentAudio(url) {
+  return new Promise((resolve) => {
+    const audio = new Audio(url);
+    currentCommentAudio = audio;
+    audio.preload = 'auto';
+    let settled = false;
+    const finish = (played) => {
+      if (settled) return;
+      settled = true;
+      if (currentCommentAudio === audio) currentCommentAudio = null;
+      resolve(played);
+    };
+    audio.addEventListener('ended', () => finish(true), { once: true });
+    audio.addEventListener('error', () => finish(false), { once: true });
+    const started = audio.play();
+    if (started && typeof started.catch === 'function') {
+      started.catch(() => finish(false));
+    }
+  });
+}
+
+function speakCommentWithBrowser(normalized) {
+  return new Promise((resolve) => {
+    if (!('speechSynthesis' in window)) {
+      resolve();
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(normalized.text);
+    utterance.lang = normalized.language;
+    const voice = pickSpeechVoice(normalized.language);
+    if (voice) utterance.voice = voice;
+    utterance.addEventListener('end', resolve, { once: true });
+    utterance.addEventListener('error', resolve, { once: true });
+    speechSynthesis.speak(utterance);
+  });
+}
+
+async function drainCommentSpeechQueue() {
+  if (commentSpeechActive) return;
+  commentSpeechActive = true;
+  const generation = commentSpeechGeneration;
+  try {
+    while (commentSpeechQueue.length && generation === commentSpeechGeneration) {
+      const normalized = commentSpeechQueue.shift();
+      const audioUrl = demoCommentAudioUrl(normalized);
+      const played = audioUrl ? await playCommentAudio(audioUrl) : false;
+      if (generation !== commentSpeechGeneration) break;
+      if (!played) await speakCommentWithBrowser(normalized);
+    }
+  } finally {
+    if (generation === commentSpeechGeneration) commentSpeechActive = false;
+  }
+}
+
+function enqueueCommentSpeech(normalized) {
+  if (!normalized?.text) return;
+  let queued = normalized;
+  if (normalized.demoCommentIndex != null) {
+    const demoAudioLocale = reserveDemoAudioLocale(normalized.language);
+    if (!demoAudioLocale) return;
+    queued = { ...normalized, demoAudioLocale };
+  } else {
+    if (spokenCommentKeys.has(normalized.key)) return;
+    spokenCommentKeys.add(normalized.key);
+  }
+  commentSpeechQueue.push(queued);
+  drainCommentSpeechQueue().catch((err) => {
+    commentSpeechActive = false;
+    console.warn('Worker comment speech failed', err);
+  });
+}
+
+function resetCommentSpeechQueue() {
+  commentSpeechGeneration += 1;
+  commentSpeechQueue.length = 0;
+  commentSpeechActive = false;
+  playedDemoAudioLocales.clear();
+  if (currentCommentAudio) {
+    currentCommentAudio.pause();
+    currentCommentAudio.dispatchEvent(new Event('error'));
+    currentCommentAudio = null;
+  }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+}
+
+if ('speechSynthesis' in window) {
+  speechSynthesis.getVoices();
+  speechSynthesis.addEventListener('voiceschanged', () => {
+    speechSynthesis.getVoices();
+  });
+}
+
 function setupGrid(units, formatsMeta) {
   const grid = el('grid');
   grid.innerHTML = '';
   gridCells = {};
+  spokenCommentKeys.clear();
+  resetCommentSpeechQueue();
   const legend = el('workerCommentLegend');
   if (legend) legend.textContent = '';
   const total = units.length;
@@ -1367,7 +1572,11 @@ function updateSliceProgress(sliceNumber, rawProgress) {
   const n = Number(rawProgress);
   cell.classList.add('active');
   const commentLine = cell.dataset.workerComment
-    ? `\nworker: ${cell.dataset.workerComment}`
+    ? `\nworker: ${normalizeWorkerComment({
+      text: cell.dataset.workerComment,
+      language: cell.dataset.workerLanguage,
+      demoCommentIndex: cell.dataset.workerDemoCommentIndex,
+    })?.display || cell.dataset.workerComment}`
     : '';
   if (!Number.isFinite(n)) {
     cell.classList.add('indeterminate');
@@ -1384,9 +1593,15 @@ function updateSliceProgress(sliceNumber, rawProgress) {
 
 function applyWorkerCommentToCell(cell, workerComment) {
   if (!cell) return;
-  const comment = workerComment != null ? String(workerComment).trim() : '';
-  if (!comment) return;
-  cell.dataset.workerComment = comment;
+  const normalized = normalizeWorkerComment(workerComment);
+  if (!normalized) return;
+  cell.dataset.workerComment = normalized.text;
+  cell.dataset.workerLanguage = normalized.language;
+  if (normalized.demoCommentIndex != null) {
+    cell.dataset.workerDemoCommentIndex = String(normalized.demoCommentIndex);
+  } else {
+    delete cell.dataset.workerDemoCommentIndex;
+  }
   cell.classList.add('has-worker-comment');
   let callout = cell.querySelector('.slice-callout');
   if (!callout) {
@@ -1395,39 +1610,54 @@ function applyWorkerCommentToCell(cell, workerComment) {
     callout.setAttribute('aria-hidden', 'true');
     cell.appendChild(callout);
   }
-  callout.textContent = comment;
-  const commentLine = `\nworker: ${comment}`;
+  callout.textContent = normalized.display;
+  if (cell.dataset.workerSpeechKey !== normalized.key) {
+    cell.dataset.workerSpeechKey = normalized.key;
+    enqueueCommentSpeech(normalized);
+  }
+  const commentLine = `\nworker: ${normalized.display}`;
   const now = cell.getAttribute('aria-valuenow') || '0';
   const state = cell.classList.contains('done')
     ? 'complete'
     : (cell.classList.contains('indeterminate') ? 'transcoding…' : `${now}%`);
   cell.title = `${cell.dataset.baseTitle}${commentLine}\n${state}`;
-  cell.setAttribute('aria-label', `${cell.dataset.baseTitle}; worker ${comment}`);
+  cell.setAttribute('aria-label', `${cell.dataset.baseTitle}; worker ${normalized.display}`);
   refreshWorkerCommentLegend();
 }
 
 function refreshWorkerCommentLegend() {
   const legend = el('workerCommentLegend');
   if (!legend) return;
-  const comments = new Set();
+  const comments = new Map();
   for (const cell of Object.values(gridCells)) {
-    const c = cell?.dataset?.workerComment;
-    if (c) comments.add(c);
+    const text = cell?.dataset?.workerComment;
+    const language = cell?.dataset?.workerLanguage || 'en-US';
+    if (!text) continue;
+    const normalized = normalizeWorkerComment({
+      text,
+      language,
+      demoCommentIndex: cell.dataset.workerDemoCommentIndex,
+    });
+    if (normalized) comments.set(normalized.key, normalized.display);
   }
   if (!comments.size) {
     legend.textContent = '';
     return;
   }
-  const short = [...comments].map((c) => {
-    const t = c.length > 48 ? `${c.slice(0, 45)}…` : c;
+  const short = [...comments.values()].map((display) => {
+    const t = display.length > 52 ? `${display.slice(0, 49)}…` : display;
     return `“${t}”`;
   });
   legend.textContent = `Workers (${comments.size}): ${short.join(' · ')}`;
 }
 
 function formatWorkerComments(comments) {
-  const unique = [...new Set((comments || []).map((c) => String(c || '').trim()).filter(Boolean))];
-  return unique;
+  const unique = new Map();
+  for (const entry of comments || []) {
+    const normalized = normalizeWorkerComment(entry);
+    if (normalized) unique.set(normalized.key, normalized.display);
+  }
+  return [...unique.values()];
 }
 
 // ---- DCP dispatch ----
@@ -1539,8 +1769,27 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         ];
         for (const ctx of sources) {
           if (!ctx || ctx.comment == null) continue;
-          const comment = String(ctx.comment).trim();
-          if (comment) return comment;
+          const raw = ctx.comment;
+          if (typeof raw === 'object' && raw !== null) {
+            const text = String(raw.text || '').trim();
+            const language = String(raw.language || 'en-US').trim() || 'en-US';
+            const parsedDemoIndex = Number.parseInt(
+              raw.demoCommentIndex ?? raw.demoIndex ?? raw.demo_index,
+              10,
+            );
+            if (text) {
+              return {
+                text,
+                language,
+                ...(Number.isInteger(parsedDemoIndex) && parsedDemoIndex >= 1
+                  ? { demoCommentIndex: parsedDemoIndex }
+                  : {}),
+              };
+            }
+            continue;
+          }
+          const text = String(raw).trim();
+          if (text) return { text, language: 'en-US' };
         }
         return null;
       } catch (_) {
@@ -1561,7 +1810,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       hasProgressContext: !!(typeof progress !== 'undefined' && progress && progress.xframeContext),
     });
     if (workerComment) {
-      try { console.log(`[social-worker-comment] ${workerComment}`); } catch (_) { /* ignore */ }
+      try { console.log(`[social-worker-comment] ${JSON.stringify(workerComment)}`); } catch (_) { /* ignore */ }
     }
     let lastDeterminateProgress = -1;
     const reportProgress = (value) => {
@@ -1830,9 +2079,8 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     const sourceId = payload?.sourceId || 'primary';
     const chunkIndex = payload?.chunkIndex;
     const segments = payload?.segments;
-    const workerComment = payload?.workerComment != null
-      ? String(payload.workerComment).trim()
-      : '';
+    const workerComment = payload?.workerComment != null ? payload.workerComment : null;
+    const normalizedComment = normalizeWorkerComment(workerComment);
     if (!Array.isArray(segments)) {
       log(`Unexpected result payload (slice ${ev?.sliceNumber ?? '?'}): ${safeJson(payload)}`);
       return;
@@ -1843,8 +2091,8 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         continue;
       }
       bySignature[seg.signature][chunkIndex] = seg.segmentBase64;
-      if (workerComment && workerCommentsBySignature[seg.signature]) {
-        workerCommentsBySignature[seg.signature][chunkIndex] = workerComment;
+      if (normalizedComment && workerCommentsBySignature[seg.signature]) {
+        workerCommentsBySignature[seg.signature][chunkIndex] = normalizedComment;
       }
       completed += 1;
     }
@@ -1854,13 +2102,17 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     unitIndex += 1;
     const cell = gridCells[sliceIndex];
     if (cell) {
-      applyWorkerCommentToCell(cell, workerComment);
+      applyWorkerCommentToCell(cell, normalizedComment);
       cell.classList.remove('active', 'indeterminate');
       cell.classList.add('done');
       cell.style.setProperty('--slice-progress', '100%');
       cell.setAttribute('aria-valuenow', '100');
       const commentLine = cell.dataset.workerComment
-        ? `\nworker: ${cell.dataset.workerComment}`
+        ? `\nworker: ${normalizeWorkerComment({
+          text: cell.dataset.workerComment,
+          language: cell.dataset.workerLanguage,
+          demoCommentIndex: cell.dataset.workerDemoCommentIndex,
+        })?.display || cell.dataset.workerComment}`
         : '';
       cell.title = `${cell.dataset.baseTitle}${commentLine}\ncomplete`;
     }
@@ -1873,7 +2125,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     log(
       `Received slice ${ev?.sliceNumber ?? unitIndex}: chunk ${chunkIndex}, ` +
       `${sourceId} source, ${segments.length} segment(s)` +
-      `${workerComment ? `, worker “${workerComment}”` : ''}` +
+      `${normalizedComment ? `, worker “${normalizedComment.display}”` : ''}` +
       ` (${completed}/${totalUnits} format-units)`,
     );
   });
