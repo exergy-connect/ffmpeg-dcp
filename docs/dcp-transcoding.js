@@ -260,8 +260,7 @@ apiKeyInput.addEventListener('input', () => {
 apiKeyInput.addEventListener('change', () => {
   if (validateApiKeyField()) localStorage.setItem(API_KEY_STORAGE_KEY, apiKeyInput.value.trim());
 });
-el('identityForm').addEventListener('submit', (e) => e.preventDefault());
-el('computeGroupsForm').addEventListener('submit', (e) => e.preventDefault());
+el('accountForm').addEventListener('submit', (e) => e.preventDefault());
 validateApiKeyField(false);
 
 function getApiKey() {
@@ -311,11 +310,16 @@ function makeComputeGroupRow(joinKey, joinSecret) {
   row.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-bottom:0.4rem';
   const keyInput = document.createElement('input');
   keyInput.type = 'text';
+  keyInput.name = 'dcp-join-key';
   keyInput.placeholder = 'joinKey (blank = public)';
+  keyInput.autocomplete = 'off';
+  keyInput.spellcheck = false;
   keyInput.value = joinKey || '';
   const secretInput = document.createElement('input');
   secretInput.type = 'password';
+  secretInput.name = 'dcp-join-secret';
   secretInput.placeholder = 'joinSecret (optional)';
+  secretInput.autocomplete = 'off';
   secretInput.value = joinSecret || '';
   const removeBtn = document.createElement('button');
   removeBtn.type = 'button';
@@ -356,7 +360,12 @@ function getComputeGroups() {
   return groups.map((g) => (g.joinSecret ? g : { joinKey: g.joinKey }));
 }
 
-const qrcode = new QRCode(el('qrcode'), { width: 112, height: 112 });
+// qrcodejs CorrectLevel.H overflows for ~192–217 char payloads (known lib bug).
+const qrcode = new QRCode(el('qrcode'), {
+  width: 112,
+  height: 112,
+  correctLevel: QRCode.CorrectLevel.L,
+});
 const qrcodeLink = el('qrcodeLink');
 const PUBLIC_WORKER_URL = (CONFIG.worker_invite && CONFIG.worker_invite.url)
   || 'https://exergy-connect.github.io/ffmpeg-dcp/worker.html';
@@ -364,15 +373,19 @@ let nextDemoCommentIndex = 1;
 
 function updateQrCode() {
   const groups = getComputeGroups();
-  if (groups.length === 1 && groups[0].joinKey === 'public') {
-    qrcodeLink.href = PUBLIC_WORKER_URL;
-    qrcode.makeCode(PUBLIC_WORKER_URL);
-    return;
+  let href = PUBLIC_WORKER_URL;
+  if (!(groups.length === 1 && groups[0].joinKey === 'public')) {
+    const invite = new URL(PUBLIC_WORKER_URL);
+    invite.searchParams.set('computeGroups', JSON.stringify(groups));
+    href = invite.href;
   }
-  const invite = new URL(PUBLIC_WORKER_URL);
-  invite.searchParams.set('computeGroups', JSON.stringify(groups));
-  qrcodeLink.href = invite.href;
-  qrcode.makeCode(invite.href);
+  qrcodeLink.href = href;
+  try {
+    qrcode.makeCode(href);
+  } catch (err) {
+    console.warn('Worker invite QR code skipped:', err?.message || err);
+    qrcode.clear();
+  }
 }
 updateQrCode();
 qrcodeLink.addEventListener('click', () => {

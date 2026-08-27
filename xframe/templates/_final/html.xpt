@@ -372,26 +372,24 @@
 
   <section>
     <h2>3. DCP account</h2>
-    <form id="identityForm" autocomplete="off">
+    <form id="accountForm" autocomplete="off">
       <div class="field">
         <label for="apiKeyInput">Identity API key</label>
         <input id="apiKeyInput" type="password" name="dcp-identity-api-key" placeholder="0x… (64 hex)" spellcheck="false" autocomplete="off" />
         <div id="apiKeyValidation" class="muted hidden" style="color:#ff7b72">Invalid DCP identity API key format.</div>
       </div>
-    </form>
-    <form id="computeGroupsForm" autocomplete="off" style="margin-top:0.85rem">
-      <div class="field">
+      <div class="field" style="margin-top:0.85rem">
         <label>Compute groups</label>
         <div id="computeGroupRows"></div>
         <button type="button" id="addComputeGroupBtn" style="margin-top:0.4rem">Add group</button>
       </div>
+      <div class="row" style="margin-top:0.75rem">
+        <button type="button" id="clearAccountBtn">Clear saved account</button>
+        <a id="qrcodeLink" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open worker invitation in a new tab">
+          <div id="qrcode" title="Open worker invitation in a new tab"></div>
+        </a>
+      </div>
     </form>
-    <div class="row" style="margin-top:0.75rem">
-      <button type="button" id="clearAccountBtn">Clear saved account</button>
-      <a id="qrcodeLink" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open worker invitation in a new tab">
-        <div id="qrcode" title="Open worker invitation in a new tab"></div>
-      </a>
-    </div>
   </section>
 
   <section>

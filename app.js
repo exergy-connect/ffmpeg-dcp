@@ -128,8 +128,7 @@ apiKeyInput.addEventListener('change', () => {
   }
   hideRunError();
 });
-el('identityForm').addEventListener('submit', (event) => event.preventDefault());
-el('computeGroupsForm').addEventListener('submit', (event) => event.preventDefault());
+el('accountForm').addEventListener('submit', (event) => event.preventDefault());
 validateApiKeyField(false);
 
 function getApiKey() {
@@ -173,13 +172,18 @@ function makeComputeGroupRow(joinKey, joinSecret) {
 
   const keyInput = document.createElement('input');
   keyInput.type = 'text';
+  keyInput.name = 'dcp-join-key';
   keyInput.placeholder = 'joinKey (blank = public)';
+  keyInput.autocomplete = 'off';
+  keyInput.spellcheck = false;
   keyInput.value = joinKey || '';
   keyInput.style.cssText = fieldStyle;
 
   const secretInput = document.createElement('input');
   secretInput.type = 'password';
+  secretInput.name = 'dcp-join-secret';
   secretInput.placeholder = 'joinSecret (optional)';
+  secretInput.autocomplete = 'off';
   secretInput.value = joinSecret || '';
   secretInput.style.cssText = fieldStyle;
 
@@ -227,20 +231,30 @@ function getComputeGroups() {
   return groups.map((g) => (g.joinSecret ? g : { joinKey: g.joinKey }));
 }
 
-const qrcode = new QRCode(el('qrcode'), { width: 128, height: 128 });
+// qrcodejs CorrectLevel.H overflows for ~192–217 char payloads (known lib bug).
+const qrcode = new QRCode(el('qrcode'), {
+  width: 128,
+  height: 128,
+  correctLevel: QRCode.CorrectLevel.L,
+});
 // Only ever points at one group - dcp.live's join flow is for joining a
 // single compute group, not several. Several configured: point at the
 // first (same one job.computeGroups puts first). None configured
 // (public): plain dcp.live, no query param needed for the public group.
 function updateQrCode() {
   const groups = getComputeGroups();
-  if (groups.length === 1 && groups[0].joinKey === 'public') {
-    qrcode.makeCode('https://dcp.live');
-    return;
+  let href = 'https://dcp.live';
+  if (!(groups.length === 1 && groups[0].joinKey === 'public')) {
+    const first = groups[0];
+    const raw = first.joinSecret ? `${first.joinKey},${first.joinSecret}` : first.joinKey;
+    href = `https://dcp.live/?computeGroups=${encodeURIComponent(raw)}`;
   }
-  const first = groups[0];
-  const raw = first.joinSecret ? `${first.joinKey},${first.joinSecret}` : first.joinKey;
-  qrcode.makeCode(`https://dcp.live/?computeGroups=${encodeURIComponent(raw)}`);
+  try {
+    qrcode.makeCode(href);
+  } catch (err) {
+    console.warn('Worker invite QR code skipped:', err?.message || err);
+    qrcode.clear();
+  }
 }
 updateQrCode();
 
