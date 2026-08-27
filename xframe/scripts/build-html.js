@@ -46,6 +46,20 @@ html = html.replace(
   /(<p class="build-stamp"[^>]*>)[\s\S]*?(<\/p>)/,
   `$1${buildStamp()}$2`,
 );
+{
+  let rev = 'dev';
+  try {
+    rev = require('child_process')
+      .execSync('git rev-parse --short HEAD', { cwd: root, stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim() || 'dev';
+  } catch { /* not a git checkout */ }
+  const bust = encodeURIComponent(rev);
+  html = html.replace(
+    /(<script\s+src="\.\/(?:dcp-bank-account|dcp-transcoding|worker)\.js)(?:\?[^"]*)?(")/g,
+    `$1?v=${bust}$2`,
+  );
+}
 fs.writeFileSync(outPath, html);
 
 function stageAsset(sourcePath, outputRelativePath, { allowMissing = false } = {}) {

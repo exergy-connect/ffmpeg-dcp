@@ -260,6 +260,10 @@ apiKeyInput.addEventListener('input', () => {
 apiKeyInput.addEventListener('change', () => {
   if (validateApiKeyField()) localStorage.setItem(API_KEY_STORAGE_KEY, apiKeyInput.value.trim());
 });
+for (const formId of ['identityForm', 'computeGroupsForm', 'accountForm']) {
+  const form = document.getElementById(formId);
+  if (form) form.addEventListener('submit', (e) => e.preventDefault());
+}
 validateApiKeyField(false);
 
 function getApiKey() {
@@ -315,10 +319,13 @@ function makeComputeGroupRow(joinKey, joinSecret) {
   keyInput.spellcheck = false;
   keyInput.value = joinKey || '';
   const secretInput = document.createElement('input');
-  secretInput.type = 'password';
+  // type=text + CSS disc mask: avoids Chrome password-form heuristics on join secrets.
+  secretInput.type = 'text';
+  secretInput.className = 'join-secret';
   secretInput.name = 'dcp-join-secret';
   secretInput.placeholder = 'joinSecret (optional)';
   secretInput.autocomplete = 'off';
+  secretInput.spellcheck = false;
   secretInput.value = joinSecret || '';
   const removeBtn = document.createElement('button');
   removeBtn.type = 'button';
