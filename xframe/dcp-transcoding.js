@@ -359,7 +359,7 @@ function getComputeGroups() {
 const qrcode = new QRCode(el('qrcode'), { width: 112, height: 112 });
 const qrcodeLink = el('qrcodeLink');
 const PUBLIC_WORKER_URL = (CONFIG.worker_invite && CONFIG.worker_invite.url)
-  || 'https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/worker.html';
+  || 'https://exergy-connect.github.io/ffmpeg-dcp/worker.html';
 let nextDemoCommentIndex = 1;
 
 function updateQrCode() {
@@ -369,10 +369,8 @@ function updateQrCode() {
     qrcode.makeCode(PUBLIC_WORKER_URL);
     return;
   }
-  const first = groups[0];
-  const raw = first.joinSecret ? `${first.joinKey},${first.joinSecret}` : first.joinKey;
   const invite = new URL(PUBLIC_WORKER_URL);
-  invite.searchParams.set('computeGroups', raw);
+  invite.searchParams.set('computeGroups', JSON.stringify(groups));
   qrcodeLink.href = invite.href;
   qrcode.makeCode(invite.href);
 }
