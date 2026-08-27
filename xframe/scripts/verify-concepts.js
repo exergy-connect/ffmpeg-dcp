@@ -81,6 +81,7 @@ assert(
     transcoderRuntime.includes('reserveDemoAudioLocale') &&
     transcoderRuntime.includes('workerPlaybackLanguage') &&
     transcoderRuntime.includes('playWorkerCommentFromCell') &&
+    transcoderRuntime.includes('finishCommentAutoplay') &&
     transcoderRuntime.includes('speakCommentWithBrowser'),
   'web UI must rotate demo WAV languages, update flags, support replay, and fall back to browser speech',
 );

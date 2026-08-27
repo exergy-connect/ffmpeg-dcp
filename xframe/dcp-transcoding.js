@@ -1333,6 +1333,7 @@ const commentSpeechQueue = [];
 let commentSpeechActive = false;
 let currentCommentAudio = null;
 let commentSpeechGeneration = 0;
+let commentAutoplayOpen = true;
 const playedDemoAudioLocales = new Set();
 const DEMO_COMMENT_AUDIO_BASE =
   String(CONFIG.worker_invite?.demo_audio_base || 'crazyOnes/audio/gemini').replace(/\/+$/, '');
@@ -1498,6 +1499,7 @@ async function drainCommentSpeechQueue() {
 
 function enqueueCommentSpeech(normalized, { force = false } = {}) {
   if (!normalized?.text) return;
+  if (!force && !commentAutoplayOpen) return;
   if (normalized.demoCommentIndex != null) {
     if (!normalized.demoAudioLocale && !force) return;
   } else {
@@ -1533,10 +1535,16 @@ function playWorkerCommentFromCell(cell) {
   enqueueCommentSpeech(normalized, { force: true });
 }
 
+function finishCommentAutoplay() {
+  commentAutoplayOpen = false;
+  commentSpeechQueue.length = 0;
+}
+
 function resetCommentSpeechQueue() {
   commentSpeechGeneration += 1;
   commentSpeechQueue.length = 0;
   commentSpeechActive = false;
+  commentAutoplayOpen = true;
   playedDemoAudioLocales.clear();
   if (currentCommentAudio) {
     currentCommentAudio.pause();
@@ -2252,6 +2260,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   } finally {
     clearInterval(heartbeat);
     clearInterval(timer);
+    finishCommentAutoplay();
   }
 
   const elapsedSec = (performance.now() - t0) / 1000;
