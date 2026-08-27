@@ -1,6 +1,6 @@
 {
-    "name": "ffmpeg-dcp-social",
-    "version": "0.1.3",
+    "name": "ffmpeg-dcp-social-v2",
+    "version": "0.1.0",
     "files": {
         "ffmpeg-wasm.js": "ffmpeg-wasm.js"
     }

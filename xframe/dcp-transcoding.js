@@ -223,11 +223,11 @@ function showRunError(error) {
   } else if (/extract_time_range|director.?s cut|needsTrim/i.test(message)) {
     remedy =
       'Director’s-cut boundary trim needs extract_time_range in the DCP package WASM. ' +
-      'Rebuild (cd xframe && bash ffmpeg-wasm/build.sh) and republish ffmpeg-dcp-social.';
+      'Rebuild (cd xframe && bash ffmpeg-wasm/build.sh), set a new package/package.dcp name, and republish.';
   } else if (/slice_webm|Only VP8 or VP9|MediaRecorder|\.webm/i.test(message)) {
     remedy = 'Drop a MediaRecorder .webm (VP8/VP9) or an .mp4 (VP9 or H.264). Hard-refresh if a stale worker is still slicing MP4 into MPEG-TS.';
   } else if (/vp8|vp9|opus|decoder|wasm/i.test(message)) {
-    remedy = 'Rebuild the xframe WASM package (see xframe/README.md) and publish ffmpeg-dcp-social.';
+    remedy = 'Rebuild the xframe WASM package (see xframe/README.md) and publish the package named in package/package.dcp.';
   }
   el('runErrorMessage').textContent = message;
   el('runErrorRemedy').textContent = remedy;
@@ -2017,7 +2017,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     formats: uniqueFormats.length,
     maxDistribution,
     paymentPerSlice: slicePaymentDcc,
-    package: CONFIG.dcp_package || 'ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js',
+    package: CONFIG.dcp_package || 'ffmpeg-dcp-social-v2/ffmpeg-wasm.js',
   });
   dbg('ensureIdentity…');
   await ensureIdentity();
@@ -2030,7 +2030,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   });
   await fetchAccountBalance(pay);
 
-  const dcpPackageId = CONFIG.dcp_package || 'ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js';
+  const dcpPackageId = CONFIG.dcp_package || 'ffmpeg-dcp-social-v2/ffmpeg-wasm.js';
 
   const formatsMeta = uniqueFormats.map((f) => ({
     signature: f.signature,
@@ -2097,7 +2097,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     const wlog = (...args) => {
       try { console.log('[social-wf]', ...args); } catch (_) { /* ignore */ }
     };
-    const packageId = String(packageIdArg || 'ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js');
+    const packageId = String(packageIdArg || 'ffmpeg-dcp-social-v2/ffmpeg-wasm.js');
     const readWorkerComment = () => {
       try {
         const sources = [
@@ -2263,7 +2263,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         if (typeof Module._extract_time_range !== 'function') {
           throw new Error(
             'extract_time_range missing from fleet WASM — jobs must require ' +
-            'ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js (republish if that version is absent).',
+            'ffmpeg-dcp-social-v2/ffmpeg-wasm.js (republish if that version is absent).',
           );
         }
         const trimStart = Number(unit.trimStartSec) || 0;

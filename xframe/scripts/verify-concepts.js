@@ -32,7 +32,7 @@ assert(
 assert(html.includes('1200 characters'), 'HTML must surface the LinkedIn post character limit');
 assert(cfg.timing.social_default.output_fps === 30, '30 fps');
 assert(cfg.dispatch.dedupe_identical_formats === true, 'dedupe enabled');
-assert(cfg.dcp_package === 'ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js', 'distinct package name with extract build');
+assert(cfg.dcp_package === 'ffmpeg-dcp-social-v2/ffmpeg-wasm.js', 'distinct package name with extract build');
 assert(cfg.bank?.operation === 'viewAccount', 'bank.operation must be viewAccount');
 assert(cfg.bank?.balance_field === 'payload.balance', 'bank.balance_field must be payload.balance');
 assert(html.includes('dcp-bank-account.js'), 'HTML must load dcp-bank-account.js');
@@ -56,9 +56,9 @@ assert(
 );
 assert(
   fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8').includes(
-    "ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js",
+    "ffmpeg-dcp-social-v2/ffmpeg-wasm.js",
   ),
-  'work function must pin ffmpeg-dcp-social@0.1.3 (extract_time_range fleet build)',
+  'work function must pin ffmpeg-dcp-social-v2 (extract_time_range fleet build)',
 );
 assert(html.includes('id="stageCutBtn"'), 'HTML must include director’s cut staging button');
 assert(html.includes('id="cutDialog"'), 'HTML must include director’s cut dialog');

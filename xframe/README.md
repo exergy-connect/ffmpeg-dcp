@@ -18,7 +18,7 @@ Accepts a browser `MediaRecorder` WebM (VP8/VP9 + Opus), lets the user pick any 
 | [`dcp-deploy-worker.js`](dcp-deploy-worker.js) | Base64 input-set prep |
 | [`src/dcp-transcode.c`](src/dcp-transcode.c) | Forked work-function + social APIs |
 | [`build.sh`](build.sh) | WASM build with VP8/VP9/Opus |
-| [`package/`](package/) | Distinct DCP package `ffmpeg-dcp-social` |
+| [`package/`](package/) | Distinct DCP package `ffmpeg-dcp-social-v2` |
 | [`output/dcp-transcoding.html`](output/dcp-transcoding.html) | Compiled transcoder (after xForm) |
 | [`output/worker.html`](output/worker.html) | Compiled browser worker (after xForm) |
 
@@ -86,11 +86,12 @@ node package/build-bravojs-bundle.js
 node package/publish.js --apiKey=0x…   # or DCP_API_KEY
 ```
 
-`publish.js` deploys `ffmpeg-dcp-social` to the DCP package manager so
-`job.requires(['ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js'])` resolves. Pin the
-`@version` so workers do not keep an older build that lacks `extract_time_range`.
+`publish.js` deploys `ffmpeg-dcp-social-v2` to the DCP package manager so
+`job.requires(['ffmpeg-dcp-social-v2/ffmpeg-wasm.js'])` resolves. Use a new
+package **name** when the fleet must pick up a new WASM (DCP does not accept
+`name@version/file` in `requires`, and same-name updates are create-once).
 Until that package is published, fleet jobs fail with `Could not locate module
-/packages/ffmpeg-dcp-social/package.dcp`.
+/packages/ffmpeg-dcp-social-v2/package.dcp`.
 
 The Docker build fetches and compiles the required Emscripten, FFmpeg, and
 OpenH264 sources without using the root app’s build cache.
@@ -105,8 +106,8 @@ and dispatches only overlapping pieces to DCP. Discarded timeline never leaves
 the browser. Boundary pieces set `needsTrim` so fleet workers call
 `extract_time_range` (then remux + social encode); interior pieces social-encode
 once. Fleet WASM must export `extract_time_range` — rebuild with
-`bash ffmpeg-wasm/build.sh` and republish `ffmpeg-dcp-social` after changing
-`src/dcp-transcode.c`.
+`bash ffmpeg-wasm/build.sh` and republish under a **new** package name (see
+`package/package.dcp`) after changing `src/dcp-transcode.c`.
 
 ## Parallelism
 

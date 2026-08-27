@@ -21,4 +21,12 @@ Republishing `ffmpeg-wasm-social` (even as `0.1.1`) failed with:
 
 Version is in the payload; the **name** still conflicts. The same identity successfully published a **new name**: **`ffmpeg-dcp-social@0.1.1`**.
 
-Jobs must `require(['ffmpeg-dcp-social/ffmpeg-wasm.js'])`. Staged `output/` HTML still has the old name until recompiled.
+## 8.3 Module path has no `@version` — use a new package name
+
+`job.requires(['ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js'])` makes the package
+manager look for `/packages/ffmpeg-dcp-social@0.1.3/package.dcp` and fails with
+`fetchModuleURL` / ENOENT. Version lives only in `package.dcp`; the require
+path is always `name/file.js`.
+
+When fleet workers must load a new WASM (e.g. `extract_time_range`), publish
+under a **new name** (e.g. `ffmpeg-dcp-social-v2`) and update `app.dcp_package`.

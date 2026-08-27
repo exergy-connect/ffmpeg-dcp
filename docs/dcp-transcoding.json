@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-27T21:14:04.197Z",
-    "modifiedAt": "2026-08-27T21:14:04.197Z",
+    "createdAt": "2026-08-27T21:21:09.087Z",
+    "modifiedAt": "2026-08-27T21:21:09.087Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp",
-      "hash": "sha256:87ec71f3a18652a3b8511bba86b1f39a8af88942bf216499bdf16f14ee0798ad",
+      "hash": "sha256:d19300989c6398e0a5c5e089ae627cd7809f349b605cc06b2e2ef63960d3e0a6",
       "createdAt": "2026-08-24T19:23:37.516Z",
-      "modifiedAt": "2026-08-27T21:13:34.563Z"
+      "modifiedAt": "2026-08-27T21:20:34.860Z"
     }
   ],
   "_concepts": {
@@ -265,7 +265,7 @@
       "deploy_worker_script": "dcp-deploy-worker.js",
       "wasm_glue": "ffmpeg-wasm/dcp-transcode-glue.js",
       "wasm_binary": "ffmpeg-wasm/dcp-transcode.wasm",
-      "dcp_package": "ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js",
+      "dcp_package": "ffmpeg-dcp-social-v2/ffmpeg-wasm.js",
       "worker_invite": {
         "_concept": "browser_worker_invite",
         "url": "https://exergy-connect.github.io/ffmpeg-dcp/worker.html",
@@ -397,7 +397,7 @@
       },
       "dispatch": {
         "_concept": "dcp_dispatch_policy",
-        "package_name": "ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js",
+        "package_name": "ffmpeg-dcp-social-v2/ffmpeg-wasm.js",
         "target_chunk_frames": 90,
         "dedupe_identical_formats": true,
         "unit": "(chunk, unique format signature)",
