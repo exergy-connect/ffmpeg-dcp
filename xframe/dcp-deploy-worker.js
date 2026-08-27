@@ -2,7 +2,7 @@
 
 /**
  * Pure-data prep for the xFrame social transcoder.
- * Builds a DCP inputSet of (chunk, formatIndexes) units without touching dcp-client.
+ * Builds a DCP inputSet of (chunk|programSegment, formatIndexes) units without touching dcp-client.
  */
 function bytesToBase64(bytes) {
   let binary = '';
@@ -34,6 +34,16 @@ function extForChunk(bytes, claimed) {
   return claimed || sniffed;
 }
 
+function pushUnits(inputSet, baseUnit, formatIndexes, maxDistribution) {
+  if (maxDistribution) {
+    for (const formatIndex of formatIndexes) {
+      inputSet.push({ ...baseUnit, formatIndexes: [formatIndex] });
+    }
+  } else {
+    inputSet.push({ ...baseUnit, formatIndexes });
+  }
+}
+
 onmessage = ({ data }) => {
   if (data.cmd !== 'prepare') return;
   const { maxDistribution } = data;
@@ -45,31 +55,43 @@ onmessage = ({ data }) => {
   }];
   const inputSet = [];
   for (const source of sourceSets) {
-    const { sourceId, chunks, formatIndexes, container } = source;
+    const { sourceId, chunks, formatIndexes, container, programSegments } = source;
     const chunkBase64ByIndex = chunks.map((chunk) => bytesToBase64(chunk));
     const chunkExtByIndex = chunks.map((chunk) => extForChunk(chunk, container));
-    if (maxDistribution) {
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-        for (const formatIndex of formatIndexes) {
-          inputSet.push({
-            sourceId,
-            chunkIndex,
-            formatIndexes: [formatIndex],
-            chunkBase64: chunkBase64ByIndex[chunkIndex],
-            chunkExt: chunkExtByIndex[chunkIndex],
-          });
+
+    if (Array.isArray(programSegments) && programSegments.length) {
+      for (const seg of programSegments) {
+        const chunkIndex = seg.chunkIndex;
+        if (chunkIndex < 0 || chunkIndex >= chunks.length) {
+          throw new Error(
+            `program segment ${seg.programIndex} references missing chunk ${chunkIndex}`,
+          );
         }
-      }
-    } else {
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-        inputSet.push({
+        pushUnits(inputSet, {
           sourceId,
           chunkIndex,
-          formatIndexes,
+          programIndex: seg.programIndex,
+          needsTrim: !!seg.needsTrim,
+          trimStartSec: Number(seg.trimStartSec) || 0,
+          trimEndSec: Number(seg.trimEndSec) || 0,
           chunkBase64: chunkBase64ByIndex[chunkIndex],
           chunkExt: chunkExtByIndex[chunkIndex],
-        });
+        }, formatIndexes, maxDistribution);
       }
+      continue;
+    }
+
+    for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+      pushUnits(inputSet, {
+        sourceId,
+        chunkIndex,
+        programIndex: chunkIndex,
+        needsTrim: false,
+        trimStartSec: 0,
+        trimEndSec: 0,
+        chunkBase64: chunkBase64ByIndex[chunkIndex],
+        chunkExt: chunkExtByIndex[chunkIndex],
+      }, formatIndexes, maxDistribution);
     }
   }
   postMessage({ inputSet });

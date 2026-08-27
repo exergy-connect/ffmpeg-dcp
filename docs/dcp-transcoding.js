@@ -220,8 +220,10 @@ function showRunError(error) {
     remedy = 'Fund the DCP payment account shown above, then retry.';
   } else if (/fetchModuleURL|Could not locate module|package\.dcp|ffmpeg-dcp-social|\/packages\/src\//i.test(message)) {
     remedy = 'Publish the DCP package (cd xframe && node package/build-bravojs-bundle.js && node package/publish.js). If you still see /packages/src/, hard-refresh the worker — bare requires were resolving against the sandbox evaluator path.';
-  } else if (/extract_time_range|director.?s cut|stageDirectorsCut/i.test(message)) {
-    remedy = 'Rebuild browser WASM so extract_time_range is exported: cd xframe && bash ffmpeg-wasm/build.sh';
+  } else if (/extract_time_range|director.?s cut|needsTrim/i.test(message)) {
+    remedy =
+      'Director’s-cut boundary trim needs extract_time_range in the DCP package WASM. ' +
+      'Rebuild (cd xframe && bash ffmpeg-wasm/build.sh) and republish ffmpeg-dcp-social.';
   } else if (/slice_webm|Only VP8 or VP9|MediaRecorder|\.webm/i.test(message)) {
     remedy = 'Drop a MediaRecorder .webm (VP8/VP9) or an .mp4 (VP9 or H.264). Hard-refresh if a stale worker is still slicing MP4 into MPEG-TS.';
   } else if (/vp8|vp9|opus|decoder|wasm/i.test(message)) {
@@ -873,6 +875,86 @@ function programDuration(slices) {
   return (slices || []).reduce((sum, slice) => sum + Math.max(0, slice.end - slice.start), 0);
 }
 
+/**
+ * Build a [start, end) timeline for keyframe chunks from slicer durations.
+ * Chunk files keep original PTS, so absolute seconds match extract_time_range.
+ */
+function buildChunkTimeline(durations, sourceDurationSec) {
+  const sourceDuration = Number(sourceDurationSec);
+  const raw = (durations || []).map((d) => Math.max(0, Number(d) || 0));
+  if (!raw.length) {
+    const end = sourceDuration > 0 ? sourceDuration : 0;
+    return { starts: [0], ends: [end], durations: [end] };
+  }
+  if (raw.length === 1 && !(raw[0] > 0) && sourceDuration > 0) {
+    return { starts: [0], ends: [sourceDuration], durations: [sourceDuration] };
+  }
+  const starts = [];
+  let t = 0;
+  for (let i = 0; i < raw.length; i++) {
+    starts.push(t);
+    t += raw[i];
+  }
+  const ends = raw.map((d, i) => starts[i] + d);
+  const sum = ends.length ? ends[ends.length - 1] : 0;
+  if (sourceDuration > 0 && sum > 0 && Math.abs(sum - sourceDuration) > 0.25) {
+    ends[ends.length - 1] = Math.max(starts[starts.length - 1] + 0.05, sourceDuration);
+  } else if (sourceDuration > 0 && !(sum > 0)) {
+    const each = sourceDuration / raw.length;
+    for (let i = 0; i < raw.length; i++) {
+      starts[i] = i * each;
+      ends[i] = (i + 1) * each;
+    }
+  }
+  return {
+    starts,
+    ends,
+    durations: ends.map((end, i) => Math.max(0, end - starts[i])),
+  };
+}
+
+/**
+ * Map an ordered director’s-cut program onto keyframe chunks.
+ * Dropped ranges never become DCP units; boundary overlaps set needsTrim.
+ */
+function mapDirectorsCutToProgram(slices, durations, sourceDurationSec) {
+  const timeline = buildChunkTimeline(durations, sourceDurationSec);
+  const chunkCount = timeline.starts.length;
+  if (!slices || !slices.length) {
+    return timeline.starts.map((_, chunkIndex) => ({
+      programIndex: chunkIndex,
+      chunkIndex,
+      trimStartSec: timeline.starts[chunkIndex],
+      trimEndSec: timeline.ends[chunkIndex],
+      needsTrim: false,
+      durationSec: timeline.durations[chunkIndex],
+    }));
+  }
+  const segments = [];
+  let programIndex = 0;
+  for (const slice of slices) {
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+      const chunkStart = timeline.starts[chunkIndex];
+      const chunkEnd = timeline.ends[chunkIndex];
+      const overlapStart = Math.max(slice.start, chunkStart);
+      const overlapEnd = Math.min(slice.end, chunkEnd);
+      if (!(overlapEnd - overlapStart >= 0.05)) continue;
+      const needsTrim =
+        overlapStart - chunkStart > 0.05 || chunkEnd - overlapEnd > 0.05;
+      segments.push({
+        programIndex,
+        chunkIndex,
+        trimStartSec: overlapStart,
+        trimEndSec: overlapEnd,
+        needsTrim,
+        durationSec: overlapEnd - overlapStart,
+      });
+      programIndex += 1;
+    }
+  }
+  return segments;
+}
+
 function programmedDurationForSource(sourceId, sourceDuration) {
   const duration = Number(sourceDuration);
   if (!(duration > 0)) return duration;
@@ -1341,10 +1423,6 @@ async function remuxToMp4(tsBytes) {
   return callWorker('remuxToMp4', [tsBytes]);
 }
 
-async function stageDirectorsCut(bytes, slices, durationSec, onProgress) {
-  return callWorker('stageDirectorsCut', [bytes, slices, durationSec], onProgress);
-}
-
 // ---- Grid / progress ----
 let gridCells = {};
 const spokenCommentKeys = new Set();
@@ -1711,7 +1789,12 @@ function setupGrid(units, formatsMeta) {
       .map((index) => formatsMeta[index]?.signature || `format ${index}`)
       .join(', ');
     const baseTitle =
-      `slice ${i + 1} · ${unit.sourceId || 'primary'} chunk ${(unit.chunkIndex ?? i) + 1}` +
+      `slice ${i + 1} · ${unit.sourceId || 'primary'} ` +
+      `chunk ${(unit.chunkIndex ?? i) + 1}` +
+      (unit.programIndex != null && unit.programIndex !== unit.chunkIndex
+        ? ` · program ${unit.programIndex + 1}`
+        : '') +
+      (unit.needsTrim ? ' · trim' : '') +
       (formatLabels ? `\n${formatLabels}` : '');
     const cell = document.createElement('div');
     cell.className = 'grid-cell';
@@ -1916,7 +1999,8 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   const formatsMetaJson = JSON.stringify(formatsMeta);
   const totalUnits = sourcePlans.reduce((total, source) => {
     const formatCount = uniqueFormats.filter((format) => format.sourceId === source.id).length;
-    return total + source.chunks.length * formatCount;
+    const pieces = source.programSegments?.length || source.chunks.length;
+    return total + pieces * formatCount;
   }, 0);
   dbg('formatsMeta', formatsMeta.map((f) => `${f.signature} ${f.width}x${f.height}`));
 
@@ -1930,6 +2014,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       sourceSets: sourcePlans.map((source) => ({
         sourceId: source.id,
         chunks: source.chunks,
+        programSegments: source.programSegments || null,
         formatIndexes: uniqueFormats
           .map((format, index) => (format.sourceId === source.id ? index : -1))
           .filter((index) => index >= 0),
@@ -2054,6 +2139,10 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       reportProgress(0);
       wlog('start', {
         chunkIndex: unit.chunkIndex,
+        programIndex: unit.programIndex,
+        needsTrim: !!unit.needsTrim,
+        trimStartSec: unit.trimStartSec,
+        trimEndSec: unit.trimEndSec,
         formatIndexes: unit.formatIndexes,
         chunkExt: unit.chunkExt,
         b64Len: unit.chunkBase64?.length,
@@ -2090,6 +2179,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       wlog('module ready', {
         hasCcall: typeof Module.ccall === 'function',
         hasFS: Boolean(Module.FS),
+        hasExtract: typeof Module._extract_time_range === 'function',
       });
 
       const chunkBytes = Uint8Array.from(atob(unit.chunkBase64), (c) => c.charCodeAt(0));
@@ -2117,6 +2207,45 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       });
       Module.FS.writeFile(inPath, chunkBytes);
 
+      let socialInPath = inPath;
+      const cleanupPaths = [inPath];
+      if (unit.needsTrim) {
+        if (typeof Module._extract_time_range !== 'function') {
+          throw new Error(
+            'extract_time_range missing from fleet WASM — republish ffmpeg-dcp-social ' +
+            'so director’s-cut boundary trims can run on DCP.',
+          );
+        }
+        const trimStart = Number(unit.trimStartSec) || 0;
+        const trimEnd = Number(unit.trimEndSec) || 0;
+        if (!(trimEnd > trimStart)) {
+          throw new Error(`Invalid director’s-cut trim ${trimStart}..${trimEnd}`);
+        }
+        const trimTsPath = '/cut-trim.ts';
+        const trimMp4Path = '/cut-trim.mp4';
+        wlog('extract_time_range', { trimStart, trimEnd });
+        const extractCode = Module.ccall(
+          'extract_time_range', 'number',
+          ['string', 'string', 'number', 'number', 'number', 'number'],
+          [inPath, trimTsPath, trimStart, trimEnd, 6000, 160],
+        );
+        if (extractCode < 0) {
+          throw new Error(`extract_time_range failed (${extractCode}) for ${trimStart}..${trimEnd}`);
+        }
+        const remuxCode = Module.ccall(
+          'remux_to_mp4', 'number',
+          ['string', 'string'],
+          [trimTsPath, trimMp4Path],
+        );
+        try { Module.FS.unlink(trimTsPath); } catch (_) { /* ignore */ }
+        if (remuxCode < 0) {
+          throw new Error(`remux_to_mp4 after extract failed (${remuxCode})`);
+        }
+        socialInPath = trimMp4Path;
+        cleanupPaths.push(trimMp4Path);
+        reportProgress(0.12);
+      }
+
       const results = [];
       for (let formatPosition = 0; formatPosition < indexes.length; formatPosition++) {
         const formatIndex = indexes[formatPosition];
@@ -2132,12 +2261,13 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
           br: fmt.bitrateKbps,
           gop,
           encoder: fmt.encoder || 'libopenh264',
+          socialInPath,
         });
         const code = Module.ccall(
           'transcode_social_segment', 'number',
           ['string', 'string', 'number', 'number', 'number', 'number', 'number', 'number', 'string'],
           [
-            inPath, outPath, fmt.width, fmt.height, fmt.bitrateKbps,
+            socialInPath, outPath, fmt.width, fmt.height, fmt.bitrateKbps,
             fmt.audioBitrateKbps || 160, gop,
             fmt.frameMode === undefined ? 1 : fmt.frameMode,
             fmt.encoder || 'libopenh264',
@@ -2159,17 +2289,22 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         results.push({ signature: fmt.signature, segmentBase64: btoa(binary), computeSeconds });
         wlog('segment encoded', { signature: fmt.signature, outBytes: segBytes.length, computeSeconds });
       }
-      Module.FS.unlink(inPath);
+      for (const path of cleanupPaths) {
+        try { Module.FS.unlink(path); } catch (_) { /* ignore */ }
+      }
       reportProgress(1);
       const finalComment = readWorkerComment() || workerComment;
+      const programIndex = unit.programIndex != null ? unit.programIndex : unit.chunkIndex;
       wlog('return', {
         chunkIndex: unit.chunkIndex,
+        programIndex,
         segments: results.length,
         workerComment: finalComment || null,
       });
       return {
         sourceId: unit.sourceId,
         chunkIndex: unit.chunkIndex,
+        programIndex,
         segments: results,
         workerComment: finalComment || null,
       };
@@ -2192,8 +2327,9 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   const workerCommentsBySignature = {};
   for (const f of uniqueFormats) {
     const source = sourceById.get(f.sourceId);
-    bySignature[f.signature] = new Array(source?.chunks.length || 0).fill(null);
-    workerCommentsBySignature[f.signature] = new Array(source?.chunks.length || 0).fill(null);
+    const pieces = source?.programSegments?.length || source?.chunks.length || 0;
+    bySignature[f.signature] = new Array(pieces).fill(null);
+    workerCommentsBySignature[f.signature] = new Array(pieces).fill(null);
   }
 
   setupGrid(inputSet, formatsMeta);
@@ -2284,6 +2420,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     const payload = ev?.result ?? ev;
     const sourceId = payload?.sourceId || 'primary';
     const chunkIndex = payload?.chunkIndex;
+    const programIndex = payload?.programIndex != null ? payload.programIndex : chunkIndex;
     const segments = payload?.segments;
     const workerComment = payload?.workerComment != null ? payload.workerComment : null;
     const normalizedComment = normalizeWorkerComment(workerComment);
@@ -2296,9 +2433,9 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         log(`Unknown signature in result: ${seg?.signature}`);
         continue;
       }
-      bySignature[seg.signature][chunkIndex] = seg.segmentBase64;
+      bySignature[seg.signature][programIndex] = seg.segmentBase64;
       if (normalizedComment && workerCommentsBySignature[seg.signature]) {
-        workerCommentsBySignature[seg.signature][chunkIndex] = normalizedComment;
+        workerCommentsBySignature[seg.signature][programIndex] = normalizedComment;
       }
       completed += 1;
     }
@@ -2331,7 +2468,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       status.textContent = `Fleet: received ${completed}/${totalUnits} format-units…`;
     }
     log(
-      `Received slice ${ev?.sliceNumber ?? unitIndex}: chunk ${chunkIndex}, ` +
+      `Received slice ${ev?.sliceNumber ?? unitIndex}: program ${programIndex}, chunk ${chunkIndex}, ` +
       `${sourceId} source, ${segments.length} segment(s)` +
       `${normalizedComment ? `, worker “${normalizedComment.display}”` : ''}` +
       ` (${completed}/${totalUnits} format-units)`,
@@ -2342,7 +2479,11 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   const sourceSummary = sourcePlans
     .map((source) => {
       const formatCount = uniqueFormats.filter((format) => format.sourceId === source.id).length;
-      return `${source.id}: ${source.chunks.length} chunks × ${formatCount} formats`;
+      const pieces = source.programSegments?.length || source.chunks.length;
+      const cutNote = source.cutIsFull === false
+        ? ` (cut → ${pieces}/${source.chunks.length} pieces)`
+        : '';
+      return `${source.id}: ${pieces} piece(s)${cutNote} × ${formatCount} formats`;
     })
     .join('; ');
   log(`Dispatching ${inputSet.length} slice(s), ${totalUnits} format-units (${sourceSummary}) → groups: ${groupsLabel}`);
@@ -2643,40 +2784,33 @@ function activeDirectorsCutProgram(sourceDurationSec) {
   };
 }
 
-async function stageSourceForRun(sourceId, bytes, sourceDurationSec) {
+/** Attach director’s-cut program segments to a sliced source (no browser re-encode). */
+function attachDirectorsCutProgram(source, sourceDurationSec) {
   const program = activeDirectorsCutProgram(sourceDurationSec);
-  if (program.isFull || !program.slices.length) {
-    return { bytes, durationSec: sourceDurationSec, staged: false };
-  }
-  log(
-    `Staging ${sourceId} director’s cut (${program.slices.length} slice(s), ` +
-    `${programDuration(program.slices).toFixed(2)}s)…`,
-  );
-  const status = el('preprocessingStatus');
-  const result = await stageDirectorsCut(
-    bytes,
-    program.slices,
+  const slices = program.isFull ? null : program.slices;
+  const programSegments = mapDirectorsCutToProgram(
+    slices,
+    source.durations,
     sourceDurationSec,
-    (info) => {
-      if (!status) return;
-      if (info?.phase === 'extract') {
-        status.textContent =
-          `Staging ${sourceId} director’s cut… slice ${info.index + 1}/${info.total}`;
-      } else if (info?.phase === 'remux') {
-        status.textContent = `Assembling staged ${sourceId} MP4…`;
-      }
-    },
   );
-  const stagedDuration = programDuration(program.slices);
-  log(
-    `Staged ${sourceId} cut → ${(result.bytes.length / 1024).toFixed(0)} KB` +
-    `${result.staged ? ' (frame-accurate extract)' : ''}`,
-  );
-  return {
-    bytes: result.bytes,
-    durationSec: stagedDuration > 0 ? stagedDuration : sourceDurationSec,
-    staged: !!result.staged,
-  };
+  if (!programSegments.length) {
+    throw new Error(
+      `Director’s cut for ${source.id} overlaps no keyframe chunks — adjust the cut or re-slice.`,
+    );
+  }
+  source.programSegments = programSegments;
+  source.cutIsFull = program.isFull;
+  source.cutSlices = program.slices;
+  const trimmed = programSegments.filter((seg) => seg.needsTrim).length;
+  if (!program.isFull) {
+    log(
+      `${source.id} director’s cut: ${program.slices.length} range(s) → ` +
+      `${programSegments.length} DCP piece(s) from ${source.chunks.length} chunk(s)` +
+      `${trimmed ? `, ${trimmed} boundary trim(s) on fleet` : ''}` +
+      ` (${programDuration(program.slices).toFixed(2)}s kept)`,
+    );
+  }
+  return source;
 }
 
 el('runBtn').addEventListener('click', async () => {
@@ -2704,32 +2838,29 @@ el('runBtn').addEventListener('click', async () => {
     el('statUnique').textContent = String(uniqueFormats.length);
     el('statAliases').textContent = String(deliverables.length);
     el('preprocessingStatus').classList.remove('hidden');
-    el('preprocessingStatus').textContent = 'Preparing director’s cut / source video(s)…';
+    el('preprocessingStatus').textContent = 'Slicing source video(s) at keyframes…';
     const targetFrames = CONFIG.dispatch?.target_chunk_frames || 90;
     const usedSourceIds = new Set(uniqueFormats.map((format) => format.sourceId));
     const sourcePlans = [];
     if (usedSourceIds.has('primary')) {
-      const staged = await stageSourceForRun(
-        'primary',
-        inputBytes,
-        inputSourceDurationSec || inputDurationSec,
-      );
-      el('preprocessingStatus').textContent = 'Slicing source video(s) at keyframes…';
-      sourcePlans.push(await sliceSource('primary', staged.bytes, targetFrames));
+      const primaryDuration = inputSourceDurationSec || inputDurationSec;
+      const sliced = await sliceSource('primary', inputBytes, targetFrames);
+      sourcePlans.push(attachDirectorsCutProgram(sliced, primaryDuration));
     }
     if (usedSourceIds.has('vertical')) {
-      const staged = await stageSourceForRun(
-        'vertical',
-        verticalInputBytes,
-        verticalSourceDurationSec || verticalInputDurationSec,
-      );
-      el('preprocessingStatus').textContent = 'Slicing source video(s) at keyframes…';
-      sourcePlans.push(await sliceSource('vertical', staged.bytes, targetFrames));
+      const verticalDuration = verticalSourceDurationSec || verticalInputDurationSec;
+      const sliced = await sliceSource('vertical', verticalInputBytes, targetFrames);
+      sourcePlans.push(attachDirectorsCutProgram(sliced, verticalDuration));
     }
     for (const source of sourcePlans) {
-      const slicedDuration = Array.isArray(source.durations)
-        ? source.durations.reduce((sum, duration) => sum + duration, 0)
+      const programSecs = Array.isArray(source.programSegments)
+        ? source.programSegments.reduce((sum, seg) => sum + (Number(seg.durationSec) || 0), 0)
         : 0;
+      const slicedDuration = programSecs > 0
+        ? programSecs
+        : (Array.isArray(source.durations)
+          ? source.durations.reduce((sum, duration) => sum + duration, 0)
+          : 0);
       if (slicedDuration > 0) {
         if (source.id === 'vertical') verticalInputDurationSec = slicedDuration;
         else inputDurationSec = slicedDuration;
@@ -2738,7 +2869,8 @@ el('runBtn').addEventListener('click', async () => {
     const maxDistribution = el('maxDistributionToggle').checked;
     const exactSliceCount = sourcePlans.reduce((total, source) => {
       const formatCount = uniqueFormats.filter((format) => format.sourceId === source.id).length;
-      return total + (maxDistribution ? source.chunks.length * formatCount : source.chunks.length);
+      const pieces = source.programSegments?.length || source.chunks.length;
+      return total + (maxDistribution ? pieces * formatCount : pieces);
     }, 0);
     updateCostEstimate(exactSliceCount);
     el('preprocessingStatus').textContent = 'Dispatching to DCP…';

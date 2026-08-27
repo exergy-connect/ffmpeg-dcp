@@ -71,8 +71,16 @@ assert(
   'runtime must persist director’s cut programs',
 );
 assert(
-  fs.readFileSync(path.join(root, 'ffmpeg-worker.js'), 'utf8').includes('stageDirectorsCut'),
-  'worker must expose stageDirectorsCut',
+  fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8').includes('mapDirectorsCutToProgram'),
+  'runtime must map director’s cut onto DCP program segments',
+);
+assert(
+  fs.readFileSync(path.join(root, 'dcp-deploy-worker.js'), 'utf8').includes('programSegments'),
+  'deploy worker must emit programSegments',
+);
+assert(
+  fs.readFileSync(path.join(root, 'ffmpeg-worker.js'), 'utf8').includes('extractTimeRange'),
+  'worker must expose extractTimeRange for boundary trims',
 );
 const workerRuntime = fs.readFileSync(path.join(root, 'worker.js'), 'utf8');
 assert(

@@ -327,7 +327,7 @@ async function extractTimeRange(inputBytes, startSec, endSec, opts = {}) {
 
 /**
  * Stage an ordered director's-cut program into one H.264/AAC MP4.
- * Full-duration single-slice programs return the original bytes unchanged.
+ * Kept for local/WASM smoke tests; the Run path maps cuts onto DCP pieces instead.
  */
 async function stageDirectorsCut(inputBytes, slices, sourceDurationSec, onProgress) {
   const duration = Number(sourceDurationSec);

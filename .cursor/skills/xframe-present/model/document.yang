@@ -17,6 +17,11 @@ module document {
 
      Compiled portable IR (``.xp.json``) is validated separately by ``ir.yang``.";
 
+  revision "2026-08-27" {
+    description
+      "Add segment walkthrough.pause from @walkthrough pause=true so the browser
+       walkthrough holds after that slide's narration without auto-advancing.";
+  }
   revision "2026-08-25" {
     description
       "Add document-meta css_imports (stylesheet URLs emitted as CSS @import
@@ -1031,7 +1036,8 @@ module document {
   grouping segment {
     description
       "One --- delimited segment in the authoring source.
-       Segment directives (@id, @class, @layout, @theme, @evaluation) map to leaves here.";
+       Segment directives (@id, @class, @layout, @theme, @evaluation, @walkthrough)
+       map to leaves here.";
 
     leaf index {
       type uint32;
@@ -1091,6 +1097,16 @@ module document {
       description
         "When set (from @format), include this segment only for these format
          qualifiers. Omitted means every format.";
+    }
+    container walkthrough {
+      presence "Per-segment walkthrough behavior from @walkthrough.";
+      leaf pause {
+        type boolean;
+        default false;
+        description
+          "When true, the browser walkthrough pauses after this slide's narration
+           and does not auto-advance to the next slide.";
+      }
     }
     container scope {
       uses scope-declaration;

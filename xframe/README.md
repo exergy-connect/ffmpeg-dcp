@@ -98,14 +98,19 @@ Build the WASM before compiling the UI; `scripts/compile.sh` fails if either
 WASM runtime artifact is absent, preventing an incomplete deployment. For
 HTML-only development, set `ALLOW_MISSING_WASM=1`.
 
-Director’s-cut staging needs `extract_time_range` in the browser WASM. After
-editing `src/dcp-transcode.c`, rebuild with `bash ffmpeg-wasm/build.sh` (Docker)
-so `ffmpeg-wasm/dcp-transcode.wasm` exports that symbol, then recompile the UI.
+Director’s-cut ranges stay in the browser editor only. On Run, the client
+keyframe-slices the **original** source, maps keep-ranges onto those chunks,
+and dispatches only overlapping pieces to DCP. Discarded timeline never leaves
+the browser. Boundary pieces set `needsTrim` so fleet workers call
+`extract_time_range` (then remux + social encode); interior pieces social-encode
+once. Fleet WASM must export `extract_time_range` — rebuild with
+`bash ffmpeg-wasm/build.sh` and republish `ffmpeg-dcp-social` after changing
+`src/dcp-transcode.c`.
 
 ## Parallelism
 
-1. **Serial:** probe + keyframe-aligned WebM slice (~90 frames / ~3 s).
-2. **Parallel (DCP):** one slice per `(chunk, unique format signature)` when “Max distribution” is on; otherwise one slice per chunk encoding every unique format inside the worker.
+1. **Serial:** probe + keyframe-aligned WebM/MP4 slice (~90 frames / ~3 s) + director’s-cut → program pieces.
+2. **Parallel (DCP):** one slice per `(program piece, unique format signature)` when “Max distribution” is on; otherwise one slice per piece encoding every unique format inside the worker.
 3. **Parallel (browser):** each unique signature remuxes to MP4 independently after ordered concat.
 4. **Dedupe:** Instagram feed and Facebook feed share signature `1080x1350-7000-160-30` → one encode, two download names.
 

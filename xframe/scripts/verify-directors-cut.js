@@ -2,7 +2,7 @@
 
 /**
  * Pure-logic smoke checks for director’s-cut helpers (no DOM / WASM).
- * Mirrors the normalize / duration / full-program rules in dcp-transcoding.js.
+ * Mirrors normalize / duration / full-program / chunk-mapping rules in dcp-transcoding.js.
  */
 
 function normalizeSlices(rawSlices, durationSec) {
@@ -37,6 +37,78 @@ function programDuration(slices) {
   return (slices || []).reduce((sum, slice) => sum + Math.max(0, slice.end - slice.start), 0);
 }
 
+function buildChunkTimeline(durations, sourceDurationSec) {
+  const sourceDuration = Number(sourceDurationSec);
+  const raw = (durations || []).map((d) => Math.max(0, Number(d) || 0));
+  if (!raw.length) {
+    const end = sourceDuration > 0 ? sourceDuration : 0;
+    return { starts: [0], ends: [end], durations: [end] };
+  }
+  if (raw.length === 1 && !(raw[0] > 0) && sourceDuration > 0) {
+    return { starts: [0], ends: [sourceDuration], durations: [sourceDuration] };
+  }
+  const starts = [];
+  let t = 0;
+  for (let i = 0; i < raw.length; i++) {
+    starts.push(t);
+    t += raw[i];
+  }
+  const ends = raw.map((d, i) => starts[i] + d);
+  const sum = ends.length ? ends[ends.length - 1] : 0;
+  if (sourceDuration > 0 && sum > 0 && Math.abs(sum - sourceDuration) > 0.25) {
+    ends[ends.length - 1] = Math.max(starts[starts.length - 1] + 0.05, sourceDuration);
+  } else if (sourceDuration > 0 && !(sum > 0)) {
+    const each = sourceDuration / raw.length;
+    for (let i = 0; i < raw.length; i++) {
+      starts[i] = i * each;
+      ends[i] = (i + 1) * each;
+    }
+  }
+  return {
+    starts,
+    ends,
+    durations: ends.map((end, i) => Math.max(0, end - starts[i])),
+  };
+}
+
+function mapDirectorsCutToProgram(slices, durations, sourceDurationSec) {
+  const timeline = buildChunkTimeline(durations, sourceDurationSec);
+  const chunkCount = timeline.starts.length;
+  if (!slices || !slices.length) {
+    return timeline.starts.map((_, chunkIndex) => ({
+      programIndex: chunkIndex,
+      chunkIndex,
+      trimStartSec: timeline.starts[chunkIndex],
+      trimEndSec: timeline.ends[chunkIndex],
+      needsTrim: false,
+      durationSec: timeline.durations[chunkIndex],
+    }));
+  }
+  const segments = [];
+  let programIndex = 0;
+  for (const slice of slices) {
+    for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex++) {
+      const chunkStart = timeline.starts[chunkIndex];
+      const chunkEnd = timeline.ends[chunkIndex];
+      const overlapStart = Math.max(slice.start, chunkStart);
+      const overlapEnd = Math.min(slice.end, chunkEnd);
+      if (!(overlapEnd - overlapStart >= 0.05)) continue;
+      const needsTrim =
+        overlapStart - chunkStart > 0.05 || chunkEnd - overlapEnd > 0.05;
+      segments.push({
+        programIndex,
+        chunkIndex,
+        trimStartSec: overlapStart,
+        trimEndSec: overlapEnd,
+        needsTrim,
+        durationSec: overlapEnd - overlapStart,
+      });
+      programIndex += 1;
+    }
+  }
+  return segments;
+}
+
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
@@ -65,5 +137,38 @@ assert(Math.abs(programDuration(vertical) - 5) < 1e-9, 'vertical programmed dura
 
 const storageKey = (fileName) => `xframe-social:directorsCut:${fileName}`;
 assert(storageKey('demo.mp4') === 'xframe-social:directorsCut:demo.mp4', 'storage key is per filename');
+
+// 3s chunks over a 12s source: [0,3)[3,6)[6,9)[9,12)
+const chunkDurations = [3, 3, 3, 3];
+const fullPieces = mapDirectorsCutToProgram(null, chunkDurations, 12);
+assert(fullPieces.length === 4, 'full program keeps every chunk');
+assert(fullPieces.every((p) => !p.needsTrim), 'full program needs no trim');
+
+const midCut = mapDirectorsCutToProgram([{ start: 4, end: 8 }], chunkDurations, 12);
+assert(midCut.length === 2, 'mid cut spans two chunks');
+assert(midCut[0].chunkIndex === 1 && midCut[0].needsTrim, 'first piece trims start of chunk 1');
+assert(Math.abs(midCut[0].trimStartSec - 4) < 1e-9, 'trim start absolute');
+assert(Math.abs(midCut[0].trimEndSec - 6) < 1e-9, 'trim end at chunk boundary');
+assert(midCut[1].chunkIndex === 2 && midCut[1].needsTrim, 'second piece trims end of chunk 2');
+assert(Math.abs(midCut[1].trimStartSec - 6) < 1e-9 && Math.abs(midCut[1].trimEndSec - 8) < 1e-9, 'second trim range');
+
+const skipMiddle = mapDirectorsCutToProgram(
+  [{ start: 0, end: 2.5 }, { start: 9.5, end: 12 }],
+  chunkDurations,
+  12,
+);
+assert(skipMiddle.length === 2, 'skipped middle chunks never become pieces');
+assert(skipMiddle[0].chunkIndex === 0 && skipMiddle[1].chunkIndex === 3, 'only edge chunks');
+assert(skipMiddle[0].needsTrim && skipMiddle[1].needsTrim, 'edge pieces trim');
+
+const interiorOnly = mapDirectorsCutToProgram([{ start: 3, end: 6 }], chunkDurations, 12);
+assert(interiorOnly.length === 1, 'exact chunk overlap is one piece');
+assert(interiorOnly[0].chunkIndex === 1 && !interiorOnly[0].needsTrim, 'exact chunk needs no trim');
+
+const passthrough = mapDirectorsCutToProgram([{ start: 1, end: 5 }], [0], 10);
+assert(passthrough.length === 1, 'zero-duration single chunk uses source length');
+assert(passthrough[0].needsTrim, 'passthrough cut still trims');
+assert(Math.abs(passthrough[0].trimStartSec - 1) < 1e-9, 'passthrough trim start');
+assert(Math.abs(passthrough[0].trimEndSec - 5) < 1e-9, 'passthrough trim end');
 
 console.log('verify-directors-cut: OK');

@@ -153,7 +153,7 @@ title: My Talk
 
 Front matter: `presentation`/`presentations` (default `slidedeck`), `format`/`formats` (default `desktop`, or `poster` for poster), `themes`/`theme`, `styles`/`style`, `css_imports` (stylesheet URLs; also on style/theme `.xpt` front matter — compiled to IR `css.imports` and `<link rel="stylesheet">` in the HTML head, not `@import` inside pane CSS), `title`, `subtitle`, `author`, `lang`, `layout`, `data`, `topic`, `llm`, `evaluation`, `header`, `footer`, `header-image`, `footer-image`, `narrative`, `video`.
 
-Segment head: `@id`, `@layout <name>` (optional indented YAML), `@theme`, `@evaluation`, `@presentation`, `@format`, `@class`.
+Segment head: `@id`, `@layout <name>` (optional indented YAML), `@theme`, `@evaluation`, `@presentation`, `@format`, `@class`, `@walkthrough pause=true`.
 
 Body: `@region <name>`, `@graph` (YAML spec; needs `data`), `@image`, `@html`, `@map`, `@qr_code`, `@page-break` (`header.continue`, default true), `@table`, `@narrative`, `@include <path>` (relative; optional `#fragment` or `segments:` range).
 

@@ -1761,8 +1761,8 @@ int transcode_social_segment(const char *input_path, const char *output_path,
 
 /*
  * Frame-accurate extract of [start_sec, end_sec) into a standalone MPEG-TS
- * segment (H.264 + AAC) at the source resolution. Used by the browser to
- * stage a director's cut before keyframe chunking / DCP dispatch.
+ * segment (H.264 + AAC) at the source resolution. Used on DCP workers to trim
+ * director's-cut boundary pieces before social encode (interior pieces skip this).
  */
 EMSCRIPTEN_KEEPALIVE
 int extract_time_range(const char *input_path, const char *output_path,
