@@ -124,6 +124,89 @@ function populateLanguageSelect(preferred) {
   }
 }
 
+function pickSpeechVoice(language) {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = speechSynthesis.getVoices();
+  const tag = String(language || DEFAULT_LANGUAGE).trim().toLowerCase();
+  const base = tag.split(/[-_]/)[0];
+  const matching = voices.filter((voice) => {
+    const lang = String(voice.lang || '').toLowerCase();
+    return lang === tag || lang.startsWith(`${base}-`) || lang.startsWith(`${base}_`) || lang === base;
+  });
+  return matching[0]
+    || voices.find((voice) => String(voice.lang || '').toLowerCase().startsWith(base))
+    || null;
+}
+
+/** Keep synthesis alive on iOS Safari, which often parks utterances in paused. */
+let speechResumeTimer = null;
+
+function clearSpeechResumeTimer() {
+  if (speechResumeTimer != null) {
+    clearInterval(speechResumeTimer);
+    speechResumeTimer = null;
+  }
+}
+
+/**
+ * Speak comment text with the Web Speech API.
+ * Must run synchronously from a user gesture for iPhone Safari.
+ */
+function speakCommentVoiceTest() {
+  const btn = el('voiceTestBtn');
+  const text = getComment();
+  if (!text) {
+    log('Voice test: enter a comment first.');
+    return;
+  }
+  if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+    log('Voice test: speechSynthesis is not available in this browser.');
+    return;
+  }
+
+  const language = getCommentLanguage();
+  // Warm the voice list (iOS often populates only after getVoices / voiceschanged).
+  speechSynthesis.getVoices();
+  speechSynthesis.cancel();
+  clearSpeechResumeTimer();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = language;
+  const voice = pickSpeechVoice(language);
+  if (voice) {
+    utterance.voice = voice;
+    if (voice.lang) utterance.lang = voice.lang;
+  }
+
+  const finish = (label) => {
+    clearSpeechResumeTimer();
+    if (btn) btn.disabled = false;
+    if (label) log(label);
+  };
+
+  utterance.addEventListener('end', () => finish(null), { once: true });
+  utterance.addEventListener('error', (ev) => {
+    finish(`Voice test error: ${ev?.error || 'unknown'}`);
+  }, { once: true });
+
+  if (btn) btn.disabled = true;
+  speechSynthesis.speak(utterance);
+
+  // iOS Safari frequently pauses mid-utterance unless resume() is polled.
+  speechResumeTimer = setInterval(() => {
+    if (!speechSynthesis.speaking) {
+      clearSpeechResumeTimer();
+      if (btn) btn.disabled = false;
+      return;
+    }
+    if (speechSynthesis.paused) {
+      try { speechSynthesis.resume(); } catch (_) { /* ignore */ }
+    }
+  }, 250);
+
+  log(`Voice test (${utterance.lang}): “${text.slice(0, 64)}${text.length > 64 ? '…' : ''}”`);
+}
+
 function loadCommentLanguage(params) {
   const fromUrl = params.get('language');
   if (fromUrl != null && String(fromUrl).trim()) {
@@ -223,14 +306,14 @@ function setStatus(state, label) {
   const langSelect = el('workerCommentLanguage');
   if (langSelect) langSelect.disabled = lockFields;
   if (state === 'running') {
-    btn.textContent = 'Stop';
+    btn.textContent = 'Leave';
     btn.classList.remove('primary');
     btn.classList.add('stop');
     btn.disabled = false;
   } else if (state === 'starting' || state === 'stopping') {
     btn.disabled = true;
   } else {
-    btn.textContent = 'Start';
+    btn.textContent = 'Join';
     btn.classList.add('primary');
     btn.classList.remove('stop');
     btn.disabled = false;
@@ -596,7 +679,7 @@ function attachWorkerListeners(w) {
     attachSandboxListeners(sandbox);
   });
 
-  w.on('stop', () => diag('stop requested'));
+  w.on('stop', () => diag('leave requested'));
   w.on('end', () => {
     worker = null;
     activeSandboxes = 0;
@@ -604,7 +687,7 @@ function attachWorkerListeners(w) {
     if (unpatchWorker) unpatchWorker();
     setStatus('idle', 'Idle');
     stopping = false;
-    diag('worker fully stopped');
+    diag('worker left');
   });
 }
 
@@ -620,7 +703,7 @@ async function startWorker() {
   if (worker || starting || stopping) return;
   starting = true;
   saveWorkerFields();
-  setStatus('starting', 'Starting…');
+  setStatus('starting', 'Joining…');
   try {
     if (!window.dcp?.worker?.DistributiveWorker) {
       throw new Error('dcp.worker.DistributiveWorker is not available yet.');
@@ -642,8 +725,8 @@ async function startWorker() {
     el('workerId').textContent = String(workerId || identityKeystore.address || '—');
     attachWorkerListeners(worker);
     await worker.start();
-    setStatus('running', 'Running');
-    diag('worker started', {
+    setStatus('running', 'Joined');
+    diag('worker joined', {
       identity: getWorkerIdentity(),
       comment: getComment() || '(none)',
       language: getCommentLanguage(),
@@ -659,7 +742,7 @@ async function startWorker() {
     worker = null;
     if (unpatchWorker) unpatchWorker();
     setStatus('error', 'Error');
-    log(`Start failed: ${err?.message || err}`);
+    log(`Join failed: ${err?.message || err}`);
   } finally {
     starting = false;
   }
@@ -668,19 +751,25 @@ async function startWorker() {
 async function stopWorker() {
   if (!worker || stopping) return;
   stopping = true;
-  setStatus('stopping', 'Stopping…');
+  setStatus('stopping', 'Leaving…');
   try {
     await worker.stop(false);
   } catch (err) {
     stopping = false;
     setStatus('error', 'Error');
-    diag('stop failed', err?.message || err);
+    diag('leave failed', err?.message || err);
   }
 }
 
 el('toggleBtn').addEventListener('click', () => {
   if (worker) stopWorker();
   else startWorker();
+});
+
+el('voiceTestBtn')?.addEventListener('click', (event) => {
+  // Keep speak() inside the user-gesture stack for iOS Safari.
+  event.preventDefault();
+  speakCommentVoiceTest();
 });
 
 el('workerIdentity').addEventListener('change', saveWorkerFields);
@@ -690,6 +779,8 @@ el('workerComment').addEventListener('blur', saveWorkerFields);
 el('workerCommentLanguage').addEventListener('change', saveWorkerFields);
 
 if ('speechSynthesis' in window) {
+  // Prime the voice list early; iOS fires voiceschanged asynchronously.
+  speechSynthesis.getVoices();
   speechSynthesis.addEventListener('voiceschanged', () => {
     populateLanguageSelect(getCommentLanguage());
   });
