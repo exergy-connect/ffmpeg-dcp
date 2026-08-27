@@ -33,6 +33,12 @@ let unpatchWorker = null;
 /** Mutable so sandbox creation (after start) sees the resolved worker id. */
 const sandboxContextRef = { comment: { text: '', language: DEFAULT_LANGUAGE }, identity: '', workerId: '' };
 
+const FAILED_JOBS_KEY = 'xframe.worker.failedJobs';
+/** Jobs that failed on this browser (e.g. missing package); keep ignoring them. */
+const failedJobIds = new Set(loadFailedJobIds());
+/** sandboxId → jobId for correlating worker/sandbox errors. */
+const sandboxJobIds = new Map();
+
 function log(msg) {
   const logEl = el('log');
   const line = document.createElement('div');
@@ -546,6 +552,129 @@ function describeWorkerError(err) {
   return err.message || err;
 }
 
+function errorText(err) {
+  if (err == null) return '';
+  if (typeof err === 'string') return err;
+  try {
+    if (err instanceof Error) return `${err.name || 'Error'}: ${err.message || ''}`;
+    if (typeof err.message === 'string') return err.message;
+    return JSON.stringify(err);
+  } catch (_) {
+    return String(err);
+  }
+}
+
+function loadFailedJobIds() {
+  try {
+    const raw = sessionStorage.getItem(FAILED_JOBS_KEY);
+    const parsed = JSON.parse(raw || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((id) => String(id || '').trim()).filter(Boolean).slice(-80);
+  } catch (_) {
+    return [];
+  }
+}
+
+function persistFailedJobIds() {
+  try {
+    sessionStorage.setItem(FAILED_JOBS_KEY, JSON.stringify([...failedJobIds].slice(-80)));
+  } catch (_) { /* ignore quota */ }
+}
+
+function paintFailedJobs() {
+  const node = el('failedJobs');
+  if (!node) return;
+  if (!failedJobIds.size) {
+    node.textContent = 'none';
+    return;
+  }
+  const ids = [...failedJobIds];
+  const shown = ids.slice(-3);
+  node.textContent = ids.length <= 3
+    ? shown.join(', ')
+    : `${ids.length} (…${shown.join(', ')})`;
+  node.title = ids.join('\n');
+}
+
+function extractJobId(value) {
+  if (value == null) return null;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const id = String(value).trim();
+    return id && id !== '?' ? id : null;
+  }
+  if (typeof value !== 'object') return null;
+  const direct = value.jobId ?? value.jobAddress ?? value.address ?? value.id;
+  if (direct != null && typeof direct !== 'object') return extractJobId(direct);
+  if (value.job) return extractJobId(value.job);
+  return null;
+}
+
+function lastKnownJobId() {
+  const ids = [...sandboxJobIds.values()].filter(Boolean);
+  return ids.length ? String(ids[ids.length - 1]) : null;
+}
+
+function isRecoverableJobError(err) {
+  const text = errorText(err);
+  return /fetchModuleURL|Could not locate module|package\.dcp|ENOMODULE|EMODULETOOBIG|no such package|Unable to (fetch|load) module/i.test(text);
+}
+
+/** Best-effort: return slices and mark the job rejected so fetch skips it. */
+function ignoreFailedJob(jobId, reason) {
+  const id = extractJobId(jobId);
+  if (!id) return false;
+  const isNew = !failedJobIds.has(id);
+  failedJobIds.add(id);
+  persistFailedJobIds();
+  paintFailedJobs();
+
+  if (worker) {
+    try {
+      const slices = [
+        ...(worker.slices || []),
+        ...(worker.queuedSlices || []),
+        ...(worker.workingSlices || []),
+      ];
+      for (const slice of slices) {
+        if (String(slice?.jobId || '') !== id) continue;
+        if (typeof worker.returnSlice === 'function') {
+          worker.returnSlice(slice, 'ignored-failed-job');
+        }
+      }
+    } catch (err) {
+      diag('returnSlice for ignored job failed', err?.message || err);
+    }
+    try {
+      // Supervisor keeps a ring buffer of rejected job ids reported on fetch.
+      const supervisor = worker.supervisor
+        || worker._supervisor
+        || (typeof worker.debuggingTools?.supervisor !== 'undefined'
+          ? worker.debuggingTools.supervisor
+          : null);
+      if (supervisor?.rejectedJobs && typeof supervisor.rejectedJobs.push === 'function') {
+        supervisor.rejectedJobs.push(id);
+      }
+    } catch (_) { /* private / unavailable */ }
+  }
+
+  if (isNew) {
+    diag('ignoring failed job', { jobId: id, reason: reason || 'error', ignored: failedJobIds.size });
+  }
+  return true;
+}
+
+function handleRecoverableWorkerError(err, fallbackJobId) {
+  if (!isRecoverableJobError(err)) return false;
+  const jobId = extractJobId(err) || extractJobId(fallbackJobId) || lastKnownJobId();
+  ignoreFailedJob(jobId, errorText(err));
+  diag('job error ignored — staying joined', {
+    jobId: jobId || '(unknown)',
+    message: errorText(err),
+  });
+  if (worker) setStatus('running', 'Joined');
+  return true;
+}
+
 function parseJobIds(raw) {
   if (raw == null || String(raw).trim() === '') return false;
   const ids = String(raw)
@@ -639,6 +768,7 @@ function paintConfig(config) {
   el('jobIds').textContent = Array.isArray(config.jobIds)
     ? config.jobIds.join(', ')
     : 'any';
+  paintFailedJobs();
 }
 
 function attachSandboxListeners(sandbox) {
@@ -649,9 +779,13 @@ function attachSandboxListeners(sandbox) {
   });
 
   sandbox.on('job', (jobInfo) => {
-    const jobId = jobInfo?.id || jobInfo?.address || jobInfo?.jobAddress || '?';
+    const jobId = extractJobId(jobInfo) || '?';
     const name = jobInfo?.name || jobInfo?.public?.name || '';
+    sandboxJobIds.set(String(sid), jobId === '?' ? null : jobId);
     diag(`sandbox ${sid} job`, { jobId, name });
+    if (jobId !== '?' && failedJobIds.has(String(jobId))) {
+      ignoreFailedJob(jobId, 'previously failed');
+    }
   });
 
   sandbox.on('slice', (sliceNumber) => {
@@ -688,7 +822,20 @@ function attachSandboxListeners(sandbox) {
     });
   });
 
+  sandbox.on('reject', (err) => {
+    const jobId = extractJobId(err) || sandboxJobIds.get(String(sid));
+    if (handleRecoverableWorkerError(err, jobId)) return;
+    diag(`sandbox ${sid} reject`, describeWorkerError(err));
+  });
+
+  sandbox.on('error', (err) => {
+    const jobId = extractJobId(err) || sandboxJobIds.get(String(sid));
+    if (handleRecoverableWorkerError(err, jobId)) return;
+    diag(`sandbox ${sid} error`, describeWorkerError(err));
+  });
+
   sandbox.on('end', () => {
+    sandboxJobIds.delete(String(sid));
     activeSandboxes = Math.max(0, activeSandboxes - 1);
     updateSandboxCount();
     diag(`sandbox ${sid} ended`);
@@ -700,6 +847,7 @@ function attachWorkerListeners(w) {
   w.on('disconnect', (url) => diag('disconnected', url));
   w.on('warning', (warn) => diag('warning', warn));
   w.on('error', (err) => {
+    if (handleRecoverableWorkerError(err, lastKnownJobId())) return;
     diag('error', describeWorkerError(err));
     setStatus('error', 'Error');
   });
@@ -713,6 +861,10 @@ function attachWorkerListeners(w) {
     }
     for (const jobId of ids) {
       const job = jobs[jobId] || {};
+      if (failedJobIds.has(String(jobId))) {
+        ignoreFailedJob(jobId, 'fetched known-bad job');
+        continue;
+      }
       diag('fetch', {
         jobId,
         name: job.name,
@@ -723,6 +875,7 @@ function attachWorkerListeners(w) {
 
   w.on('result', (urlOrError, size, jobAddress, sliceNumber) => {
     if (urlOrError instanceof Error) {
+      if (handleRecoverableWorkerError(urlOrError, jobAddress)) return;
       diag('result error', {
         message: urlOrError.message,
         jobAddress,
@@ -753,6 +906,7 @@ function attachWorkerListeners(w) {
   w.on('end', () => {
     worker = null;
     activeSandboxes = 0;
+    sandboxJobIds.clear();
     updateSandboxCount();
     if (unpatchWorker) unpatchWorker();
     setStatus('idle', 'Idle');
@@ -812,6 +966,7 @@ async function startWorker() {
       maxSandboxes: config.maxSandboxes,
       leavePublicGroup: config.leavePublicGroup,
       jobIds: config.jobIds || false,
+      ignoredJobs: [...failedJobIds],
       commentInjected: true,
     });
   } catch (err) {
@@ -874,6 +1029,7 @@ if ('speechSynthesis' in window) {
 
 loadWorkerFields();
 paintConfig(buildWorkerConfig());
+paintFailedJobs();
 setJoinMode('introduce');
 setStatus('idle', idleStatusLabel());
 updateSandboxCount();

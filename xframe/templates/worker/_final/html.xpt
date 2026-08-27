@@ -530,6 +530,10 @@
         <dd id="jobIds">any</dd>
       </div>
       <div class="wide">
+        <dt>Ignored jobs</dt>
+        <dd id="failedJobs">none</dd>
+      </div>
+      <div class="wide">
         <dt>Worker</dt>
         <dd id="workerId">—</dd>
       </div>
