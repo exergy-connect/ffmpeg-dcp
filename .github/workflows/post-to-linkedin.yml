@@ -1,0 +1,133 @@
+name: Post to LinkedIn
+
+on:
+  push:
+    paths:
+      - xframe/posts/linkedin/**/*.json
+  workflow_dispatch:
+    inputs:
+      metadata_path:
+        description: Relative path to a metadata JSON under xframe/posts/linkedin/ (empty = all)
+        required: false
+        default: ""
+
+jobs:
+  resolve-posts:
+    name: Resolve metadata files
+    runs-on: ubuntu-latest
+    outputs:
+      posts: ${{ steps.list.outputs.posts }}
+      count: ${{ steps.list.outputs.count }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: List metadata JSON to process
+        id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="xframe/posts/linkedin"
+          POSTS=()
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            INPUT_PATH="${{ inputs.metadata_path }}"
+            if [ -n "$INPUT_PATH" ]; then
+              if [ ! -f "$INPUT_PATH" ]; then
+                echo "Metadata path does not exist: $INPUT_PATH" >&2
+                exit 1
+              fi
+              POSTS+=("$INPUT_PATH")
+            else
+              while IFS= read -r -d '' f; do
+                POSTS+=("$f")
+              done < <(find "$ROOT" -type f -name '*.json' -print0 2>/dev/null || true)
+            fi
+          else
+            BEFORE="${{ github.event.before }}"
+            AFTER="${{ github.sha }}"
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              while IFS= read -r -d '' f; do
+                POSTS+=("$f")
+              done < <(find "$ROOT" -type f -name '*.json' -print0 2>/dev/null || true)
+            else
+              while IFS= read -r f; do
+                [ -n "$f" ] || continue
+                POSTS+=("$f")
+              done < <(git diff --name-only --diff-filter=AM "$BEFORE" "$AFTER" -- "$ROOT" | grep -E '\.json$' || true)
+            fi
+          fi
+
+          if [ "${#POSTS[@]}" -eq 0 ]; then
+            echo "No LinkedIn metadata JSON to process."
+            echo "posts=[]" >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Emit a compact JSON array of paths for the next job.
+          JSON='['
+          FIRST=1
+          for p in "${POSTS[@]}"; do
+            if [ ! -f "$p" ]; then
+              echo "Skipping missing path: $p" >&2
+              continue
+            fi
+            ESCAPED="${p//\\/\\\\}"
+            ESCAPED="${ESCAPED//\"/\\\"}"
+            if [ "$FIRST" -eq 1 ]; then
+              JSON+="\"$ESCAPED\""
+              FIRST=0
+            else
+              JSON+=",\"$ESCAPED\""
+            fi
+            echo "Will process: $p"
+          done
+          JSON+=']'
+
+          if [ "$JSON" = "[]" ]; then
+            echo "posts=[]" >> "$GITHUB_OUTPUT"
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          COUNT=$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$JSON")
+          echo "posts=$JSON" >> "$GITHUB_OUTPUT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Resolved $COUNT metadata file(s)."
+
+  post-to-linkedin:
+    name: Upload video and create LinkedIn post
+    needs: resolve-posts
+    if: needs.resolve-posts.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
+      LINKEDIN_AUTHOR_URN: ${{ vars.LINKEDIN_AUTHOR_URN || secrets.LINKEDIN_AUTHOR_URN }}
+      LINKEDIN_API_VERSION: ${{ vars.LINKEDIN_API_VERSION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Post to LinkedIn
+        shell: bash
+        run: |
+          set -euo pipefail
+          POSTS='${{ needs.resolve-posts.outputs.posts }}'
+          mapfile -t FILES < <(python3 -c 'import json,sys; print("\n".join(json.loads(sys.argv[1])))' "$POSTS")
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No files to process."
+            exit 0
+          fi
+          if [ -z "${LINKEDIN_ACCESS_TOKEN:-}" ]; then
+            echo "LINKEDIN_ACCESS_TOKEN secret is not set." >&2
+            exit 1
+          fi
+          if [ -z "${LINKEDIN_AUTHOR_URN:-}" ]; then
+            echo "LINKEDIN_AUTHOR_URN secret or variable is not set." >&2
+            exit 1
+          fi
+          node xframe/scripts/post-to-linkedin.mjs "${FILES[@]}"
