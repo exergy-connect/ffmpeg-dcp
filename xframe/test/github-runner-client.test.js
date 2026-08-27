@@ -13,10 +13,20 @@ import test from "node:test";
 
 import {
   acquireJob,
+  buildJobStepResults,
+  buildCombinedJobLogText,
+  completeJob,
   connectAndPollForJobReference,
   decodeJitConfig,
   decryptMessageBody,
   decryptSessionKey,
+  extractJobServiceUrl,
+  extractPipelinesLogUrl,
+  extractPipelinesServiceUrl,
+  formatGithubLogLines,
+  countGithubLogLines,
+  getResultsEndpoint,
+  mergeStepIdsFromTimeline,
   parseAcquiredJobMetadata,
   parseAcquiredJobSteps,
   parseAcquiredJobEnvironment,
@@ -339,7 +349,7 @@ test("connectAndPollForJobReference can acquire jobs when requested", async () =
       acquireBody = JSON.parse(String(init.body));
       return new Response(
         JSON.stringify({
-          plan: { planId: "plan-123" },
+          plan: { planId: "plan-123", jobId: "job-123" },
           job: {
             displayName: "Probe JIT / self-hosted runner",
             workflowRef: "refs/heads/main",
@@ -357,10 +367,14 @@ test("connectAndPollForJobReference can acquire jobs when requested", async () =
             endpoints: [
               {
                 name: "SystemVssConnection",
+                url: "https://run-actions.example.test/58",
                 authorization: {
                   parameters: {
                     AccessToken: "job-token",
                   },
+                },
+                data: {
+                  PipelinesServiceUrl: "https://pipelines.example.test/owner",
                 },
               },
             ],
@@ -394,6 +408,11 @@ test("connectAndPollForJobReference can acquire jobs when requested", async () =
   });
   assert.equal(result.acquiredJob.planId, "plan-header");
   assert.equal(result.acquiredJob.jobAuthToken, "job-token");
+  assert.equal(
+    result.acquiredJob.jobServiceUrl,
+    "https://run-actions.example.test/58"
+  );
+  assert.equal(result.jobMetadata.jobId, "job-123");
   assert.equal(result.jobMetadata.jobName, "Probe JIT / self-hosted runner");
   assert.equal(result.jobMetadata.workflowRef, "refs/heads/main");
   assert.equal(result.jobMetadata.workflowFile, ".github/workflows/ci.yml");
@@ -517,6 +536,7 @@ test("parseAcquiredJobEnvironment maps workflow variables into env", () => {
           isSecret: false,
         },
         GITHUB_REPOSITORY: { value: "exergy-connect/ffmpeg-dcp", isSecret: false },
+        "system.github.token": { value: "secret", isSecret: true },
       },
     },
     { runnerName: "dcp-test-runner" }
@@ -526,6 +546,99 @@ test("parseAcquiredJobEnvironment maps workflow variables into env", () => {
   assert.equal(env.GITHUB_REPOSITORY, "exergy-connect/ffmpeg-dcp");
   assert.equal(env.RUNNER_NAME, "dcp-test-runner");
   assert.ok(env.RUNNER_OS);
+  assert.equal(env["system.github.token"], undefined);
+});
+
+test("parseAcquiredJobEnvironment reads job env and github context", () => {
+  const env = parseAcquiredJobEnvironment({
+    environmentVariables: [
+      {
+        VIDEO_URL: {
+          t: 0,
+          s: "https://raw.githubusercontent.com/org/repo/main/xframe/uploads/a.mp4",
+        },
+      },
+    ],
+    contextData: {
+      github: {
+        repository: { t: 0, s: "exergy-connect/ffmpeg-dcp" },
+        workflow: { t: 0, s: "Self-hosted runner test" },
+        ref: { t: 0, s: "refs/heads/main" },
+        sha: { t: 0, s: "abc123" },
+        run_id: { t: 0, s: "987654321" },
+        job: { t: 0, s: "process-video" },
+      },
+    },
+    variables: {
+      "system.github.token": { value: "secret", isSecret: true },
+    },
+  });
+
+  assert.equal(
+    env.VIDEO_URL,
+    "https://raw.githubusercontent.com/org/repo/main/xframe/uploads/a.mp4"
+  );
+  assert.equal(env.GITHUB_REPOSITORY, "exergy-connect/ffmpeg-dcp");
+  assert.equal(env.GITHUB_WORKFLOW, "Self-hosted runner test");
+  assert.equal(env.GITHUB_REF, "refs/heads/main");
+  assert.equal(env.GITHUB_SHA, "abc123");
+  assert.equal(env.GITHUB_RUN_ID, "987654321");
+  assert.equal(env.GITHUB_JOB, "process-video");
+});
+
+test("parseAcquiredJobEnvironment evaluates needs output expressions", () => {
+  const env = parseAcquiredJobEnvironment({
+    environmentVariables: [
+      {
+        VIDEO_URL: "${{ needs.resolve-video-url.outputs.video_url }}",
+      },
+    ],
+    contextData: {
+      needs: {
+        "resolve-video-url": {
+          outputs: {
+            video_url: {
+              t: 0,
+              s: "https://raw.githubusercontent.com/org/repo/main/xframe/uploads/a.mp4",
+            },
+          },
+          result: { t: 0, s: "success" },
+        },
+      },
+      github: {
+        job: { t: 0, s: "process-video" },
+      },
+    },
+  });
+
+  assert.equal(
+    env.VIDEO_URL,
+    "https://raw.githubusercontent.com/org/repo/main/xframe/uploads/a.mp4"
+  );
+});
+
+test("parseAcquiredJobEnvironment evaluates expression tokens in job env", () => {
+  const env = parseAcquiredJobEnvironment({
+    environmentVariables: [
+      {
+        VIDEO_URL: {
+          t: 3,
+          expr: "needs.resolve-video-url.outputs.video_url",
+        },
+      },
+    ],
+    contextData: {
+      needs: {
+        "resolve-video-url": {
+          outputs: {
+            video_url: "https://example.test/video.mp4",
+          },
+        },
+      },
+    },
+  });
+
+  assert.equal(env.VIDEO_URL, "https://example.test/video.mp4");
 });
 
 test("shouldExecuteAcquiredJob matches process-video job id and display name", () => {
@@ -560,7 +673,7 @@ test("executeAcquiredJobSteps runs shell steps with the acquired env", async () 
         displayName: "Verify runner received video URL",
         reference: { type: "script", name: "script" },
         inputs: {
-          script: `test -n "$VIDEO_URL"\necho "$VIDEO_URL" > "${outputPath}"`,
+          script: `test -n "$VIDEO_URL"\necho "$VIDEO_URL"\necho "$VIDEO_URL" > "${outputPath}"`,
         },
       },
     ],
@@ -572,6 +685,8 @@ test("executeAcquiredJobSteps runs shell steps with the acquired env", async () 
   });
 
   assert.equal(result.success, true);
+  assert.equal(result.stepLogs?.length, 1);
+  assert.match(result.stepLogs?.[0]?.output ?? "", /https:\/\/example\.test\/video\.mp4/);
   assert.equal(
     fs.readFileSync(outputPath, "utf8").trim(),
     "https://example.test/video.mp4"
@@ -603,5 +718,253 @@ test("executeAcquiredJobSteps skips uses steps", async () => {
   });
 
   assert.equal(result.success, true);
+  assert.equal(result.stepLogs?.length, 1);
   assert.deepEqual(skipped, ["Checkout"]);
+});
+
+test("formatGithubLogLines prefixes each line with an RFC3339 timestamp", () => {
+  const formatted = formatGithubLogLines("hello\nworld\n");
+  const lines = formatted.trimEnd().split("\n");
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{7}Z hello$/);
+  assert.match(lines[1], /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{7}Z world$/);
+  assert.equal(countGithubLogLines("hello\nworld"), 2);
+});
+
+test("buildCombinedJobLogText wraps each step in GitHub log groups", () => {
+  const text = buildCombinedJobLogText([
+    {
+      step: {
+        id: "11111111-1111-1111-1111-111111111111",
+        order: 1,
+        displayName: "Print job context",
+        type: "script",
+        kind: "run",
+        script: "echo hi",
+      },
+      output: "hi\n",
+      lineCount: 1,
+    },
+  ]);
+
+  assert.match(text, /##\[group\]Print job context/);
+  assert.match(text, /hi/);
+  assert.match(text, /##\[endgroup\]/);
+});
+
+test("getResultsEndpoint reads system.github.results_endpoint", () => {
+  assert.equal(
+    getResultsEndpoint({
+      variables: {
+        "system.github.results_endpoint": { value: "https://results.example.test/" },
+      },
+    }),
+    "https://results.example.test/"
+  );
+});
+
+test("extractPipelinesLogUrl prefers pipelines service url from endpoint data", () => {
+  assert.equal(
+    extractPipelinesLogUrl({
+      resources: {
+        endpoints: [
+          {
+            name: "SystemVssConnection",
+            url: "https://run-actions.example.test/58/",
+            data: {
+              PipelinesServiceUrl: "https://pipelines.example.test/preferred/",
+            },
+          },
+        ],
+      },
+    }),
+    "https://pipelines.example.test/preferred"
+  );
+});
+
+test("buildJobStepResults includes completed_log_lines when step logs are present", () => {
+  const stepOne = "11111111-1111-1111-1111-111111111111";
+  const results = buildJobStepResults(
+    [
+      {
+        id: stepOne,
+        order: 1,
+        displayName: "Print job context",
+        type: "script",
+        kind: "run",
+        script: "echo hi",
+      },
+    ],
+    "succeeded",
+    {
+      success: true,
+      stepLogs: [
+        {
+          step: {
+            id: stepOne,
+            order: 1,
+            displayName: "Print job context",
+            type: "script",
+            kind: "run",
+            script: "echo hi",
+          },
+          output: "hi\n",
+          lineCount: 1,
+        },
+      ],
+    }
+  );
+
+  assert.equal(results[0].completed_log_lines, 1);
+});
+
+test("extractJobServiceUrl prefers endpoint url over pipelines data url", () => {
+  const url = extractJobServiceUrl({
+    resources: {
+      endpoints: [
+        {
+          name: "SystemVssConnection",
+          url: "https://run-actions.example.test/58/",
+          data: {
+            PipelinesServiceUrl: "https://pipelines.example.test/preferred/",
+          },
+        },
+      ],
+    },
+  });
+
+  assert.equal(url, "https://run-actions.example.test/58");
+});
+
+test("extractJobServiceUrl falls back to broker run service url", () => {
+  const url = extractJobServiceUrl(
+    { resources: { endpoints: [] } },
+    "https://run-actions.example.test/99/"
+  );
+
+  assert.equal(url, "https://run-actions.example.test/99");
+});
+
+test("buildJobStepResults maps run steps to completion records", () => {
+  const stepOne = "11111111-1111-1111-1111-111111111111";
+  const stepTwo = "22222222-2222-2222-2222-222222222222";
+  const results = buildJobStepResults(
+    [
+      {
+        id: stepOne,
+        order: 1,
+        displayName: "Print job context",
+        type: "script",
+        kind: "run",
+        script: "echo hi",
+      },
+      {
+        id: stepTwo,
+        order: 2,
+        displayName: "Verify runner received video URL",
+        type: "script",
+        kind: "run",
+        script: "test -n \"$VIDEO_URL\"",
+      },
+    ],
+    "failed",
+    { success: false, failedStep: { order: 2 }, exitCode: 1 }
+  );
+
+  assert.equal(results.length, 2);
+  assert.equal(results[0].external_id, stepOne);
+  assert.equal(results[0].conclusion, "succeeded");
+  assert.equal(results[0].status, "completed");
+  assert.equal(results[1].conclusion, "failed");
+  assert.deepEqual(results[0].annotations, []);
+});
+
+test("buildJobStepResults skips steps without uuid ids", () => {
+  const results = buildJobStepResults(
+    [
+      {
+        id: "not-a-uuid",
+        order: 1,
+        displayName: "Bad id",
+        kind: "run",
+        script: "echo hi",
+      },
+    ],
+    "succeeded"
+  );
+
+  assert.equal(results.length, 0);
+});
+
+test("completeJob posts conclusion and stepResults to run service", async () => {
+  let requestUrl = "";
+  let requestBody = null;
+  const fetchImpl = async (url, init = {}) => {
+    requestUrl = String(url);
+    requestBody = JSON.parse(String(init.body));
+    return new Response("{}", { status: 200 });
+  };
+
+  await completeJob(
+    "https://run-actions.example.test/58",
+    {
+      planId: "11111111-1111-1111-1111-111111111111",
+      jobId: "22222222-2222-2222-2222-222222222222",
+      conclusion: "succeeded",
+      authToken: "job-token",
+      billingOwnerId: "owner-xyz",
+      stepResults: [
+        {
+          external_id: "33333333-3333-3333-3333-333333333333",
+          number: 1,
+          name: "Verify runner received video URL",
+          type: "script",
+          status: "completed",
+          conclusion: "succeeded",
+          started_at: "2024-01-01T00:00:00.000Z",
+          completed_at: "2024-01-01T00:00:01.000Z",
+          annotations: [],
+        },
+      ],
+    },
+    fetchImpl
+  );
+
+  assert.equal(
+    requestUrl,
+    "https://run-actions.example.test/58/completejob"
+  );
+  assert.equal(requestBody.conclusion, "succeeded");
+  assert.equal(requestBody.jobId, "22222222-2222-2222-2222-222222222222");
+  assert.equal(requestBody.billingOwnerId, "owner-xyz");
+  assert.equal(requestBody.stepResults.length, 1);
+  assert.deepEqual(requestBody.outputs, {});
+  assert.equal(requestBody.result, undefined);
+});
+
+test("mergeStepIdsFromTimeline fills missing step ids from timeline records", () => {
+  const steps = mergeStepIdsFromTimeline(
+    [
+      {
+        id: "",
+        order: 1,
+        displayName: "Print job context",
+        kind: "run",
+        script: "echo hi",
+      },
+    ],
+    {
+      timeline: {
+        records: [
+          {
+            id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            recordType: "Task",
+            name: "Print job context",
+          },
+        ],
+      },
+    }
+  );
+
+  assert.equal(steps[0].id, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 });

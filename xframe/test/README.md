@@ -11,7 +11,8 @@ job steps:
 3. Broker session creation
 4. Long-poll on the broker message queue
 5. Acquire the queued job and run its shell steps (process-video only)
-6. Complete the job and exit
+6. Upload captured step logs to GitHub
+7. Complete the job and exit
 
 Jobs that are not `process-video` are completed as `skipped`.
 
@@ -88,8 +89,8 @@ A repository workflow targets the same JIT runner labels (`dcp`, `wasm`, `video`
 
 The workflow runs a GitHub-hosted job first to resolve the uploaded file into a
 raw GitHub URL, then queues a self-hosted `process-video` job with only
-`VIDEO_URL`. The listener acquires that job, runs its shell steps locally, and
-reports success or failure to GitHub.
+`VIDEO_URL`. The listener acquires that job, runs its shell steps locally,
+uploads stdout/stderr to GitHub, and reports success or failure.
 
 ### Tests
 

@@ -65,6 +65,7 @@ const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
  * @typedef {object} AcquiredJob
  * @property {string} planId
  * @property {string} jobAuthToken
+ * @property {string} jobServiceUrl
  * @property {Record<string, unknown>} payload
  */
 
@@ -81,12 +82,66 @@ const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 
 /**
  * @typedef {object} AcquiredJobStep
+ * @property {string} id
  * @property {number} order
  * @property {string} displayName
+ * @property {string} [type]
  * @property {"run" | "uses" | "unknown"} kind
  * @property {string} [uses]
  * @property {string} [script]
  */
+
+/**
+ * @typedef {object} JobStepResult
+ * @property {string} external_id
+ * @property {number} number
+ * @property {string} name
+ * @property {string} status
+ * @property {string} conclusion
+ * @property {string} started_at
+ * @property {string} completed_at
+ * @property {unknown[]} annotations
+ */
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * @param {string} value
+ */
+function isUuid(value) {
+  return UUID_PATTERN.test(value);
+}
+
+/**
+ * @param {"succeeded" | "failed" | "Succeeded" | "Failed" | "skipped" | "Skipped"} conclusion
+ */
+function mapTaskResultConclusion(conclusion) {
+  const normalized = String(conclusion).toLowerCase();
+  if (normalized === "failed") {
+    return "failed";
+  }
+  if (normalized === "skipped") {
+    return "skipped";
+  }
+  return "succeeded";
+}
+
+/**
+ * @param {"Succeeded" | "Failed" | "Skipped" | "succeeded" | "failed" | "skipped"} conclusion
+ */
+function mapStepResultConclusion(conclusion) {
+  const normalized = String(conclusion).toLowerCase();
+  if (normalized === "failed") {
+    return "failed";
+  }
+  if (normalized === "skipped") {
+    return "skipped";
+  }
+  return "succeeded";
+}
+
+export { isUuid };
 
 /**
  * @param {unknown} value
@@ -161,6 +216,93 @@ function getGithubContext(acquired) {
   return github && typeof github === "object" && !Array.isArray(github)
     ? github
     : {};
+}
+
+/**
+ * @param {Record<string, unknown>} acquired
+ * @returns {Record<string, unknown>}
+ */
+function getContextData(acquired) {
+  const contextData = unwrapContextNode(
+    acquired.contextData ?? acquired.ContextData ?? {}
+  );
+  return asObject(contextData);
+}
+
+/**
+ * @param {Record<string, unknown>} contextData
+ * @param {string} path
+ */
+function resolveContextPath(contextData, path) {
+  const parts = path.trim().split(".").filter(Boolean);
+  let current = /** @type {unknown} */ (contextData);
+
+  for (const part of parts) {
+    if (current == null || typeof current !== "object" || Array.isArray(current)) {
+      return "";
+    }
+    const record = /** @type {Record<string, unknown>} */ (current);
+    if (Object.prototype.hasOwnProperty.call(record, part)) {
+      current = record[part];
+      continue;
+    }
+    const match = Object.keys(record).find(
+      (key) => key.toLowerCase() === part.toLowerCase()
+    );
+    if (!match) {
+      return "";
+    }
+    current = record[match];
+  }
+
+  const resolved = unwrapContextNode(current);
+  if (resolved == null || typeof resolved === "object") {
+    return "";
+  }
+  return String(resolved);
+}
+
+/**
+ * @param {string} expression
+ * @param {Record<string, unknown>} contextData
+ */
+function evaluateSimpleExpression(expression, contextData) {
+  const trimmed = expression.trim();
+  if (!trimmed) {
+    return "";
+  }
+  if (/\(\s*\)/.test(trimmed)) {
+    return "";
+  }
+  return resolveContextPath(contextData, trimmed);
+}
+
+/**
+ * @param {unknown} rawValue
+ * @param {Record<string, unknown>} contextData
+ */
+function resolveEnvironmentValue(rawValue, contextData) {
+  if (rawValue != null && typeof rawValue === "object" && !Array.isArray(rawValue)) {
+    const node = /** @type {Record<string, unknown>} */ (rawValue);
+    const tokenType = node.t ?? node.type;
+    if (tokenType === 3 && "expr" in node) {
+      return evaluateSimpleExpression(String(node.expr), contextData);
+    }
+  }
+
+  let value = unwrapContextNode(rawValue);
+  if (value != null && typeof value === "object" && !Array.isArray(value)) {
+    value =
+      readVariableValue(/** @type {Record<string, unknown>} */ (value)) ||
+      String(value);
+  }
+
+  const text = String(value ?? "");
+  const wrapped = text.match(/^\$\{\{\s*(.+?)\s*\}\}$/);
+  if (wrapped) {
+    return evaluateSimpleExpression(wrapped[1], contextData);
+  }
+  return text;
 }
 
 /**
@@ -728,6 +870,103 @@ export function extractJobAuthToken(acquired) {
 }
 
 /**
+ * @param {Record<string, unknown>} acquired
+ * @param {string} [fallbackUrl]
+ */
+export function extractJobServiceUrl(acquired, fallbackUrl = "") {
+  const resources = /** @type {Record<string, unknown>} */ (
+    acquired.resources ?? acquired.Resources ?? {}
+  );
+  const endpoints = /** @type {Array<Record<string, unknown>>} */ (
+    resources.endpoints ?? resources.Endpoints ?? []
+  );
+
+  for (const endpoint of endpoints) {
+    const name = String(endpoint.name ?? endpoint.Name ?? "");
+    if (name.toLowerCase() !== "systemvssconnection") {
+      continue;
+    }
+    const url = firstNonEmpty(pickField(endpoint, ["url", "Url"]));
+    if (url) {
+      return buildRunServiceUrl(url);
+    }
+    const data = asObject(endpoint.data ?? endpoint.Data);
+    const fromData = firstNonEmpty(
+      pickField(data, ["PipelinesServiceUrl", "pipelinesServiceUrl"]),
+      pickField(data, ["pipelines_service_url"])
+    );
+    if (fromData) {
+      return buildRunServiceUrl(fromData);
+    }
+  }
+
+  return fallbackUrl ? buildRunServiceUrl(fallbackUrl) : "";
+}
+
+/** @deprecated Use extractJobServiceUrl */
+export function extractPipelinesServiceUrl(acquired) {
+  return extractJobServiceUrl(acquired);
+}
+
+/**
+ * @param {Record<string, unknown>} acquired
+ */
+export function parsePlanReference(acquired) {
+  const plan = asObject(acquired.plan ?? acquired.Plan);
+  return {
+    planId: firstNonEmpty(
+      pickField(acquired, ["planId", "PlanId"]),
+      pickField(plan, ["planId", "PlanId"])
+    ),
+    jobId: firstNonEmpty(
+      pickField(acquired, ["jobId", "JobId"]),
+      pickField(plan, ["jobId", "JobId"])
+    ),
+    timelineId: firstNonEmpty(
+      pickField(acquired, ["timelineId", "TimelineId"]),
+      pickField(plan, ["timelineId", "TimelineId"])
+    ),
+  };
+}
+
+/**
+ * @param {AcquiredJobStep[]} steps
+ * @param {Record<string, unknown>} acquired
+ */
+export function mergeStepIdsFromTimeline(steps, acquired) {
+  const timeline = asObject(unwrapContextNode(acquired.timeline ?? acquired.Timeline));
+  const records = unwrapContextNode(
+    timeline.records ?? timeline.Records ?? timeline.value ?? []
+  );
+  if (!Array.isArray(records)) {
+    return steps;
+  }
+
+  const taskRecords = records
+    .map((record) => asObject(unwrapContextNode(record)))
+    .filter((record) => {
+      const recordType = String(
+        record.recordType ?? record.RecordType ?? record.type ?? record.Type ?? "task"
+      ).toLowerCase();
+      return recordType === "task" || recordType === "job" || recordType === "";
+    });
+
+  return steps.map((step, index) => {
+    if (isUuid(step.id)) {
+      return step;
+    }
+    for (const candidate of [taskRecords[index], records[index]]) {
+      const record = asObject(unwrapContextNode(candidate));
+      const id = String(unwrapContextNode(record.id ?? record.Id ?? "") ?? "");
+      if (isUuid(id)) {
+        return { ...step, id };
+      }
+    }
+    return step;
+  });
+}
+
+/**
  * @param {unknown} raw
  * @returns {Array<Record<string, unknown>>}
  */
@@ -802,10 +1041,11 @@ export function parseAcquiredJobMetadata(acquired, jobReference, planId = "") {
     pickField(github, ["repository", "Repository"]),
     pickField(job, ["repositoryName", "RepositoryName", "repository", "Repository"])
   );
+  const planReference = parsePlanReference(acquired);
 
   return {
-    planId: resolvedPlanId,
-    jobId: jobReference.runnerRequestId,
+    planId: resolvedPlanId || planReference.planId,
+    jobId: planReference.jobId || jobReference.runnerRequestId,
     jobName,
     workflowFile,
     workflowRef,
@@ -836,7 +1076,7 @@ export function parseAcquiredJobSteps(acquired) {
   }
 
   return steps.map((rawStep, index) => {
-    const step = asObject(rawStep);
+    const step = asObject(unwrapContextNode(rawStep));
     const reference = asObject(unwrapContextNode(step.reference ?? step.Reference));
     const inputs = asObject(unwrapContextNode(step.inputs ?? step.Inputs));
 
@@ -861,11 +1101,25 @@ export function parseAcquiredJobSteps(acquired) {
       kind = "uses";
     }
 
-    return {
-      order: Number(step.order ?? step.Order ?? index + 1),
-      displayName: String(
-        step.displayName ?? step.DisplayName ?? `Step ${index + 1}`
+    const displayName = firstNonEmpty(
+      unwrapContextNode(
+        step.displayName ??
+          step.DisplayName ??
+          step.displayNameToken ??
+          step.DisplayNameToken
       ),
+      pickField(step, ["name", "Name"]),
+      `Step ${index + 1}`
+    );
+    const stepId = String(
+      unwrapContextNode(step.id ?? step.Id ?? step.stepId ?? step.StepId ?? "")
+    );
+
+    return {
+      id: stepId,
+      order: Number(step.order ?? step.Order ?? index + 1),
+      displayName: String(displayName),
+      type: String(reference.type ?? reference.Type ?? refName ?? kind),
       kind,
       uses: uses || undefined,
       script: script || undefined,
@@ -887,6 +1141,107 @@ function readVariableValue(variable) {
 }
 
 /**
+ * @param {Record<string, unknown>} variable
+ */
+function isSecretVariable(variable) {
+  return (
+    variable.isSecret === true ||
+    variable.IsSecret === true ||
+    variable.secret === true ||
+    variable.Secret === true
+  );
+}
+
+const GITHUB_ENV_ALLOWLIST = new Set([
+  "action_path",
+  "action_ref",
+  "action_repository",
+  "action",
+  "actor",
+  "actor_id",
+  "api_url",
+  "artifacts",
+  "artifacts_list",
+  "base_ref",
+  "env",
+  "event_name",
+  "event_path",
+  "graphql_url",
+  "head_ref",
+  "job",
+  "output",
+  "path",
+  "ref_name",
+  "ref_protected",
+  "ref_type",
+  "ref",
+  "repository",
+  "repository_id",
+  "repository_owner",
+  "repository_owner_id",
+  "retention_days",
+  "run_attempt",
+  "run_id",
+  "run_number",
+  "server_url",
+  "sha",
+  "state",
+  "step_summary",
+  "triggering_actor",
+  "workflow",
+  "workflow_ref",
+  "workflow_sha",
+  "workspace",
+]);
+
+/**
+ * @param {Record<string, unknown>} github
+ * @returns {Record<string, string>}
+ */
+function githubContextToEnv(github) {
+  const env = {};
+  for (const [key, rawValue] of Object.entries(github)) {
+    if (!GITHUB_ENV_ALLOWLIST.has(String(key).toLowerCase())) {
+      continue;
+    }
+    const value = unwrapContextNode(rawValue);
+    if (value == null) {
+      continue;
+    }
+    if (typeof value === "boolean") {
+      env[`GITHUB_${String(key).toUpperCase()}`] = String(value);
+      continue;
+    }
+    env[`GITHUB_${String(key).toUpperCase()}`] = String(value);
+  }
+  return env;
+}
+
+/**
+ * @param {unknown} raw
+ * @param {Record<string, unknown>} contextData
+ * @returns {Record<string, string>}
+ */
+function parseEnvironmentVariableLayers(raw, contextData) {
+  const env = {};
+  const unwrapped = unwrapContextNode(raw ?? []);
+  const layers = Array.isArray(unwrapped) ? unwrapped : [unwrapped];
+
+  for (const layer of layers) {
+    if (!layer || typeof layer !== "object" || Array.isArray(layer)) {
+      continue;
+    }
+    for (const [key, rawValue] of Object.entries(
+      /** @type {Record<string, unknown>} */ (layer)
+    )) {
+      env[String(key)] = resolveEnvironmentValue(rawValue, contextData);
+    }
+  }
+
+  return env;
+}
+
+/**
  * @param {Record<string, unknown>} acquired
  * @param {object} [options]
  * @param {string} [options.runnerName]
@@ -894,15 +1249,26 @@ function readVariableValue(variable) {
  */
 export function parseAcquiredJobEnvironment(acquired, options = {}) {
   const env = { ...process.env };
+  const contextData = getContextData(acquired);
+
   for (const variable of normalizeVariables(
     acquired.variables ?? acquired.Variables
   )) {
     const name = String(variable.name ?? variable.Name ?? "");
-    if (!name) {
+    if (!name || name.includes(".") || isSecretVariable(variable)) {
       continue;
     }
     env[name] = readVariableValue(variable);
   }
+
+  Object.assign(env, githubContextToEnv(getGithubContext(acquired)));
+  Object.assign(
+    env,
+    parseEnvironmentVariableLayers(
+      acquired.environmentVariables ?? acquired.EnvironmentVariables,
+      contextData
+    )
+  );
 
   env.RUNNER_OS = env.RUNNER_OS || getRunnerOs();
   env.RUNNER_ARCH = env.RUNNER_ARCH || process.arch;
@@ -927,11 +1293,99 @@ export function shouldExecuteAcquiredJob(acquired, jobMetadata = {}) {
 }
 
 /**
+ * @typedef {object} StepLogCapture
+ * @property {AcquiredJobStep} step
+ * @property {string} output
+ * @property {number} lineCount
+ */
+
+/**
  * @typedef {object} StepExecutionResult
  * @property {boolean} success
  * @property {AcquiredJobStep} [failedStep]
  * @property {number} [exitCode]
+ * @property {StepLogCapture[]} [stepLogs]
  */
+
+/**
+ * @param {Date} [date]
+ */
+function formatLogTimestamp(date = new Date()) {
+  const iso = date.toISOString();
+  const match = iso.match(/^(.+)\.(\d{3})Z$/);
+  if (!match) {
+    return `${iso.replace("Z", "")}0000Z `;
+  }
+  return `${match[1]}.${match[2]}0000Z `;
+}
+
+/**
+ * @param {string} text
+ */
+export function formatGithubLogLines(text) {
+  if (!text) {
+    return "";
+  }
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  while (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  if (lines.length === 0) {
+    return "";
+  }
+  return lines
+    .map((line) => `${formatLogTimestamp()}${line}`)
+    .join("\n")
+    .concat("\n");
+}
+
+/**
+ * @param {string} text
+ */
+export function countGithubLogLines(text) {
+  if (!text) {
+    return 0;
+  }
+  return formatGithubLogLines(text)
+    .split("\n")
+    .filter((line) => line.length > 0).length;
+}
+
+/**
+ * @param {Record<string, unknown>} acquired
+ */
+export function getResultsEndpoint(acquired) {
+  const rawVariables = acquired.variables ?? acquired.Variables;
+  return getVariableString(rawVariables, "system.github.results_endpoint");
+}
+
+/**
+ * @param {Record<string, unknown>} acquired
+ */
+export function extractPipelinesLogUrl(acquired) {
+  const resources = /** @type {Record<string, unknown>} */ (
+    acquired.resources ?? acquired.Resources ?? {}
+  );
+  const endpoints = /** @type {Array<Record<string, unknown>>} */ (
+    resources.endpoints ?? resources.Endpoints ?? []
+  );
+
+  for (const endpoint of endpoints) {
+    const name = String(endpoint.name ?? endpoint.Name ?? "");
+    if (name.toLowerCase() !== "systemvssconnection") {
+      continue;
+    }
+    const data = asObject(endpoint.data ?? endpoint.Data);
+    const fromData = firstNonEmpty(
+      pickField(data, ["PipelinesServiceUrl", "pipelinesServiceUrl"]),
+      pickField(data, ["pipelines_service_url"])
+    );
+    if (fromData) {
+      return buildRunServiceUrl(fromData);
+    }
+  }
+  return "";
+}
 
 /**
  * @param {string} script
@@ -943,11 +1397,398 @@ function runShellScript(script, env, cwd) {
     const child = spawn("bash", ["-e", "-c", script], {
       env,
       cwd: cwd ?? process.cwd(),
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    child.on("close", (code) => resolve(code ?? 1));
-    child.on("error", () => resolve(1));
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk) => {
+      const text = String(chunk);
+      stdout += text;
+      process.stdout.write(text);
+    });
+    child.stderr?.on("data", (chunk) => {
+      const text = String(chunk);
+      stderr += text;
+      process.stderr.write(text);
+    });
+    child.on("close", (code) => {
+      const output = `${stdout}${stderr}`;
+      resolve({
+        exitCode: code ?? 1,
+        output,
+        lineCount: countGithubLogLines(output),
+      });
+    });
+    child.on("error", () => {
+      resolve({ exitCode: 1, output: `${stdout}${stderr}`, lineCount: 0 });
+    });
   });
+}
+
+/**
+ * @param {AcquiredJobStep[]} steps
+ * @param {"succeeded" | "failed"} conclusion
+ * @param {StepExecutionResult} [execution]
+ * @returns {JobStepResult[]}
+ */
+export function buildJobStepResults(steps, conclusion, execution = {}) {
+  const timestamp = new Date().toISOString();
+  const failedOrder = execution.failedStep?.order;
+  const logsByOrder = new Map(
+    (execution.stepLogs ?? []).map((entry) => [entry.step.order, entry])
+  );
+
+  return steps
+    .filter((step) => isUuid(step.id))
+    .map((step) => {
+      let stepConclusion = "Succeeded";
+      if (conclusion === "failed" && step.kind === "run") {
+        if (failedOrder === step.order) {
+          stepConclusion = "Failed";
+        } else if (failedOrder && step.order > failedOrder) {
+          stepConclusion = "Skipped";
+        }
+      }
+      const logEntry = logsByOrder.get(step.order);
+      const result = {
+        external_id: step.id,
+        number: step.order,
+        name: step.displayName,
+        type: step.type || step.kind,
+        status: "completed",
+        conclusion: mapStepResultConclusion(stepConclusion),
+        started_at: timestamp,
+        completed_at: timestamp,
+        annotations: [],
+      };
+      if (logEntry?.lineCount) {
+        result.completed_log_lines = logEntry.lineCount;
+      }
+      return result;
+    });
+}
+
+/**
+ * @param {object} params
+ * @param {string} params.resultsUrl
+ * @param {string} params.planId
+ * @param {string} params.jobId
+ * @param {string} params.stepId
+ * @param {string} params.authToken
+ * @param {string} params.logText
+ * @param {typeof fetch} [params.fetchImpl]
+ */
+async function uploadModernStepLogs(params) {
+  const fetchImpl = params.fetchImpl ?? fetch;
+  const baseUrl = buildRunServiceUrl(params.resultsUrl);
+  const signedResponse = await fetchImpl(
+    `${baseUrl}/twirp/results.services.receiver.Receiver/GetStepLogsSignedBlobURL`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${params.authToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        workflow_run_backend_id: params.planId,
+        workflow_job_run_backend_id: params.jobId,
+        step_backend_id: params.stepId,
+      }),
+    }
+  );
+  if (!signedResponse.ok) {
+    const body = await signedResponse.text();
+    throw new Error(
+      `GetStepLogsSignedBlobURL failed (${signedResponse.status}): ${body}`
+    );
+  }
+  const signedPayload = await signedResponse.json();
+  const logsUrl = String(signedPayload.logs_url ?? signedPayload.logsUrl ?? "");
+  if (!logsUrl) {
+    throw new Error("GetStepLogsSignedBlobURL returned no logs_url");
+  }
+
+  const createResponse = await fetchImpl(logsUrl, {
+    method: "PUT",
+    headers: {
+      "x-ms-blob-type": "AppendBlob",
+      "Content-Length": "0",
+    },
+  });
+  if (!createResponse.ok && createResponse.status !== 409) {
+    const body = await createResponse.text();
+    throw new Error(`Create append blob failed (${createResponse.status}): ${body}`);
+  }
+
+  const formatted = formatGithubLogLines(params.logText);
+  const lineCount = countGithubLogLines(params.logText);
+  if (formatted.length > 0) {
+    const appendResponse = await fetchImpl(`${logsUrl}&comp=appendblock`, {
+      method: "PUT",
+      headers: {
+        "Content-Length": String(Buffer.byteLength(formatted)),
+      },
+      body: formatted,
+    });
+    if (!appendResponse.ok) {
+      const body = await appendResponse.text();
+      throw new Error(`Append log block failed (${appendResponse.status}): ${body}`);
+    }
+  }
+
+  const metadataResponse = await fetchImpl(
+    `${baseUrl}/twirp/results.services.receiver.Receiver/CreateStepLogsMetadata`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${params.authToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        workflow_run_backend_id: params.planId,
+        workflow_job_run_backend_id: params.jobId,
+        step_backend_id: params.stepId,
+        uploaded_at: new Date().toISOString(),
+        line_count: lineCount,
+      }),
+    }
+  );
+  if (!metadataResponse.ok) {
+    const body = await metadataResponse.text();
+    throw new Error(
+      `CreateStepLogsMetadata failed (${metadataResponse.status}): ${body}`
+    );
+  }
+
+  const sealResponse = await fetchImpl(`${logsUrl}&comp=seal`, {
+    method: "PUT",
+    headers: {
+      "Content-Length": "0",
+    },
+  });
+  if (!sealResponse.ok) {
+    const body = await sealResponse.text();
+    throw new Error(`Seal step log blob failed (${sealResponse.status}): ${body}`);
+  }
+}
+
+/**
+ * @param {object} params
+ * @param {string} params.resultsUrl
+ * @param {string} params.planId
+ * @param {string} params.jobId
+ * @param {string} params.authToken
+ * @param {string} params.logText
+ * @param {typeof fetch} [params.fetchImpl]
+ */
+async function uploadModernJobLogs(params) {
+  const fetchImpl = params.fetchImpl ?? fetch;
+  const baseUrl = buildRunServiceUrl(params.resultsUrl);
+  const signedResponse = await fetchImpl(
+    `${baseUrl}/twirp/results.services.receiver.Receiver/GetJobLogsSignedBlobURL`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${params.authToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        workflow_run_backend_id: params.planId,
+        workflow_job_run_backend_id: params.jobId,
+      }),
+    }
+  );
+  if (!signedResponse.ok) {
+    const body = await signedResponse.text();
+    throw new Error(
+      `GetJobLogsSignedBlobURL failed (${signedResponse.status}): ${body}`
+    );
+  }
+  const signedPayload = await signedResponse.json();
+  const logsUrl = String(signedPayload.logs_url ?? signedPayload.logsUrl ?? "");
+  if (!logsUrl) {
+    throw new Error("GetJobLogsSignedBlobURL returned no logs_url");
+  }
+
+  const createResponse = await fetchImpl(logsUrl, {
+    method: "PUT",
+    headers: {
+      "x-ms-blob-type": "AppendBlob",
+      "Content-Length": "0",
+    },
+  });
+  if (!createResponse.ok && createResponse.status !== 409) {
+    const body = await createResponse.text();
+    throw new Error(`Create job append blob failed (${createResponse.status}): ${body}`);
+  }
+
+  const formatted = formatGithubLogLines(params.logText);
+  const lineCount = countGithubLogLines(params.logText);
+  if (formatted.length > 0) {
+    const appendResponse = await fetchImpl(`${logsUrl}&comp=appendblock&seal=true`, {
+      method: "PUT",
+      headers: {
+        "Content-Length": String(Buffer.byteLength(formatted)),
+        "x-ms-blob-sealed": "true",
+      },
+      body: formatted,
+    });
+    if (!appendResponse.ok) {
+      const body = await appendResponse.text();
+      throw new Error(`Append job log block failed (${appendResponse.status}): ${body}`);
+    }
+  } else {
+    await fetchImpl(`${logsUrl}&comp=seal`, {
+      method: "PUT",
+      headers: {
+        "Content-Length": "0",
+      },
+    });
+  }
+
+  const metadataResponse = await fetchImpl(
+    `${baseUrl}/twirp/results.services.receiver.Receiver/CreateJobLogsMetadata`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${params.authToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        workflow_run_backend_id: params.planId,
+        workflow_job_run_backend_id: params.jobId,
+        uploaded_at: new Date().toISOString(),
+        line_count: lineCount,
+      }),
+    }
+  );
+  if (!metadataResponse.ok) {
+    const body = await metadataResponse.text();
+    throw new Error(
+      `CreateJobLogsMetadata failed (${metadataResponse.status}): ${body}`
+    );
+  }
+}
+
+/**
+ * @param {object} params
+ * @param {string} params.pipelinesUrl
+ * @param {string} params.planId
+ * @param {string} params.stepName
+ * @param {string} params.authToken
+ * @param {string} params.logText
+ * @param {typeof fetch} [params.fetchImpl]
+ */
+async function uploadLegacyStepLogs(params) {
+  const fetchImpl = params.fetchImpl ?? fetch;
+  const baseUrl = buildRunServiceUrl(params.pipelinesUrl);
+  const createResponse = await fetchImpl(
+    `${baseUrl}/_apis/pipelines/workflows/${params.planId}/logs`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${params.authToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        path: `logs/${params.stepName}`,
+      }),
+    }
+  );
+  if (!createResponse.ok) {
+    const body = await createResponse.text();
+    throw new Error(`Create legacy log failed (${createResponse.status}): ${body}`);
+  }
+  const createPayload = await createResponse.json();
+  const logId = createPayload.id ?? createPayload.Id;
+  const formatted = formatGithubLogLines(params.logText);
+  const uploadResponse = await fetchImpl(
+    `${baseUrl}/_apis/pipelines/workflows/${params.planId}/logs/${logId}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.authToken}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: formatted,
+    }
+  );
+  if (!uploadResponse.ok) {
+    const body = await uploadResponse.text();
+    throw new Error(`Upload legacy log failed (${uploadResponse.status}): ${body}`);
+  }
+}
+
+/**
+ * @param {StepLogCapture[]} stepLogs
+ */
+export function buildCombinedJobLogText(stepLogs) {
+  return stepLogs
+    .map(
+      (entry) =>
+        `##[group]${entry.step.displayName}\n${entry.output}${entry.output.endsWith("\n") ? "" : "\n"}##[endgroup]\n`
+    )
+    .join("\n");
+}
+
+/**
+ * @param {object} params
+ * @param {Record<string, unknown>} params.acquired
+ * @param {string} params.planId
+ * @param {string} params.jobId
+ * @param {string} params.authToken
+ * @param {StepLogCapture[]} params.stepLogs
+ * @param {typeof fetch} [params.fetchImpl]
+ */
+export async function uploadAcquiredJobLogs(params) {
+  const fetchImpl = params.fetchImpl ?? fetch;
+  const resultsUrl = getResultsEndpoint(params.acquired);
+  const pipelinesUrl = extractPipelinesLogUrl(params.acquired);
+
+  for (const entry of params.stepLogs) {
+    if (!isUuid(entry.step.id) || !entry.output) {
+      continue;
+    }
+    if (resultsUrl) {
+      await uploadModernStepLogs({
+        resultsUrl,
+        planId: params.planId,
+        jobId: params.jobId,
+        stepId: entry.step.id,
+        authToken: params.authToken,
+        logText: entry.output,
+        fetchImpl,
+      });
+      continue;
+    }
+    if (pipelinesUrl) {
+      await uploadLegacyStepLogs({
+        pipelinesUrl,
+        planId: params.planId,
+        stepName: entry.step.displayName,
+        authToken: params.authToken,
+        logText: entry.output,
+        fetchImpl,
+      });
+    }
+  }
+
+  const combinedLog = buildCombinedJobLogText(params.stepLogs);
+  if (resultsUrl && combinedLog) {
+    await uploadModernJobLogs({
+      resultsUrl,
+      planId: params.planId,
+      jobId: params.jobId,
+      authToken: params.authToken,
+      logText: combinedLog,
+      fetchImpl,
+    });
+  }
 }
 
 /**
@@ -960,6 +1801,9 @@ function runShellScript(script, env, cwd) {
  * @returns {Promise<StepExecutionResult>}
  */
 export async function executeAcquiredJobSteps(steps, env, options = {}) {
+  /** @type {StepLogCapture[]} */
+  const stepLogs = [];
+
   for (const step of steps) {
     if (step.kind === "uses") {
       options.onStepSkip?.(step);
@@ -970,13 +1814,23 @@ export async function executeAcquiredJobSteps(steps, env, options = {}) {
     }
 
     options.onStepStart?.(step);
-    const exitCode = await runShellScript(step.script, env, options.cwd);
-    if (exitCode !== 0) {
-      return { success: false, failedStep: step, exitCode };
+    const result = await runShellScript(step.script, env, options.cwd);
+    stepLogs.push({
+      step,
+      output: result.output,
+      lineCount: result.lineCount,
+    });
+    if (result.exitCode !== 0) {
+      return {
+        success: false,
+        failedStep: step,
+        exitCode: result.exitCode,
+        stepLogs,
+      };
     }
   }
 
-  return { success: true };
+  return { success: true, stepLogs };
 }
 
 /**
@@ -1022,8 +1876,50 @@ export async function acquireJob(session, jobReference, fetchImpl = fetch) {
   return {
     planId,
     jobAuthToken,
+    jobServiceUrl: extractJobServiceUrl(payload),
     payload,
   };
+}
+
+/**
+ * @param {BrokerSession} session
+ * @param {JobReference} jobReference
+ * @param {typeof fetch} fetchImpl
+ */
+export async function acknowledgeJobRequest(
+  session,
+  jobReference,
+  fetchImpl = fetch
+) {
+  const params = new URLSearchParams({
+    sessionId: session.sessionId,
+    runnerVersion: session.runnerVersion,
+    status: "online",
+    disableUpdate: "true",
+  });
+  const response = await fetchImpl(
+    `${session.brokerUrl}/acknowledge?${params.toString()}`,
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${session.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        runnerRequestId: jobReference.runnerRequestId,
+      }),
+    }
+  );
+
+  if (response.ok || response.status === 204) {
+    return;
+  }
+
+  const body = await response.text();
+  throw new Error(
+    `Broker Acknowledge failed (${response.status}): ${body}`
+  );
 }
 
 /**
@@ -1031,17 +1927,16 @@ export async function acquireJob(session, jobReference, fetchImpl = fetch) {
  * @param {object} request
  * @param {string} request.planId
  * @param {string} request.jobId
- * @param {string} request.result
  * @param {string} request.authToken
  * @param {typeof fetch} fetchImpl
  */
-export async function completeJob(
+export async function renewJob(
   runServiceUrl,
-  { planId, jobId, result, authToken },
+  { planId, jobId, authToken },
   fetchImpl = fetch
 ) {
   const baseUrl = buildRunServiceUrl(runServiceUrl);
-  const response = await fetchImpl(`${baseUrl}/completejob`, {
+  const response = await fetchImpl(`${baseUrl}/renewjob`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -1051,8 +1946,66 @@ export async function completeJob(
     body: JSON.stringify({
       planId,
       jobId,
-      result,
     }),
+  });
+
+  if (response.ok || response.status === 204) {
+    return;
+  }
+
+  const body = await response.text();
+  throw new Error(`Run service RenewJob failed (${response.status}): ${body}`);
+}
+
+/**
+ * @param {string} jobServiceUrl
+ * @param {object} request
+ * @param {string} request.planId
+ * @param {string} request.jobId
+ * @param {"succeeded" | "failed"} request.conclusion
+ * @param {string} request.authToken
+ * @param {JobStepResult[]} [request.stepResults]
+ * @param {Record<string, string>} [request.outputs]
+ * @param {string} [request.billingOwnerId]
+ * @param {typeof fetch} fetchImpl
+ */
+export async function completeJob(
+  jobServiceUrl,
+  {
+    planId,
+    jobId,
+    conclusion,
+    authToken,
+    stepResults = [],
+    outputs = {},
+    billingOwnerId = "",
+  },
+  fetchImpl = fetch
+) {
+  const baseUrl = buildRunServiceUrl(jobServiceUrl);
+  /** @type {Record<string, unknown>} */
+  const payload = {
+    planId,
+    jobId,
+    conclusion: mapTaskResultConclusion(conclusion),
+    outputs,
+    annotations: [],
+  };
+  if (stepResults.length > 0) {
+    payload.stepResults = stepResults;
+  }
+  if (billingOwnerId) {
+    payload.billingOwnerId = billingOwnerId;
+  }
+
+  const response = await fetchImpl(`${baseUrl}/completejob`, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${authToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
 
   if (response.status === 204 || response.ok) {
@@ -1061,7 +2014,7 @@ export async function completeJob(
 
   const body = await response.text();
   throw new Error(
-    `Run service CompleteJob failed (${response.status}): ${body}`
+    `CompleteJob failed (${response.status}) at ${baseUrl}/completejob: ${body}\nPayload: ${JSON.stringify(payload)}`
   );
 }
 

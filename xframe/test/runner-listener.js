@@ -18,17 +18,23 @@ import { pathToFileURL } from "node:url";
 import { registerJitRunner } from "./register-runner.js";
 import {
   acquireJob,
+  acknowledgeJobRequest,
+  buildJobStepResults,
   completeJob,
   createBrokerSession,
   decodeJitConfig,
   deleteBrokerSession,
   executeAcquiredJobSteps,
+  uploadAcquiredJobLogs,
   fetchRunnerOAuthToken,
+  isUuid,
+  mergeStepIdsFromTimeline,
   parseAcquiredJobEnvironment,
   parseAcquiredJobMetadata,
   parseAcquiredJobSteps,
   parseRunnerIdentity,
   pollForJobReference,
+  renewJob,
   sanitizeRunServiceUrl,
   shouldExecuteAcquiredJob,
 } from "./github-runner-client.js";
@@ -118,6 +124,8 @@ async function main() {
       fetch,
       abortController.signal
     );
+    console.log("Acknowledging job request...");
+    await acknowledgeJobRequest(session, jobReference);
     console.log("Acquiring job...");
     acquiredJob = await acquireJob(session, jobReference);
     jobMetadata = parseAcquiredJobMetadata(
@@ -125,7 +133,10 @@ async function main() {
       jobReference,
       acquiredJob.planId
     );
-    jobSteps = parseAcquiredJobSteps(acquiredJob.payload);
+    jobSteps = mergeStepIdsFromTimeline(
+      parseAcquiredJobSteps(acquiredJob.payload),
+      acquiredJob.payload
+    );
   } finally {
     await deleteBrokerSession(session).catch(() => {});
   }
@@ -137,12 +148,22 @@ async function main() {
   printAcquiredJobSteps(jobSteps);
 
   let jobResult = "skipped";
+  let execution = { success: true };
   if (shouldExecuteAcquiredJob(acquiredJob.payload, jobMetadata)) {
     const env = parseAcquiredJobEnvironment(acquiredJob.payload, {
       runnerName: registration.runner.name,
     });
+    if (acquiredJob.jobAuthToken && jobMetadata.planId && jobMetadata.jobId) {
+      await renewJob(jobReference.runServiceUrl, {
+        planId: jobMetadata.planId,
+        jobId: jobMetadata.jobId,
+        authToken: acquiredJob.jobAuthToken,
+      }).catch((error) => {
+        console.warn(`Job renew warning: ${error.message}`);
+      });
+    }
     console.log("\nExecuting process-video steps...");
-    const execution = await executeAcquiredJobSteps(jobSteps, env, {
+    execution = await executeAcquiredJobSteps(jobSteps, env, {
       onStepStart(step) {
         console.log(`\n>>> Running step ${step.order}: ${step.displayName}`);
       },
@@ -166,15 +187,53 @@ async function main() {
     console.log("\nJob is not process-video; skipping execution.");
   }
 
-  if (acquiredJob.jobAuthToken && jobMetadata.planId) {
-    console.log(`\nCompleting acquired job as ${jobResult}...`);
-    await completeJob(jobReference.runServiceUrl, {
+  if (acquiredJob.jobAuthToken && jobMetadata.planId && jobMetadata.jobId) {
+    const conclusion = jobResult === "failed" ? "failed" : "succeeded";
+    const jobServiceUrl =
+      acquiredJob.jobServiceUrl || jobReference.runServiceUrl;
+    const stepResults = buildJobStepResults(jobSteps, conclusion, execution);
+    const stepsWithoutIds = jobSteps.filter((step) => !isUuid(step.id)).length;
+    if (stepsWithoutIds > 0) {
+      console.warn(
+        `Warning: ${stepsWithoutIds} acquired steps are missing UUID ids; stepResults may be incomplete`
+      );
+      console.warn(
+        "Step ids:",
+        jobSteps.map((step) => ({
+          order: step.order,
+          id: step.id || "(missing)",
+          name: step.displayName,
+        }))
+      );
+    }
+    console.log(`Plan ID: ${jobMetadata.planId}`);
+    console.log(`Job ID: ${jobMetadata.jobId}`);
+    console.log(`Step results: ${stepResults.length}`);
+
+    if (execution.stepLogs?.length) {
+      console.log("\nUploading step logs to GitHub...");
+      await uploadAcquiredJobLogs({
+        acquired: acquiredJob.payload,
+        planId: jobMetadata.planId,
+        jobId: jobMetadata.jobId,
+        authToken: acquiredJob.jobAuthToken,
+        stepLogs: execution.stepLogs,
+      }).catch((error) => {
+        console.warn(`Log upload warning: ${error.message}`);
+      });
+    }
+
+    console.log(`\nCompleting acquired job as ${conclusion}...`);
+    console.log(`CompleteJob URL: ${sanitizeRunServiceUrl(jobServiceUrl)}/completejob`);
+    await completeJob(jobServiceUrl, {
       planId: jobMetadata.planId,
       jobId: jobMetadata.jobId,
-      result: jobResult,
+      conclusion,
       authToken: acquiredJob.jobAuthToken,
+      stepResults,
+      billingOwnerId: jobReference.billingOwnerId,
     });
-    console.log(`Job completed as ${jobResult}.`);
+    console.log(`Job completed as ${conclusion}.`);
   } else {
     console.log(
       "\nJob acquired but no job-scoped token was returned; workflow may remain in progress."
