@@ -460,7 +460,7 @@
           aria-selected="true"
           aria-controls="panelIntroduce"
           tabindex="0"
-        >Introduce yourself</button>
+        >Show up</button>
         <button
           type="button"
           class="mode-tab"
@@ -470,11 +470,11 @@
           aria-selected="false"
           aria-controls="panelAnonymous"
           tabindex="-1"
-        >Anonymous</button>
+        >Blend in</button>
       </div>
 
       <div id="panelAnonymous" class="mode-panel" role="tabpanel" aria-labelledby="modeAnonymous" hidden>
-        <p class="mode-copy">Join instantly as (anonymous). No comment.</p>
+        <p class="mode-copy">Join as (anonymous). No comment.</p>
       </div>
 
       <div id="panelIntroduce" class="mode-panel group" role="tabpanel" aria-labelledby="modeIntroduce">

@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-27T19:09:22.995Z",
-    "modifiedAt": "2026-08-27T19:09:22.995Z",
+    "createdAt": "2026-08-27T19:17:09.099Z",
+    "modifiedAt": "2026-08-27T19:17:09.099Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/worker.xp",
-      "hash": "sha256:410c08e3e91ac822ce50482377a310e5b36c7925246bfb79d5de9589c485a245",
+      "hash": "sha256:c408fa8ae950e05cc9fa21c780678cc05644004e3bdfd5ed834c5c73380060ce",
       "createdAt": "2026-08-27T13:25:30.585Z",
-      "modifiedAt": "2026-08-27T19:06:19.559Z"
+      "modifiedAt": "2026-08-27T19:17:08.591Z"
     }
   ],
   "_concepts": {
@@ -152,7 +152,7 @@
         "max_length": 280,
         "exposure": "sandbox_context_and_results",
         "placeholder": "Share a thought",
-        "notes": "Optional comment under Introduce yourself. Field value defaults empty; placeholder is quiet invitation copy. Set via the Comment field, ?comment= / ?workerComment=, ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage. Sent to the platform as { text: \"<identity>: <comment>\", language, demoCommentIndex? } in dcpWorkerContext. The optional index is inferred when the comment matches one of the standard demo quotes (legacy plain strings remain accepted)."
+        "notes": "Optional comment under Show up. Field value defaults empty; placeholder is quiet invitation copy. Set via the Comment field, ?comment= / ?workerComment=, ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage. Sent to the platform as { text: \"<identity>: <comment>\", language, demoCommentIndex? } in dcpWorkerContext. The optional index is inferred when the comment matches one of the standard demo quotes (legacy plain strings remain accepted)."
       },
       "language": {
         "_concept": "worker_language_policy",

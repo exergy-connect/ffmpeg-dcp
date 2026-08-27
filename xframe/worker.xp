@@ -119,7 +119,7 @@ app:
     exposure: sandbox_context_and_results
     placeholder: "Share a thought"
     notes: >-
-      Optional comment under Introduce yourself. Field value defaults empty;
+      Optional comment under Show up. Field value defaults empty;
       placeholder is quiet invitation copy.
       Set via the Comment field, ?comment= / ?workerComment=,
       ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage.

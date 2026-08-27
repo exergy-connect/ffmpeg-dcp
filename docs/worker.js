@@ -61,8 +61,8 @@ function canJoin() {
 }
 
 function idleStatusLabel() {
-  if (joinMode === 'anonymous') return 'Ready to join anonymously';
-  if (hasNamedIdentity()) return 'Ready to join';
+  if (joinMode === 'anonymous') return 'Ready to blend in';
+  if (hasNamedIdentity()) return 'Ready to show up';
   return 'Add your name to join';
 }
 
