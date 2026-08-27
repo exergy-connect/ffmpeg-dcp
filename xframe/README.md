@@ -36,18 +36,16 @@ bash scripts/compile.sh
 node scripts/verify-concepts.js
 ```
 
-The compile step stages the HTML, browser scripts, workers, and images under
-`output/`. The WASM module is **not** copied there — it is checked in once at
-[`ffmpeg-wasm/`](ffmpeg-wasm/) and loaded by the staged worker via
-`../ffmpeg-wasm/`. Serve from the repo (or `xframe/`) so that path resolves;
-for a local static server:
+The compile step stages the HTML, browser scripts, workers, images, and the
+checked-in [`ffmpeg-wasm/`](ffmpeg-wasm/) runtime under `output/`. This keeps
+the generated directory self-contained for GitHub Pages and local serving:
 
 ```bash
 cd /workspaces/ffmpeg-dcp/xframe/output
 python3 -m http.server 8765
 # open http://127.0.0.1:8765/dcp-transcoding.html
 # open http://127.0.0.1:8765/worker.html
-# (transcoder worker fetches ../ffmpeg-wasm/dcp-transcode.wasm)
+# (transcoder worker fetches ./ffmpeg-wasm/dcp-transcode.wasm)
 ```
 
 ### Browser worker page
