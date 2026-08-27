@@ -31,6 +31,23 @@ assert(cfg.dcp_package === 'ffmpeg-dcp-social/ffmpeg-wasm.js', 'distinct package
 assert(cfg.bank?.operation === 'viewAccount', 'bank.operation must be viewAccount');
 assert(cfg.bank?.balance_field === 'payload.balance', 'bank.balance_field must be payload.balance');
 assert(html.includes('dcp-bank-account.js'), 'HTML must load dcp-bank-account.js');
+assert(html.includes('id="stageCutBtn"'), 'HTML must include director’s cut staging button');
+assert(html.includes('id="cutDialog"'), 'HTML must include director’s cut dialog');
+assert(html.includes('id="cutAddSliceBtn"'), 'HTML must include add-slice control');
+assert(html.includes('id="cutSliceList"'), 'HTML must include cut slice list');
+assert(html.includes('id="cutSaveBtn"'), 'HTML must include cut save control');
+assert(
+  fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8').includes('DIRECTORS_CUT_STORAGE_PREFIX'),
+  'runtime must persist director’s cut programs',
+);
+assert(
+  fs.readFileSync(path.join(root, 'ffmpeg-worker.js'), 'utf8').includes('stageDirectorsCut'),
+  'worker must expose stageDirectorsCut',
+);
+assert(
+  fs.readFileSync(path.join(root, 'src/dcp-transcode.c'), 'utf8').includes('extract_time_range'),
+  'WASM source must define extract_time_range',
+);
 
 // Dedupe simulation
 const selected = [

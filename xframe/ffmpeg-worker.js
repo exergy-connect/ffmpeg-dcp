@@ -283,6 +283,81 @@ async function remuxToMp4(tsBytesOrParts) {
   return out;
 }
 
+async function extractTimeRange(inputBytes, startSec, endSec, opts = {}) {
+  const Module = await getModule();
+  if (typeof Module._extract_time_range !== 'function') {
+    throw new Error(
+      'extract_time_range is missing from the WASM module. Rebuild xframe/ffmpeg-wasm ' +
+      '(docker build via ffmpeg-wasm/build.sh) to enable frame-accurate director’s cuts.',
+    );
+  }
+  lastFfmpegErr = [];
+  const inExt = sniffChunkExt(inputBytes);
+  const inPath = `/cut-in-${Math.random().toString(36).slice(2)}.${inExt === 'ts' ? 'mp4' : inExt}`;
+  const outPath = `/cut-out-${Math.random().toString(36).slice(2)}.ts`;
+  Module.FS.writeFile(inPath, inputBytes);
+  const code = Module.ccall(
+    'extract_time_range', 'number',
+    ['string', 'string', 'number', 'number', 'number', 'number'],
+    [
+      inPath,
+      outPath,
+      Number(startSec) || 0,
+      Number(endSec) || 0,
+      opts.videoBitrateKbps || 6000,
+      opts.audioBitrateKbps || 160,
+    ],
+  );
+  requireSuccess(code, 'extract_time_range');
+  const out = Module.FS.readFile(outPath);
+  Module.FS.unlink(inPath);
+  Module.FS.unlink(outPath);
+  return out;
+}
+
+/**
+ * Stage an ordered director's-cut program into one H.264/AAC MP4.
+ * Full-duration single-slice programs return the original bytes unchanged.
+ */
+async function stageDirectorsCut(inputBytes, slices, sourceDurationSec, onProgress) {
+  const duration = Number(sourceDurationSec);
+  const cleaned = (slices || [])
+    .map((slice) => ({
+      start: Math.max(0, Number(slice.start) || 0),
+      end: Math.max(0, Number(slice.end) || 0),
+    }))
+    .filter((slice) => slice.end - slice.start >= 0.05)
+    .map((slice) => {
+      if (!(duration > 0)) return slice;
+      return {
+        start: Math.min(duration, slice.start),
+        end: Math.min(duration, slice.end),
+      };
+    })
+    .filter((slice) => slice.end - slice.start >= 0.05);
+
+  if (!cleaned.length) {
+    throw new Error('Director’s cut has no valid slices to stage.');
+  }
+
+  const isFull = cleaned.length === 1
+    && cleaned[0].start <= 0.001
+    && (!(duration > 0) || Math.abs(cleaned[0].end - duration) <= 0.05);
+  if (isFull) {
+    if (onProgress) onProgress({ phase: 'passthrough', index: 0, total: 1 });
+    return { bytes: inputBytes, staged: false, sliceCount: 1 };
+  }
+
+  const parts = [];
+  for (let i = 0; i < cleaned.length; i++) {
+    if (onProgress) onProgress({ phase: 'extract', index: i, total: cleaned.length });
+    parts.push(await extractTimeRange(inputBytes, cleaned[i].start, cleaned[i].end));
+  }
+  if (onProgress) onProgress({ phase: 'remux', index: cleaned.length, total: cleaned.length });
+  const mp4 = await remuxToMp4(parts);
+  return { bytes: mp4, staged: true, sliceCount: cleaned.length };
+}
+
 async function transcodeSocialSegment(chunkBytes, params = {}) {
   const Module = await getModule();
   lastFfmpegErr = [];
@@ -306,7 +381,7 @@ async function transcodeSocialSegment(chunkBytes, params = {}) {
   return out;
 }
 
-const handlers = { sliceVideo, remuxToMp4, transcodeSocialSegment };
+const handlers = { sliceVideo, remuxToMp4, transcodeSocialSegment, stageDirectorsCut, extractTimeRange };
 
 self.onmessage = async ({ data: { id, fn, args } }) => {
   try {

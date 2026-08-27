@@ -76,6 +76,10 @@ Build the WASM before compiling the UI; `scripts/compile.sh` fails if either
 WASM runtime artifact is absent, preventing an incomplete deployment. For
 HTML-only development, set `ALLOW_MISSING_WASM=1`.
 
+Director’s-cut staging needs `extract_time_range` in the browser WASM. After
+editing `src/dcp-transcode.c`, rebuild with `bash ffmpeg-wasm/build.sh` (Docker)
+so `ffmpeg-wasm/dcp-transcode.wasm` exports that symbol, then recompile the UI.
+
 ## Parallelism
 
 1. **Serial:** probe + keyframe-aligned WebM slice (~90 frames / ~3 s).

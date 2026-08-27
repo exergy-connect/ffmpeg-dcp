@@ -92,7 +92,7 @@ RUN mkdir -p /src/dist && \
       -sMODULARIZE=1 \
       -sEXPORT_NAME=createFfmpegModule \
       -sENVIRONMENT=web,worker \
-      -sEXPORTED_FUNCTIONS="['_transcode','_transcode_segment','_slice','_slice_webm','_transcode_social_segment','_remux_to_mp4','_reencode_for_chunking','_generate_thumbnails','_get_chunk_frame_count','_get_source_fps','_generate_test_input','_probe_streams','_probe_hdr','_get_last_probe_audio_tracks','_get_last_probe_min_decoded_audio_frames','_main']" \
+      -sEXPORTED_FUNCTIONS="['_transcode','_transcode_segment','_slice','_slice_webm','_slice_mp4','_transcode_social_segment','_extract_time_range','_remux_to_mp4','_reencode_for_chunking','_generate_thumbnails','_get_chunk_frame_count','_get_source_fps','_generate_test_input','_probe_streams','_probe_hdr','_get_last_probe_audio_tracks','_get_last_probe_min_decoded_audio_frames','_main']" \
       -sEXPORTED_RUNTIME_METHODS="['ccall','cwrap','FS']" \
       -sFORCE_FILESYSTEM=1 \
       -sEXIT_RUNTIME=0 \

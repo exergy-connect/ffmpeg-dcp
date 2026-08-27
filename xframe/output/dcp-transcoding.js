@@ -219,6 +219,8 @@ function showRunError(error) {
     remedy = 'Fund the DCP payment account shown above, then retry.';
   } else if (/fetchModuleURL|Could not locate module|package\.dcp|ffmpeg-dcp-social/i.test(message)) {
     remedy = 'Publish the DCP package: cd xframe && node package/build-bravojs-bundle.js && node package/publish.js';
+  } else if (/extract_time_range|director.?s cut|stageDirectorsCut/i.test(message)) {
+    remedy = 'Rebuild browser WASM so extract_time_range is exported: cd xframe && bash ffmpeg-wasm/build.sh';
   } else if (/slice_webm|Only VP8 or VP9|MediaRecorder|\.webm/i.test(message)) {
     remedy = 'Drop a MediaRecorder .webm (VP8/VP9) or an .mp4 (VP9 or H.264). Hard-refresh if a stale worker is still slicing MP4 into MPEG-TS.';
   } else if (/vp8|vp9|opus|decoder|wasm/i.test(message)) {
@@ -237,6 +239,7 @@ function assetUrl(rel) {
 // ---- Account persistence ----
 const API_KEY_STORAGE_KEY = 'xframe-social:apiKey';
 const COMPUTE_GROUPS_STORAGE_KEY = 'xframe-social:computeGroups';
+const DIRECTORS_CUT_STORAGE_PREFIX = 'xframe-social:directorsCut:';
 const API_KEY_PATTERN = /^0x[0-9a-fA-F]{64}$/;
 
 const apiKeyInput = el('apiKeyInput');
@@ -547,7 +550,10 @@ function estimateSliceCount(uniqueFormatCount, chunkCount) {
 }
 
 function sourceChunkEstimate(sourceId) {
-  const duration = sourceId === 'vertical' ? verticalInputDurationSec : inputDurationSec;
+  const sourceDuration = sourceId === 'vertical'
+    ? (verticalSourceDurationSec || verticalInputDurationSec)
+    : (inputSourceDurationSec || inputDurationSec);
+  const duration = programmedDurationForSource(sourceId, sourceDuration);
   const bytes = sourceId === 'vertical' ? verticalInputBytes : inputBytes;
   const fromDuration = estimateChunkCount(duration);
   if (fromDuration != null) return { chunks: fromDuration, source: 'duration' };
@@ -698,11 +704,21 @@ async function fetchAccountBalance(existingPayKeystore = null) {
 // ---- Recording / file input ----
 let inputBytes = null;
 let inputBaseName = 'recording';
+let inputFileName = null;
 let verticalInputBytes = null;
 let verticalInputDurationSec = null;
+/** Immutable source durations used by the director’s-cut editor. */
+let inputSourceDurationSec = null;
+let verticalSourceDurationSec = null;
 let mediaRecorder = null;
 let recordChunks = [];
 let recordStream = null;
+
+/** Ordered director's-cut slices for the loaded primary filename. */
+let directorsCutSlices = [];
+let cutDraftSlices = [];
+let previewCutIndex = 0;
+let previewSeeking = false;
 
 renderPlatforms();
 el('framingSelect').value = CONFIG.default_framing || 'cover';
@@ -777,6 +793,324 @@ function outputStemFromFileName(name) {
   return withoutCodec.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'recording';
 }
 
+function formatTimecode(sec) {
+  if (!(sec >= 0) || !Number.isFinite(sec)) return '—';
+  const total = Math.max(0, sec);
+  const m = Math.floor(total / 60);
+  const s = total - m * 60;
+  return `${m}:${s.toFixed(2).padStart(5, '0')}`;
+}
+
+function cloneSlices(slices) {
+  return (slices || []).map((slice) => ({
+    start: Number(slice.start),
+    end: Number(slice.end),
+  }));
+}
+
+function normalizeSlices(rawSlices, durationSec) {
+  const duration = Number(durationSec);
+  if (!(duration > 0)) return [];
+  const cleaned = [];
+  for (const raw of rawSlices || []) {
+    let start = Number(raw?.start);
+    let end = Number(raw?.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+    start = Math.max(0, Math.min(duration, start));
+    end = Math.max(0, Math.min(duration, end));
+    if (end - start < 0.05) continue;
+    cleaned.push({ start, end });
+  }
+  return cleaned;
+}
+
+function defaultFullSlice(durationSec) {
+  const duration = Number(durationSec);
+  if (!(duration > 0)) return [];
+  return [{ start: 0, end: duration }];
+}
+
+function isFullProgram(slices, durationSec) {
+  const normalized = normalizeSlices(slices, durationSec);
+  if (normalized.length !== 1) return false;
+  return normalized[0].start <= 0.001 && Math.abs(normalized[0].end - durationSec) <= 0.05;
+}
+
+function programDuration(slices) {
+  return (slices || []).reduce((sum, slice) => sum + Math.max(0, slice.end - slice.start), 0);
+}
+
+function programmedDurationForSource(sourceId, sourceDuration) {
+  const duration = Number(sourceDuration);
+  if (!(duration > 0)) return duration;
+  const sourceBasis = sourceId === 'vertical'
+    ? (verticalSourceDurationSec || duration)
+    : (inputSourceDurationSec || duration);
+  if (!directorsCutSlices.length || isFullProgram(directorsCutSlices, sourceBasis)) {
+    return duration;
+  }
+  const clamped = normalizeSlices(directorsCutSlices, duration);
+  return programDuration(clamped) || duration;
+}
+
+function directorsCutStorageKey(fileName) {
+  return `${DIRECTORS_CUT_STORAGE_PREFIX}${fileName || ''}`;
+}
+
+function loadStoredDirectorsCut(fileName, durationSec) {
+  if (!fileName) return defaultFullSlice(durationSec);
+  try {
+    const raw = localStorage.getItem(directorsCutStorageKey(fileName));
+    if (!raw) return defaultFullSlice(durationSec);
+    const parsed = JSON.parse(raw);
+    const slices = normalizeSlices(parsed?.slices || parsed, durationSec);
+    return slices.length ? slices : defaultFullSlice(durationSec);
+  } catch {
+    return defaultFullSlice(durationSec);
+  }
+}
+
+function saveDirectorsCut(fileName, slices, durationSec) {
+  if (!fileName) return;
+  const normalized = normalizeSlices(slices, durationSec);
+  const payload = {
+    fileName,
+    durationSec: Number(durationSec) || null,
+    slices: normalized.length ? normalized : defaultFullSlice(durationSec),
+    updatedAt: new Date().toISOString(),
+  };
+  localStorage.setItem(directorsCutStorageKey(fileName), JSON.stringify(payload));
+  directorsCutSlices = payload.slices;
+}
+
+function updateCutSummary() {
+  const summary = el('cutSummary');
+  const btn = el('stageCutBtn');
+  if (!summary || !btn) return;
+  const basis = inputSourceDurationSec || inputDurationSec;
+  if (!inputBytes || !(basis > 0)) {
+    summary.textContent = '';
+    btn.disabled = true;
+    return;
+  }
+  btn.disabled = false;
+  const slices = directorsCutSlices.length
+    ? directorsCutSlices
+    : defaultFullSlice(basis);
+  const total = programDuration(slices);
+  if (isFullProgram(slices, basis)) {
+    summary.innerHTML = `Program: <strong>full video</strong> (${formatTimecode(total)})`;
+  } else {
+    summary.innerHTML =
+      `Program: <strong>${slices.length} slice${slices.length === 1 ? '' : 's'}</strong>` +
+      ` · ${formatTimecode(total)} staged`;
+  }
+}
+
+function setCutDialogError(message) {
+  const err = el('cutDialogError');
+  if (err) err.textContent = message || '';
+}
+
+function renderCutDraft() {
+  const host = el('cutSliceList');
+  const meta = el('cutDialogMeta');
+  if (!host) return;
+  host.innerHTML = '';
+  const duration = inputSourceDurationSec || inputDurationSec || 0;
+  if (meta) {
+    meta.textContent = duration > 0
+      ? `Source ${formatTimecode(duration)} · draft ${formatTimecode(programDuration(cutDraftSlices))}`
+      : 'Load a primary video to stage a cut.';
+  }
+  cutDraftSlices.forEach((slice, index) => {
+    const card = document.createElement('div');
+    card.className = 'cut-slice';
+    const head = document.createElement('div');
+    head.className = 'cut-slice-head';
+    const title = document.createElement('strong');
+    title.textContent = `Slice ${index + 1}`;
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.disabled = cutDraftSlices.length <= 1;
+    removeBtn.addEventListener('click', () => {
+      if (cutDraftSlices.length <= 1) return;
+      cutDraftSlices.splice(index, 1);
+      renderCutDraft();
+    });
+    head.append(title, removeBtn);
+
+    const range = document.createElement('div');
+    range.className = 'cut-range';
+
+    const makeSlider = (kind, value) => {
+      const label = document.createElement('label');
+      const caption = document.createElement('span');
+      caption.textContent = kind === 'start' ? 'Start' : 'End';
+      const valueEl = document.createElement('span');
+      valueEl.textContent = formatTimecode(value);
+      label.append(caption, valueEl);
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = '0';
+      input.max = String(duration || 0);
+      input.step = '0.01';
+      input.value = String(value);
+      input.addEventListener('input', () => {
+        const next = Number(input.value);
+        if (kind === 'start') {
+          slice.start = Math.min(next, slice.end - 0.05);
+          input.value = String(slice.start);
+        } else {
+          slice.end = Math.max(next, slice.start + 0.05);
+          input.value = String(slice.end);
+        }
+        valueEl.textContent = formatTimecode(kind === 'start' ? slice.start : slice.end);
+        if (meta) {
+          meta.textContent =
+            `Source ${formatTimecode(duration)} · draft ${formatTimecode(programDuration(cutDraftSlices))}`;
+        }
+        setCutDialogError('');
+      });
+      range.append(label, input);
+    };
+
+    makeSlider('start', slice.start);
+    makeSlider('end', slice.end);
+    card.append(head, range);
+    host.appendChild(card);
+  });
+}
+
+function openCutDialog() {
+  const basis = inputSourceDurationSec || inputDurationSec;
+  if (!(basis > 0)) {
+    log('Load a primary video before staging a director’s cut.');
+    return;
+  }
+  cutDraftSlices = cloneSlices(
+    directorsCutSlices.length ? directorsCutSlices : defaultFullSlice(basis),
+  );
+  setCutDialogError('');
+  renderCutDraft();
+  const dialog = el('cutDialog');
+  if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
+}
+
+function closeCutDialog() {
+  const dialog = el('cutDialog');
+  if (dialog?.open) dialog.close();
+}
+
+function activePreviewSlice(timeSec) {
+  const basis = inputSourceDurationSec || inputDurationSec;
+  const slices = directorsCutSlices.length
+    ? directorsCutSlices
+    : defaultFullSlice(basis);
+  if (!slices.length) return { index: -1, slice: null };
+  for (let i = 0; i < slices.length; i++) {
+    const slice = slices[i];
+    if (timeSec >= slice.start - 0.04 && timeSec < slice.end - 0.02) {
+      return { index: i, slice };
+    }
+  }
+  return { index: -1, slice: null };
+}
+
+function seekPreviewToSlice(index) {
+  const preview = el('preview');
+  const basis = inputSourceDurationSec || inputDurationSec;
+  const slices = directorsCutSlices.length
+    ? directorsCutSlices
+    : defaultFullSlice(basis);
+  if (!preview || !slices[index]) return;
+  previewCutIndex = index;
+  previewSeeking = true;
+  try {
+    preview.currentTime = slices[index].start;
+  } catch { /* ignore */ }
+  const clear = () => {
+    previewSeeking = false;
+    preview.removeEventListener('seeked', clear);
+  };
+  preview.addEventListener('seeked', clear);
+}
+
+function wirePreviewDirectorCut() {
+  const preview = el('preview');
+  if (!preview || preview.dataset.cutWired === '1') return;
+  preview.dataset.cutWired = '1';
+
+  const programSlices = () => {
+    const basis = inputSourceDurationSec || inputDurationSec;
+    const slices = directorsCutSlices.length
+      ? directorsCutSlices
+      : defaultFullSlice(basis);
+    return { slices, basis };
+  };
+
+  preview.addEventListener('play', () => {
+    if (previewSeeking) return;
+    const { slices, basis } = programSlices();
+    if (!slices.length || isFullProgram(slices, basis)) return;
+    const hit = activePreviewSlice(preview.currentTime || 0);
+    if (hit.index >= 0) {
+      previewCutIndex = hit.index;
+      return;
+    }
+    seekPreviewToSlice(0);
+  });
+
+  preview.addEventListener('timeupdate', () => {
+    if (previewSeeking || preview.paused) return;
+    const { slices, basis } = programSlices();
+    if (!slices.length || isFullProgram(slices, basis)) return;
+    const slice = slices[previewCutIndex] || slices[0];
+    if (!slice) return;
+    if (preview.currentTime < slice.start - 0.05) {
+      seekPreviewToSlice(previewCutIndex);
+      return;
+    }
+    if (preview.currentTime >= slice.end - 0.02) {
+      const next = previewCutIndex + 1;
+      if (next < slices.length) {
+        seekPreviewToSlice(next);
+        const play = preview.play();
+        if (play && typeof play.catch === 'function') play.catch(() => {});
+      } else {
+        preview.pause();
+        previewCutIndex = 0;
+      }
+    }
+  });
+
+  preview.addEventListener('seeking', () => {
+    if (previewSeeking) return;
+    const { slices, basis } = programSlices();
+    if (!slices.length || isFullProgram(slices, basis)) return;
+    const hit = activePreviewSlice(preview.currentTime || 0);
+    if (hit.index >= 0) {
+      previewCutIndex = hit.index;
+      return;
+    }
+    let best = 0;
+    let bestDist = Infinity;
+    slices.forEach((slice, index) => {
+      const dist = Math.abs(slice.start - preview.currentTime);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = index;
+      }
+    });
+    seekPreviewToSlice(best);
+  });
+
+  preview.addEventListener('ended', () => {
+    previewCutIndex = 0;
+  });
+}
+
 async function handleFile(file, sourceId = 'primary') {
   const isVertical = sourceId === 'vertical';
   const sizeStr = formatBytes(file.size);
@@ -797,10 +1131,17 @@ async function handleFile(file, sourceId = 'primary') {
   if (isVertical) {
     verticalInputBytes = bytes;
     verticalInputDurationSec = metadata.duration;
+    verticalSourceDurationSec = metadata.duration;
   } else {
     inputBaseName = outputStemFromFileName(file.name);
+    inputFileName = file.name;
     inputBytes = bytes;
     inputDurationSec = metadata.duration;
+    inputSourceDurationSec = metadata.duration;
+    directorsCutSlices = loadStoredDirectorsCut(inputFileName, inputSourceDurationSec);
+    previewCutIndex = 0;
+    wirePreviewDirectorCut();
+    updateCutSummary();
   }
   const expected = isVertical ? 'vertical' : 'horizontal';
   const orientationWarning = orientation !== 'unknown orientation' && orientation !== expected
@@ -835,6 +1176,7 @@ wireDropzone('verticalDropzone', 'verticalFileInput', 'vertical');
 el('clearVerticalBtn').addEventListener('click', () => {
   verticalInputBytes = null;
   verticalInputDurationSec = null;
+  verticalSourceDurationSec = null;
   el('verticalFileInput').value = '';
   el('verticalPreview').removeAttribute('src');
   el('verticalPreview').load();
@@ -842,6 +1184,52 @@ el('clearVerticalBtn').addEventListener('click', () => {
   log('Removed vertical source; the primary source will be used for every placement.');
   updateSelectionSummary();
 });
+
+el('stageCutBtn')?.addEventListener('click', () => openCutDialog());
+el('cutAddSliceBtn')?.addEventListener('click', () => {
+  const duration = inputSourceDurationSec || inputDurationSec || 0;
+  if (!(duration > 0)) return;
+  const last = cutDraftSlices[cutDraftSlices.length - 1];
+  const start = last ? Math.min(duration, last.end) : 0;
+  const end = Math.min(duration, start + Math.max(1, duration * 0.15));
+  if (end - start < 0.05) {
+    setCutDialogError('No room left for another slice on this timeline.');
+    return;
+  }
+  cutDraftSlices.push({ start, end });
+  setCutDialogError('');
+  renderCutDraft();
+});
+el('cutResetBtn')?.addEventListener('click', () => {
+  cutDraftSlices = defaultFullSlice(inputSourceDurationSec || inputDurationSec);
+  setCutDialogError('');
+  renderCutDraft();
+});
+el('cutCancelBtn')?.addEventListener('click', () => closeCutDialog());
+el('cutSaveBtn')?.addEventListener('click', () => {
+  const basis = inputSourceDurationSec || inputDurationSec;
+  const normalized = normalizeSlices(cutDraftSlices, basis);
+  if (!normalized.length) {
+    setCutDialogError('Add at least one valid slice (end must be after start).');
+    return;
+  }
+  saveDirectorsCut(inputFileName, normalized, basis);
+  previewCutIndex = 0;
+  updateCutSummary();
+  clearExactCostBasis();
+  updateCostEstimate();
+  updateSelectionSummary();
+  closeCutDialog();
+  log(
+    `Saved director’s cut for ${inputFileName}: ${normalized.length} slice(s), ` +
+    `${programDuration(normalized).toFixed(2)}s programmed.`,
+  );
+});
+el('cutDialog')?.addEventListener('cancel', (e) => {
+  e.preventDefault();
+  closeCutDialog();
+});
+updateCutSummary();
 
 el('recordBtn').addEventListener('click', async () => {
   try {
@@ -918,6 +1306,10 @@ async function sliceVideo(bytes, targetChunkFrames) {
 
 async function remuxToMp4(tsBytes) {
   return callWorker('remuxToMp4', [tsBytes]);
+}
+
+async function stageDirectorsCut(bytes, slices, durationSec, onProgress) {
+  return callWorker('stageDirectorsCut', [bytes, slices, durationSec], onProgress);
 }
 
 // ---- Grid / progress ----
@@ -1540,6 +1932,59 @@ async function sliceSource(sourceId, bytes, targetFrames) {
   return { id: sourceId, ...result };
 }
 
+function activeDirectorsCutProgram(sourceDurationSec) {
+  const sourceDuration = Number(sourceDurationSec);
+  if (!(sourceDuration > 0)) return { slices: [], isFull: true };
+  const basis = inputSourceDurationSec || sourceDuration;
+  const base = directorsCutSlices.length
+    ? directorsCutSlices
+    : defaultFullSlice(basis);
+  const slices = normalizeSlices(base, sourceDuration);
+  if (!slices.length) {
+    return { slices: defaultFullSlice(sourceDuration), isFull: true };
+  }
+  return {
+    slices,
+    isFull: isFullProgram(slices, sourceDuration) || isFullProgram(base, basis),
+  };
+}
+
+async function stageSourceForRun(sourceId, bytes, sourceDurationSec) {
+  const program = activeDirectorsCutProgram(sourceDurationSec);
+  if (program.isFull || !program.slices.length) {
+    return { bytes, durationSec: sourceDurationSec, staged: false };
+  }
+  log(
+    `Staging ${sourceId} director’s cut (${program.slices.length} slice(s), ` +
+    `${programDuration(program.slices).toFixed(2)}s)…`,
+  );
+  const status = el('preprocessingStatus');
+  const result = await stageDirectorsCut(
+    bytes,
+    program.slices,
+    sourceDurationSec,
+    (info) => {
+      if (!status) return;
+      if (info?.phase === 'extract') {
+        status.textContent =
+          `Staging ${sourceId} director’s cut… slice ${info.index + 1}/${info.total}`;
+      } else if (info?.phase === 'remux') {
+        status.textContent = `Assembling staged ${sourceId} MP4…`;
+      }
+    },
+  );
+  const stagedDuration = programDuration(program.slices);
+  log(
+    `Staged ${sourceId} cut → ${(result.bytes.length / 1024).toFixed(0)} KB` +
+    `${result.staged ? ' (frame-accurate extract)' : ''}`,
+  );
+  return {
+    bytes: result.bytes,
+    durationSec: stagedDuration > 0 ? stagedDuration : sourceDurationSec,
+    staged: !!result.staged,
+  };
+}
+
 el('runBtn').addEventListener('click', async () => {
   if (runInProgress) return;
   if (!hasValidApiKey()) {
@@ -1565,15 +2010,27 @@ el('runBtn').addEventListener('click', async () => {
     el('statUnique').textContent = String(uniqueFormats.length);
     el('statAliases').textContent = String(deliverables.length);
     el('preprocessingStatus').classList.remove('hidden');
-    el('preprocessingStatus').textContent = 'Slicing source video(s) at keyframes…';
+    el('preprocessingStatus').textContent = 'Preparing director’s cut / source video(s)…';
     const targetFrames = CONFIG.dispatch?.target_chunk_frames || 90;
     const usedSourceIds = new Set(uniqueFormats.map((format) => format.sourceId));
     const sourcePlans = [];
     if (usedSourceIds.has('primary')) {
-      sourcePlans.push(await sliceSource('primary', inputBytes, targetFrames));
+      const staged = await stageSourceForRun(
+        'primary',
+        inputBytes,
+        inputSourceDurationSec || inputDurationSec,
+      );
+      el('preprocessingStatus').textContent = 'Slicing source video(s) at keyframes…';
+      sourcePlans.push(await sliceSource('primary', staged.bytes, targetFrames));
     }
     if (usedSourceIds.has('vertical')) {
-      sourcePlans.push(await sliceSource('vertical', verticalInputBytes, targetFrames));
+      const staged = await stageSourceForRun(
+        'vertical',
+        verticalInputBytes,
+        verticalSourceDurationSec || verticalInputDurationSec,
+      );
+      el('preprocessingStatus').textContent = 'Slicing source video(s) at keyframes…';
+      sourcePlans.push(await sliceSource('vertical', staged.bytes, targetFrames));
     }
     for (const source of sourcePlans) {
       const slicedDuration = Array.isArray(source.durations)

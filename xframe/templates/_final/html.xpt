@@ -89,6 +89,47 @@
     .nofunds-box .nofunds-stats { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; margin-top: 0.65rem; }
     .nofunds-box .stat .value { font-size: 1.05rem; color: #ffe0c2; }
     .nofunds-box code { font-size: 0.78rem; color: #ffd7b0; }
+    .cut-summary { margin: 0.55rem 0 0; font-size: 0.82rem; color: var(--muted); }
+    .cut-summary strong { color: var(--text); }
+    dialog.cut-dialog {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      color: var(--text);
+      padding: 0;
+      max-width: min(640px, calc(100vw - 2rem));
+      width: 100%;
+    }
+    dialog.cut-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+    .cut-dialog-body { padding: 1.1rem 1.25rem 1.25rem; }
+    .cut-dialog-body h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+    .cut-slice-list { display: grid; gap: 0.75rem; margin: 0.85rem 0; max-height: min(52vh, 420px); overflow: auto; }
+    .cut-slice {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      background: #0d141d;
+    }
+    .cut-slice-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      align-items: center;
+      margin-bottom: 0.55rem;
+    }
+    .cut-slice-head strong { font-size: 0.88rem; }
+    .cut-range { display: grid; gap: 0.45rem; }
+    .cut-range label {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .cut-range input[type="range"] { width: 100%; accent-color: var(--accent); }
+    .cut-dialog-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; }
+    .cut-dialog-actions .spacer { flex: 1 1 auto; }
+    .cut-error { color: #ff7b72; font-size: 0.82rem; margin: 0.35rem 0 0; min-height: 1.1em; }
   </style>
 </head>
 <body>
@@ -130,6 +171,10 @@
           <span class="badge">loaded</span>
           <span id="fileInfo" class="muted" style="margin-left:0.5rem"></span>
           <video id="preview" controls style="margin-top:0.75rem"></video>
+          <div class="row" style="margin-top:0.55rem">
+            <button type="button" id="stageCutBtn">Stage director’s cut</button>
+            <span id="cutSummary" class="cut-summary"></span>
+          </div>
         </div>
       </div>
       <div class="input-card">
@@ -262,6 +307,26 @@
     <h2>Activity log</h2>
     <div id="log"></div>
   </section>
+
+  <dialog id="cutDialog" class="cut-dialog">
+    <div class="cut-dialog-body">
+      <h2>Director’s cut</h2>
+      <p class="muted" style="margin:0">
+        Choose ordered time slices shown when play is pressed. The same program
+        stages both primary and vertical sources before transcoding.
+      </p>
+      <p id="cutDialogMeta" class="muted" style="margin:0.45rem 0 0"></p>
+      <div id="cutSliceList" class="cut-slice-list"></div>
+      <p id="cutDialogError" class="cut-error"></p>
+      <div class="cut-dialog-actions">
+        <button type="button" id="cutAddSliceBtn">Add slice</button>
+        <button type="button" id="cutResetBtn">Reset to full video</button>
+        <span class="spacer"></span>
+        <button type="button" id="cutCancelBtn">Cancel</button>
+        <button type="button" class="primary" id="cutSaveBtn">Save</button>
+      </div>
+    </div>
+  </dialog>
 
   <script id="app-config" type="application/json">
 {{ app | _resolve(unwrap=true) | to_json }}

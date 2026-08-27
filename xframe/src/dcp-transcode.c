@@ -1710,6 +1710,363 @@ int transcode_social_segment(const char *input_path, const char *output_path,
   return 0;
 }
 
+/*
+ * Frame-accurate extract of [start_sec, end_sec) into a standalone MPEG-TS
+ * segment (H.264 + AAC) at the source resolution. Used by the browser to
+ * stage a director's cut before keyframe chunking / DCP dispatch.
+ */
+EMSCRIPTEN_KEEPALIVE
+int extract_time_range(const char *input_path, const char *output_path,
+                       double start_sec, double end_sec,
+                       int video_bitrate_kbps, int audio_bitrate_kbps) {
+  int ret;
+  if (!input_path || !output_path) return -1;
+  if (!(end_sec > start_sec)) {
+    fprintf(stderr, "[extract] invalid range %.3f..%.3f\n", start_sec, end_sec);
+    return -1005;
+  }
+  if (start_sec < 0) start_sec = 0;
+  if (video_bitrate_kbps <= 0) video_bitrate_kbps = 6000;
+  if (audio_bitrate_kbps <= 0) audio_bitrate_kbps = 160;
+
+  AVFormatContext *in_fmt = NULL;
+  if ((ret = avformat_open_input(&in_fmt, input_path, NULL, NULL)) < 0)
+    TRANSCODE_FAIL("extract: avformat_open_input", ret);
+  if ((ret = avformat_find_stream_info(in_fmt, NULL)) < 0)
+    TRANSCODE_FAIL("extract: avformat_find_stream_info", ret);
+
+  int video_idx = -1, audio_idx = -1;
+  for (unsigned i = 0; i < in_fmt->nb_streams; i++) {
+    enum AVMediaType t = in_fmt->streams[i]->codecpar->codec_type;
+    if (t == AVMEDIA_TYPE_VIDEO && video_idx < 0) video_idx = i;
+    else if (t == AVMEDIA_TYPE_AUDIO && audio_idx < 0) audio_idx = i;
+  }
+  if (video_idx < 0) {
+    fprintf(stderr, "[extract] no video\n");
+    avformat_close_input(&in_fmt);
+    return -1000;
+  }
+
+  AVStream *in_video = in_fmt->streams[video_idx];
+  const AVCodec *dec_codec = avcodec_find_decoder(in_video->codecpar->codec_id);
+  if (!dec_codec) {
+    fprintf(stderr, "[extract] no decoder for codec_id=%d\n", in_video->codecpar->codec_id);
+    avformat_close_input(&in_fmt);
+    return -1004;
+  }
+  AVCodecContext *dec_ctx = avcodec_alloc_context3(dec_codec);
+  avcodec_parameters_to_context(dec_ctx, in_video->codecpar);
+  dec_ctx->thread_count = 1;
+  if ((ret = avcodec_open2(dec_ctx, dec_codec, NULL)) < 0)
+    TRANSCODE_FAIL("extract: video decoder open", ret);
+
+  int dst_w = dec_ctx->width;
+  int dst_h = dec_ctx->height;
+  evenize(&dst_w);
+  evenize(&dst_h);
+
+  struct SwsContext *sws = sws_getContext(
+      dec_ctx->width, dec_ctx->height, dec_ctx->pix_fmt,
+      dst_w, dst_h, AV_PIX_FMT_YUV420P,
+      SWS_BILINEAR, NULL, NULL, NULL);
+  if (!sws) {
+    fprintf(stderr, "[extract] sws_getContext failed\n");
+    return -1001;
+  }
+
+  const AVCodec *enc_codec = avcodec_find_encoder_by_name("libopenh264");
+  if (!enc_codec) {
+    fprintf(stderr, "[extract] libopenh264 missing\n");
+    return -1004;
+  }
+  AVCodecContext *enc_ctx = avcodec_alloc_context3(enc_codec);
+  enc_ctx->width = dst_w;
+  enc_ctx->height = dst_h;
+  enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+  AVRational source_tb = in_video->time_base;
+  if (source_tb.num <= 0 || source_tb.den <= 0)
+    source_tb = (AVRational){1, 1000};
+  AVRational source_fr = in_video->avg_frame_rate.num > 0
+      ? in_video->avg_frame_rate : in_video->r_frame_rate;
+  double source_fps = source_fr.den > 0 ? av_q2d(source_fr) : 0.0;
+  if (source_fps < 1.0 || source_fps > 120.0)
+    source_fr = (AVRational){30, 1};
+  enc_ctx->time_base = source_tb;
+  enc_ctx->framerate = source_fr;
+  enc_ctx->gop_size = (int)fmax(1.0, source_fps * 2.0);
+  enc_ctx->max_b_frames = 0;
+  enc_ctx->thread_count = 1;
+  enc_ctx->bit_rate = video_bitrate_kbps * 1000LL;
+  av_opt_set_int(enc_ctx->priv_data, "allow_skip_frames", 1, 0);
+  av_opt_set(enc_ctx->priv_data, "rc_mode", "bitrate", 0);
+  if ((ret = avcodec_open2(enc_ctx, enc_codec, NULL)) < 0)
+    TRANSCODE_FAIL("extract: video encoder open", ret);
+
+  AVCodecContext *aud_dec = NULL;
+  AVCodecContext *aud_enc = NULL;
+  SwrContext *swr = NULL;
+  AVStream *in_audio = NULL;
+  if (audio_idx >= 0) {
+    in_audio = in_fmt->streams[audio_idx];
+    const AVCodec *adec = avcodec_find_decoder(in_audio->codecpar->codec_id);
+    if (adec) {
+      aud_dec = avcodec_alloc_context3(adec);
+      avcodec_parameters_to_context(aud_dec, in_audio->codecpar);
+      if (avcodec_open2(aud_dec, adec, NULL) < 0) {
+        avcodec_free_context(&aud_dec);
+        aud_dec = NULL;
+      }
+    }
+    if (aud_dec) {
+      const AVCodec *aenc = avcodec_find_encoder_by_name("aac");
+      aud_enc = avcodec_alloc_context3(aenc);
+      aud_enc->sample_rate = 48000;
+      av_channel_layout_default(&aud_enc->ch_layout, 2);
+      aud_enc->sample_fmt = AV_SAMPLE_FMT_FLTP;
+      aud_enc->bit_rate = audio_bitrate_kbps * 1000LL;
+      aud_enc->time_base = (AVRational){1, aud_enc->sample_rate};
+      if ((ret = avcodec_open2(aud_enc, aenc, NULL)) < 0)
+        TRANSCODE_FAIL("extract: aac encoder open", ret);
+      ret = swr_alloc_set_opts2(&swr,
+          &aud_enc->ch_layout, aud_enc->sample_fmt, aud_enc->sample_rate,
+          &aud_dec->ch_layout, aud_dec->sample_fmt, aud_dec->sample_rate,
+          0, NULL);
+      if (ret < 0 || swr_init(swr) < 0)
+        TRANSCODE_FAIL("extract: swr_init", ret < 0 ? ret : -1);
+    }
+  }
+
+  AVFormatContext *out_fmt = NULL;
+  avformat_alloc_output_context2(&out_fmt, NULL, "mpegts", output_path);
+  AVStream *out_v = avformat_new_stream(out_fmt, NULL);
+  avcodec_parameters_from_context(out_v->codecpar, enc_ctx);
+  out_v->time_base = enc_ctx->time_base;
+  AVStream *out_a = NULL;
+  if (aud_enc) {
+    out_a = avformat_new_stream(out_fmt, NULL);
+    avcodec_parameters_from_context(out_a->codecpar, aud_enc);
+    out_a->time_base = aud_enc->time_base;
+    out_a->codecpar->codec_tag = 0;
+  }
+  if ((ret = avio_open(&out_fmt->pb, output_path, AVIO_FLAG_WRITE)) < 0)
+    TRANSCODE_FAIL("extract: avio_open", ret);
+  if ((ret = avformat_write_header(out_fmt, NULL)) < 0)
+    TRANSCODE_FAIL("extract: write_header", ret);
+
+  int64_t start_ts = (int64_t)(start_sec * av_q2d(av_inv_q(source_tb)) + 0.5);
+  int64_t end_ts = (int64_t)(end_sec * av_q2d(av_inv_q(source_tb)) + 0.5);
+  /* Prefer stream time_base conversion for seek target. */
+  start_ts = av_rescale_q((int64_t)(start_sec * 1000.0), (AVRational){1, 1000}, source_tb);
+  end_ts = av_rescale_q((int64_t)(end_sec * 1000.0), (AVRational){1, 1000}, source_tb);
+
+  if (start_sec > 0.01) {
+    int64_t seek_ts = start_ts;
+    if (in_video->start_time != AV_NOPTS_VALUE) seek_ts += in_video->start_time;
+    av_seek_frame(in_fmt, video_idx, seek_ts, AVSEEK_FLAG_BACKWARD);
+    avcodec_flush_buffers(dec_ctx);
+    if (aud_dec) avcodec_flush_buffers(aud_dec);
+  }
+
+  AVPacket *in_pkt = av_packet_alloc();
+  AVFrame *frame = av_frame_alloc();
+  AVFrame *scaled = av_frame_alloc();
+  scaled->format = AV_PIX_FMT_YUV420P;
+  scaled->width = dst_w;
+  scaled->height = dst_h;
+  av_frame_get_buffer(scaled, 32);
+  AVPacket *out_pkt = av_packet_alloc();
+  AVFrame *aframe = aud_dec ? av_frame_alloc() : NULL;
+  AVFrame *aframe_res = aud_enc ? av_frame_alloc() : NULL;
+  int64_t first_video_pts = AV_NOPTS_VALUE;
+  int64_t last_video_pts = AV_NOPTS_VALUE;
+  int64_t fallback_frame_step =
+      av_rescale_q(1, av_inv_q(enc_ctx->framerate), enc_ctx->time_base);
+  if (fallback_frame_step < 1) fallback_frame_step = 1;
+  int64_t audio_pts = 0;
+  uint8_t *audio_fifo = NULL;
+  int audio_fifo_samples = 0;
+  int audio_fifo_cap = 0;
+  int wrote_video = 0;
+  int reached_end = 0;
+
+  while (!reached_end && av_read_frame(in_fmt, in_pkt) >= 0) {
+    if (aud_dec && in_pkt->stream_index == audio_idx) {
+      int64_t pkt_ts = in_pkt->pts != AV_NOPTS_VALUE ? in_pkt->pts
+          : (in_pkt->dts != AV_NOPTS_VALUE ? in_pkt->dts : AV_NOPTS_VALUE);
+      double pkt_sec = -1;
+      if (pkt_ts != AV_NOPTS_VALUE && in_audio) {
+        int64_t adj = pkt_ts;
+        if (in_audio->start_time != AV_NOPTS_VALUE) adj -= in_audio->start_time;
+        pkt_sec = adj * av_q2d(in_audio->time_base);
+      }
+      if (pkt_sec >= 0 && pkt_sec + 0.05 < start_sec) {
+        av_packet_unref(in_pkt);
+        continue;
+      }
+      if (pkt_sec >= end_sec) {
+        av_packet_unref(in_pkt);
+        continue;
+      }
+      if (avcodec_send_packet(aud_dec, in_pkt) >= 0) {
+        while (avcodec_receive_frame(aud_dec, aframe) >= 0) {
+          int64_t a_ts = aframe->best_effort_timestamp;
+          if (a_ts != AV_NOPTS_VALUE && in_audio) {
+            int64_t adj = a_ts;
+            if (in_audio->start_time != AV_NOPTS_VALUE) adj -= in_audio->start_time;
+            double a_sec = adj * av_q2d(in_audio->time_base);
+            if (a_sec + 0.02 < start_sec || a_sec >= end_sec) continue;
+          }
+          int dst_nb = av_rescale_rnd(swr_get_delay(swr, aud_dec->sample_rate) + aframe->nb_samples,
+                                      aud_enc->sample_rate, aud_dec->sample_rate, AV_ROUND_UP);
+          if (dst_nb <= 0) continue;
+          if (audio_fifo_samples + dst_nb > audio_fifo_cap) {
+            audio_fifo_cap = audio_fifo_samples + dst_nb + aud_enc->frame_size * 4;
+            audio_fifo = (uint8_t *)av_realloc(audio_fifo, audio_fifo_cap * sizeof(float) * 2);
+          }
+          float *tmp[2];
+          uint8_t *out_planes[2];
+          tmp[0] = (float *)av_malloc(dst_nb * sizeof(float));
+          tmp[1] = (float *)av_malloc(dst_nb * sizeof(float));
+          out_planes[0] = (uint8_t *)tmp[0];
+          out_planes[1] = (uint8_t *)tmp[1];
+          int converted = swr_convert(swr, out_planes, dst_nb,
+                                      (const uint8_t **)aframe->extended_data, aframe->nb_samples);
+          if (converted > 0) {
+            for (int i = 0; i < converted; i++) {
+              ((float *)audio_fifo)[audio_fifo_samples * 2 + i * 2] = tmp[0][i];
+              ((float *)audio_fifo)[audio_fifo_samples * 2 + i * 2 + 1] = tmp[1][i];
+            }
+            audio_fifo_samples += converted;
+          }
+          av_free(tmp[0]);
+          av_free(tmp[1]);
+
+          while (audio_fifo_samples >= aud_enc->frame_size) {
+            aframe_res->format = AV_SAMPLE_FMT_FLTP;
+            aframe_res->ch_layout = aud_enc->ch_layout;
+            aframe_res->sample_rate = aud_enc->sample_rate;
+            aframe_res->nb_samples = aud_enc->frame_size;
+            av_frame_get_buffer(aframe_res, 0);
+            float *l = (float *)aframe_res->data[0];
+            float *r = (float *)aframe_res->data[1];
+            for (int i = 0; i < aud_enc->frame_size; i++) {
+              l[i] = ((float *)audio_fifo)[i * 2];
+              r[i] = ((float *)audio_fifo)[i * 2 + 1];
+            }
+            int remain = audio_fifo_samples - aud_enc->frame_size;
+            if (remain > 0) {
+              memmove(audio_fifo,
+                      (float *)audio_fifo + aud_enc->frame_size * 2,
+                      (size_t)remain * 2 * sizeof(float));
+            }
+            audio_fifo_samples = remain;
+            aframe_res->pts = audio_pts;
+            audio_pts += aud_enc->frame_size;
+            avcodec_send_frame(aud_enc, aframe_res);
+            av_frame_unref(aframe_res);
+            while (avcodec_receive_packet(aud_enc, out_pkt) >= 0) {
+              av_packet_rescale_ts(out_pkt, aud_enc->time_base, out_a->time_base);
+              out_pkt->stream_index = out_a->index;
+              av_interleaved_write_frame(out_fmt, out_pkt);
+            }
+          }
+        }
+      }
+      av_packet_unref(in_pkt);
+      continue;
+    }
+
+    if (in_pkt->stream_index != video_idx) {
+      av_packet_unref(in_pkt);
+      continue;
+    }
+    if (avcodec_send_packet(dec_ctx, in_pkt) < 0) {
+      av_packet_unref(in_pkt);
+      continue;
+    }
+    av_packet_unref(in_pkt);
+
+    while (avcodec_receive_frame(dec_ctx, frame) >= 0) {
+      int64_t source_pts = frame->best_effort_timestamp;
+      if (source_pts == AV_NOPTS_VALUE) source_pts = frame->pts;
+      if (source_pts != AV_NOPTS_VALUE) {
+        int64_t adj = source_pts;
+        if (in_video->start_time != AV_NOPTS_VALUE) adj -= in_video->start_time;
+        if (adj < start_ts) continue;
+        if (adj >= end_ts) {
+          reached_end = 1;
+          break;
+        }
+      }
+
+      sws_scale(sws, (const uint8_t *const *)frame->data, frame->linesize,
+                0, dec_ctx->height, scaled->data, scaled->linesize);
+
+      int64_t next_video_pts;
+      if (source_pts != AV_NOPTS_VALUE) {
+        int64_t adj = source_pts;
+        if (in_video->start_time != AV_NOPTS_VALUE) adj -= in_video->start_time;
+        if (first_video_pts == AV_NOPTS_VALUE) first_video_pts = adj;
+        next_video_pts = av_rescale_q(adj - first_video_pts, source_tb, enc_ctx->time_base);
+      } else {
+        next_video_pts = last_video_pts == AV_NOPTS_VALUE
+            ? 0 : last_video_pts + fallback_frame_step;
+      }
+      if (last_video_pts != AV_NOPTS_VALUE && next_video_pts <= last_video_pts)
+        next_video_pts = last_video_pts + fallback_frame_step;
+      scaled->pts = next_video_pts;
+      last_video_pts = next_video_pts;
+      scaled->pict_type = AV_PICTURE_TYPE_NONE;
+      avcodec_send_frame(enc_ctx, scaled);
+      while (avcodec_receive_packet(enc_ctx, out_pkt) >= 0) {
+        av_packet_rescale_ts(out_pkt, enc_ctx->time_base, out_v->time_base);
+        out_pkt->stream_index = out_v->index;
+        av_interleaved_write_frame(out_fmt, out_pkt);
+        wrote_video = 1;
+      }
+    }
+  }
+
+  avcodec_send_frame(enc_ctx, NULL);
+  while (avcodec_receive_packet(enc_ctx, out_pkt) >= 0) {
+    av_packet_rescale_ts(out_pkt, enc_ctx->time_base, out_v->time_base);
+    out_pkt->stream_index = out_v->index;
+    av_interleaved_write_frame(out_fmt, out_pkt);
+    wrote_video = 1;
+  }
+  if (aud_enc) {
+    avcodec_send_frame(aud_enc, NULL);
+    while (avcodec_receive_packet(aud_enc, out_pkt) >= 0) {
+      av_packet_rescale_ts(out_pkt, aud_enc->time_base, out_a->time_base);
+      out_pkt->stream_index = out_a->index;
+      av_interleaved_write_frame(out_fmt, out_pkt);
+    }
+  }
+
+  av_write_trailer(out_fmt);
+  avio_closep(&out_fmt->pb);
+  avformat_free_context(out_fmt);
+  sws_freeContext(sws);
+  if (swr) swr_free(&swr);
+  av_free(audio_fifo);
+  avcodec_free_context(&dec_ctx);
+  avcodec_free_context(&enc_ctx);
+  if (aud_dec) avcodec_free_context(&aud_dec);
+  if (aud_enc) avcodec_free_context(&aud_enc);
+  avformat_close_input(&in_fmt);
+  av_frame_free(&frame);
+  av_frame_free(&scaled);
+  if (aframe) av_frame_free(&aframe);
+  if (aframe_res) av_frame_free(&aframe_res);
+  av_packet_free(&in_pkt);
+  av_packet_free(&out_pkt);
+  if (!wrote_video) {
+    fprintf(stderr, "[extract] no video frames in %.3f..%.3f\n", start_sec, end_sec);
+    return -1006;
+  }
+  return 0;
+}
+
 /* Bitstream remux MPEG-TS → MP4 with +faststart (moov at front). */
 EMSCRIPTEN_KEEPALIVE
 int remux_to_mp4(const char *input_path, const char *output_path) {
