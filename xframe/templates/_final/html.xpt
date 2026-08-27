@@ -372,7 +372,7 @@
 
   <section>
     <h2>3. DCP account</h2>
-    <form id="accountForm" autocomplete="off">
+    <div id="accountFields">
       <div class="field">
         <label for="apiKeyInput">Identity API key</label>
         <input id="apiKeyInput" type="password" name="dcp-identity-api-key" placeholder="0x… (64 hex)" spellcheck="false" autocomplete="off" />
@@ -389,7 +389,7 @@
           <div id="qrcode" title="Open worker invitation in a new tab"></div>
         </a>
       </div>
-    </form>
+    </div>
   </section>
 
   <section>

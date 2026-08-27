@@ -260,7 +260,6 @@ apiKeyInput.addEventListener('input', () => {
 apiKeyInput.addEventListener('change', () => {
   if (validateApiKeyField()) localStorage.setItem(API_KEY_STORAGE_KEY, apiKeyInput.value.trim());
 });
-el('accountForm').addEventListener('submit', (e) => e.preventDefault());
 validateApiKeyField(false);
 
 function getApiKey() {

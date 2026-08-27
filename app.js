@@ -128,7 +128,6 @@ apiKeyInput.addEventListener('change', () => {
   }
   hideRunError();
 });
-el('accountForm').addEventListener('submit', (event) => event.preventDefault());
 validateApiKeyField(false);
 
 function getApiKey() {
