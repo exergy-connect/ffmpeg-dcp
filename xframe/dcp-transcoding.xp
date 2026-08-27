@@ -84,11 +84,18 @@ placement_profile:
     format: { _concept: video_format_specification }
     default_selected: _boolean
 
+# Organic post body constraints (LinkedIn enforces 1200 characters).
+social_post:
+  _attributes:
+    max_characters: { _type: _integer, _required: true }
+    notes: _string
+
 social_media_platform:
   _attributes:
     id: { _type: _string, _required: true }
     name: { _type: _string, _required: true }
     placements: { _dict: placement_profile }
+    post: { _concept: social_post }
     notes: _string
 
 pipeline_stage:
@@ -565,6 +572,10 @@ app:
       id: linkedin
       name: LinkedIn
       notes: Ad-safe ≤30 fps masters for organic and sponsored reuse.
+      post:
+        _concept: social_post
+        max_characters: 1200
+        notes: LinkedIn organic post body limit.
       placements:
         feed:
           _concept: placement_profile

@@ -1523,6 +1523,120 @@ function workerCommentFromCell(cell) {
   });
 }
 
+function selectedLinkedInComments() {
+  const unique = new Map();
+  for (const cell of Object.values(gridCells)) {
+    if (cell?.dataset?.linkedinSelected !== 'true') continue;
+    const normalized = workerCommentFromCell(cell);
+    if (normalized) unique.set(normalized.key, normalized.text);
+  }
+  return [...unique.values()];
+}
+
+function linkedInPostMaxCharacters() {
+  const n = Number(CONFIG.platforms?.linkedin?.post?.max_characters);
+  return Number.isInteger(n) && n > 0 ? n : 1200;
+}
+
+function characterCount(text) {
+  return [...String(text ?? '')].length;
+}
+
+function truncateToCharacters(text, max) {
+  const chars = [...String(text ?? '')];
+  if (max <= 0) return '';
+  if (chars.length <= max) return chars.join('');
+  if (max === 1) return '…';
+  return `${chars.slice(0, max - 1).join('')}…`;
+}
+
+function linkedInCaptionBase(placementLabel) {
+  return `${placementLabel || 'Video'} prepared by DCP Social Media Transcoder`;
+}
+
+function linkedInBudgetBase() {
+  const labels = conceptEntries(CONFIG.platforms?.linkedin?.placements || {})
+    .map(([, placement]) => placement?.label)
+    .filter(Boolean);
+  const bases = (labels.length ? labels : ['Video']).map(linkedInCaptionBase);
+  return bases.reduce((longest, next) =>
+    (characterCount(next) > characterCount(longest) ? next : longest));
+}
+
+function packLinkedInCaption(quotes, placementLabel) {
+  const limit = linkedInPostMaxCharacters();
+  const requested = [...new Set((quotes || []).filter(Boolean))];
+  let body = placementLabel == null ? linkedInBudgetBase() : linkedInCaptionBase(placementLabel);
+  if (characterCount(body) > limit) body = truncateToCharacters(body, limit);
+  const included = [];
+  let truncated = false;
+  for (const quote of requested) {
+    const sep = included.length ? '\n' : '\n\n';
+    const formatted = `“${quote}”`;
+    const next = `${body}${sep}${formatted}`;
+    if (characterCount(next) <= limit) {
+      body = next;
+      included.push(quote);
+      continue;
+    }
+    const room = limit - characterCount(`${body}${sep}`);
+    if (!included.length && room > 1) {
+      body = `${body}${sep}${truncateToCharacters(formatted, room)}`;
+      included.push(quote);
+      truncated = true;
+      break;
+    }
+  }
+  return {
+    text: body,
+    limit,
+    used: characterCount(body),
+    included,
+    omitted: requested.filter((quote) => !included.includes(quote)),
+    truncated,
+  };
+}
+
+function setCellLinkedInSelected(cell, selected) {
+  if (!cell) return;
+  const picker = cell.querySelector('.slice-linkedin-pick input');
+  if (selected) {
+    const quote = workerCommentFromCell(cell)?.text;
+    const trial = packLinkedInCaption(selectedLinkedInComments().concat(quote || []));
+    if (quote && !trial.included.includes(quote)) {
+      cell.dataset.linkedinSelected = 'false';
+      cell.classList.remove('linkedin-comment');
+      if (picker) picker.checked = false;
+      refreshWorkerCommentLegend(
+        `that comment does not fit in the ${linkedInPostMaxCharacters()}-character LinkedIn post`,
+      );
+      return;
+    }
+  }
+  cell.dataset.linkedinSelected = selected ? 'true' : 'false';
+  cell.classList.toggle('linkedin-comment', selected);
+  if (picker && picker.checked !== selected) picker.checked = selected;
+  refreshWorkerCommentLegend();
+}
+
+function ensureLinkedInPicker(cell) {
+  if (!cell || cell.querySelector('.slice-linkedin-pick')) return;
+  const label = document.createElement('label');
+  label.className = 'slice-linkedin-pick';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = cell.dataset.linkedinSelected === 'true';
+  input.setAttribute('aria-label', 'Include this worker comment in the LinkedIn post');
+  const caption = document.createElement('span');
+  caption.textContent = 'LinkedIn';
+  label.append(input, caption);
+  const stop = (event) => event.stopPropagation();
+  label.addEventListener('click', stop);
+  label.addEventListener('keydown', stop);
+  input.addEventListener('change', () => setCellLinkedInSelected(cell, input.checked));
+  cell.appendChild(label);
+}
+
 function playWorkerCommentFromCell(cell) {
   let normalized = workerCommentFromCell(cell);
   if (!normalized) return;
@@ -1606,7 +1720,7 @@ function updateSliceProgress(sliceNumber, rawProgress) {
   const index = Number(sliceNumber) - 1; // DCP slice numbers are one-based.
   const cell = gridCells[index];
   if (!cell || cell.classList.contains('done')) return;
-  const n = Number(rawProgress ?? cell.dataset.sliceProgress);
+  const n = rawProgress === undefined ? Number.NaN : Number(rawProgress);
   cell.classList.add('active');
   const commentLine = cell.dataset.workerComment
     ? `\nworker: ${normalizeWorkerComment({
@@ -1626,9 +1740,7 @@ function updateSliceProgress(sliceNumber, rawProgress) {
   const percent = Math.round(ratio * 100);
   cell.style.setProperty('--slice-progress', `${percent}%`);
   cell.dataset.sliceProgress = String(percent);
-  if (cell.getAttribute('role') === 'progressbar') {
-    cell.setAttribute('aria-valuenow', String(percent));
-  }
+  cell.setAttribute('aria-valuenow', String(percent));
   cell.title = `${cell.dataset.baseTitle}${commentLine}\n${percent}% transcoded`;
 }
 
@@ -1670,12 +1782,9 @@ function applyWorkerCommentToCell(cell, workerComment) {
     delete cell.dataset.workerDemoCommentIndex;
   }
   cell.classList.add('has-worker-comment');
+  ensureLinkedInPicker(cell);
   const now = cell.dataset.sliceProgress || cell.getAttribute('aria-valuenow') || '0';
-  cell.setAttribute('role', 'button');
   cell.setAttribute('tabindex', '0');
-  cell.removeAttribute('aria-valuemin');
-  cell.removeAttribute('aria-valuemax');
-  cell.removeAttribute('aria-valuenow');
   let callout = cell.querySelector('.slice-callout');
   if (!callout) {
     callout = document.createElement('div');
@@ -1696,7 +1805,7 @@ function applyWorkerCommentToCell(cell, workerComment) {
   refreshWorkerCommentLegend();
 }
 
-function refreshWorkerCommentLegend() {
+function refreshWorkerCommentLegend(hint) {
   const legend = el('workerCommentLegend');
   if (!legend) return;
   const comments = new Map();
@@ -1720,7 +1829,14 @@ function refreshWorkerCommentLegend() {
     const t = display.length > 52 ? `${display.slice(0, 49)}…` : display;
     return `“${t}”`;
   });
-  legend.textContent = `Workers (${comments.size}): ${short.join(' · ')}`;
+  const packed = packLinkedInCaption(selectedLinkedInComments());
+  const budget = packed.included.length
+    ? `${packed.included.length} selected for LinkedIn (${packed.used}/${packed.limit})`
+    : `check LinkedIn on a slice to include its comment in the ${linkedInPostMaxCharacters()}-character post`;
+  legend.textContent =
+    `Workers (${comments.size}): ${short.join(' · ')} · ${budget}` +
+    (packed.truncated ? ' · truncated to the LinkedIn limit' : '') +
+    (hint ? ` · ${hint}` : '');
 }
 
 function formatWorkerComments(comments) {
@@ -2133,7 +2249,6 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       const sliceNumber = ev.sliceNumber ?? ev.sliceIndex ?? ev.slice;
       const index = Number(sliceNumber) - 1;
       applyWorkerCommentToCell(gridCells[index], commentMatch[1].trim());
-      updateSliceProgress(sliceNumber, gridCells[index]?.dataset?.sliceProgress);
     }
     const match = message.match(/\[social-progress\]\s+([0-9.]+)/);
     if (!match) return;
@@ -2179,7 +2294,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       cell.classList.add('done');
       cell.style.setProperty('--slice-progress', '100%');
       cell.dataset.sliceProgress = '100';
-      if (cell.getAttribute('role') === 'progressbar') cell.setAttribute('aria-valuenow', '100');
+      cell.setAttribute('aria-valuenow', '100');
       const commentLine = cell.dataset.workerComment
         ? `\nworker: ${normalizeWorkerComment({
           text: cell.dataset.workerComment,
@@ -2330,12 +2445,17 @@ function showOutputPreview(out) {
   panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+function linkedInShareText(out) {
+  return packLinkedInCaption(selectedLinkedInComments(), out.alias?.placementLabel).text;
+}
+
 async function shareOutputToLinkedIn(out) {
   const status = el('saveOutputsStatus');
   const file = new File([out.blob], out.name, { type: 'video/mp4' });
+  const packed = packLinkedInCaption(selectedLinkedInComments(), out.alias?.placementLabel);
   const shareData = {
     title: `${out.alias?.platformName || 'LinkedIn'} video`,
-    text: `${out.alias?.placementLabel || 'Video'} prepared by DCP Social Media Transcoder`,
+    text: packed.text,
     files: [file],
   };
   if (!navigator.share || (navigator.canShare && !navigator.canShare(shareData))) {
@@ -2345,7 +2465,9 @@ async function shareOutputToLinkedIn(out) {
   }
   try {
     await navigator.share(shareData);
-    status.textContent = `${out.name} was handed to your device's share sheet.`;
+    status.textContent = packed.truncated || packed.omitted.length
+      ? `${out.name} was handed to your device's share sheet (${packed.used}/${packed.limit} characters).`
+      : `${out.name} was handed to your device's share sheet.`;
   } catch (err) {
     if (err.name !== 'AbortError') {
       status.textContent = `Could not share ${out.name}: ${err.message}`;

@@ -76,7 +76,7 @@
       transition: background 0.2s ease, box-shadow 0.2s ease;
       overflow: visible;
     }
-    .grid-cell.active {
+    .grid-cell.active:not(.done) {
       background: linear-gradient(
         to top,
         #2f81f7 0 var(--slice-progress),
@@ -84,12 +84,17 @@
       );
       box-shadow: inset 0 0 0 1px rgba(88,166,255,0.55);
     }
-    .grid-cell.indeterminate {
+    .grid-cell.indeterminate:not(.done) {
       background: linear-gradient(135deg, #1c2733 20%, #2f81f7 45%, #1c2733 70%);
       background-size: 250% 250%;
       animation: slice-progress-pulse 1.2s linear infinite;
     }
-    .grid-cell.done { background: var(--ok); box-shadow: none; animation: none; }
+    .grid-cell.done,
+    .grid-cell.has-worker-comment.done {
+      background: var(--ok);
+      box-shadow: none;
+      animation: none;
+    }
     .grid-cell.has-worker-comment {
       box-shadow: inset 0 0 0 2px rgba(210, 153, 34, 0.55);
       cursor: pointer;
@@ -104,6 +109,34 @@
     }
     .grid-cell.has-worker-comment.done {
       box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+    }
+    .grid-cell.linkedin-comment {
+      box-shadow: inset 0 0 0 3px #0a66c2;
+    }
+    .grid-cell.linkedin-comment.done {
+      box-shadow: inset 0 0 0 3px #0a66c2;
+    }
+    .slice-linkedin-pick {
+      position: absolute;
+      left: 0.4rem;
+      bottom: 0.4rem;
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      gap: 0.28rem;
+      max-width: calc(100% - 0.8rem);
+      padding: 0.18rem 0.4rem;
+      border-radius: 6px;
+      background: rgba(13, 17, 23, 0.82);
+      color: #f0f3f6;
+      font-size: 0.68rem;
+      font-weight: 600;
+      pointer-events: auto;
+      cursor: pointer;
+    }
+    .slice-linkedin-pick input {
+      margin: 0;
+      accent-color: #0a66c2;
     }
     .slice-callout {
       position: absolute;
@@ -411,7 +444,7 @@
 
   <section id="outputsSection" class="hidden">
     <h2>5. Outputs</h2>
-    <p class="muted">One H.264/AAC MP4 upload master per selected placement. Shared Meta encodes appear under each requested name. LinkedIn outputs can be sent to the device share sheet for posting in the LinkedIn app.</p>
+    <p class="muted">One H.264/AAC MP4 upload master per selected placement. Shared Meta encodes appear under each requested name. Check <strong>LinkedIn</strong> on a slice to include that worker comment in the LinkedIn post caption ({{ app.platforms.linkedin.post.max_characters }} characters). LinkedIn outputs can be sent to the device share sheet for posting in the LinkedIn app.</p>
     <div id="outputs" class="outputs"></div>
     <div id="outputPreviewPanel" class="hidden">
       <video id="outputPreview" controls playsinline></video>

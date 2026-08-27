@@ -25,6 +25,11 @@ assert(
   'IG/FB reels signatures must match',
 );
 assert(cfg.platforms.youtube.placements.feed.format.width === 1920, 'yt feed width');
+assert(
+  cfg.platforms.linkedin.post.max_characters === 1200,
+  'LinkedIn organic post body is 1200 characters',
+);
+assert(html.includes('1200 characters'), 'HTML must surface the LinkedIn post character limit');
 assert(cfg.timing.social_default.output_fps === 30, '30 fps');
 assert(cfg.dispatch.dedupe_identical_formats === true, 'dedupe enabled');
 assert(cfg.dcp_package === 'ffmpeg-dcp-social/ffmpeg-wasm.js', 'distinct package name');
@@ -82,6 +87,8 @@ assert(
     transcoderRuntime.includes('workerPlaybackLanguage') &&
     transcoderRuntime.includes('playWorkerCommentFromCell') &&
     transcoderRuntime.includes('finishCommentAutoplay') &&
+    transcoderRuntime.includes('selectedLinkedInComments') &&
+    transcoderRuntime.includes('linkedInPostMaxCharacters') &&
     transcoderRuntime.includes('speakCommentWithBrowser'),
   'web UI must rotate demo WAV languages, update flags, support replay, and fall back to browser speech',
 );

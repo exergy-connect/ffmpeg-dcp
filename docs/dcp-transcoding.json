@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-27T16:51:38.842Z",
-    "modifiedAt": "2026-08-27T16:51:38.842Z",
+    "createdAt": "2026-08-27T17:13:46.738Z",
+    "modifiedAt": "2026-08-27T17:13:46.738Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp",
-      "hash": "sha256:6dcef10c001dbbef0e3d2658d0ba834e3bd43220ef567056ff43f8ad11bf1d85",
+      "hash": "sha256:9a7cb8d81a5fe914e1fce2a561db61e922d082ad1ffc0817139f10bb6135b138",
       "createdAt": "2026-08-24T19:23:37.516Z",
-      "modifiedAt": "2026-08-27T16:03:17.705Z"
+      "modifiedAt": "2026-08-27T17:13:01.005Z"
     }
   ],
   "_concepts": {
@@ -129,6 +129,15 @@
         "default_selected": "_boolean"
       }
     },
+    "social_post": {
+      "_attributes": {
+        "max_characters": {
+          "_required": true,
+          "_type": "_integer"
+        },
+        "notes": "_string"
+      }
+    },
     "social_media_platform": {
       "_attributes": {
         "id": {
@@ -142,6 +151,7 @@
         "placements": {
           "_dict": "placement_profile"
         },
+        "post": "social_post",
         "notes": "_string"
       }
     },
@@ -614,7 +624,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 494,
+                    "line": 501,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -649,7 +659,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 501,
+                    "line": 508,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -692,7 +702,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 514,
+                    "line": 521,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -727,7 +737,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 521,
+                    "line": 528,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -770,7 +780,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 534,
+                    "line": 541,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -805,7 +815,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 541,
+                    "line": 548,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -848,7 +858,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 554,
+                    "line": 561,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -883,7 +893,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 561,
+                    "line": 568,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -897,6 +907,11 @@
           "id": "linkedin",
           "name": "LinkedIn",
           "notes": "Ad-safe ≤30 fps masters for organic and sponsored reuse.",
+          "post": {
+            "_concept": "social_post",
+            "max_characters": 1200,
+            "notes": "LinkedIn organic post body limit."
+          },
           "placements": {
             "feed": {
               "_concept": "placement_profile",
@@ -926,7 +941,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 574,
+                    "line": 585,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -961,7 +976,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 581,
+                    "line": 592,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1008,7 +1023,7 @@
             "_resolved": {
               "_provenance": {
                 "source": 0,
-                "line": 587,
+                "line": 598,
                 "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
               }
             }

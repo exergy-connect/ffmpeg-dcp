@@ -65,6 +65,7 @@ browser text-to-speech. Slice callouts and the worker legend show the language
 flag for the audio that will actually play. Click a commented slice (or focus it
 and press Enter/Space) to replay its selected WAV or browser-speech fallback.
 Uncheck **Read out comments** under Run to skip autoplay while keeping click-to-play.
+Check **LinkedIn** on a commented slice to include that worker quote in the LinkedIn share caption, within the platform’s 1200-character post limit.
 
 The custom WASM module is single-threaded and does not require
 `SharedArrayBuffer` or cross-origin isolation headers.
