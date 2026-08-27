@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DCP Social Media Transcoder</title>
+  <link rel="icon" href="./favicon.ico" sizes="any" />
+  <script src="https://scheduler.distributed.computer/dcp-client/dcp-client.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+  <style>
+    :root { color-scheme: dark; --bg:#0b0f14; --card:#111823; --border:#1e2b3a; --text:#e6edf3; --muted:#9aa7b2; --accent:#58a6ff; --ok:#3fb950; --warn:#f0883e; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 24px; max-width: 1040px; margin-inline: auto; }
+    .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.25rem; margin-bottom: 1.5rem; }
+    .page-header-text { min-width: 0; flex: 1; }
+    h1 { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 0.35rem; }
+    .tagline { color: var(--muted); margin: 0; font-size: 1.05rem; }
+    .brand-logo { flex: 0 0 auto; display: block; height: 48px; width: auto; max-width: 180px; object-fit: contain; }
+    .page-header-brand { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 0.35rem; }
+    .build-stamp { margin: 0; font-size: 0.65rem; line-height: 1.2; color: #5c6b78; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; white-space: nowrap; user-select: text; }
+    @media (max-width: 640px) {
+      .page-header { flex-wrap: wrap; }
+      .page-header-brand { margin-left: auto; }
+      .brand-logo { height: 40px; }
+    }
+    section { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem; }
+    section h2 { font-size: 1rem; margin: 0 0 0.75rem; color: #d7dee5; }
+    .hidden { display: none !important; }
+    .input-grid { display: grid; gap: 0.85rem; }
+    @media (min-width: 720px) { .input-grid { grid-template-columns: 1fr 1fr; } }
+    .input-card { border: 1px solid var(--border); border-radius: 9px; padding: 0.85rem; min-width: 0; }
+    .input-card h3 { margin: 0 0 0.3rem; font-size: 0.92rem; }
+    .dropzone { border: 2px dashed #2d3f52; border-radius: 8px; padding: 1.25rem; text-align: center; cursor: pointer; margin-top: 0.65rem; }
+    .dropzone.dragover { border-color: var(--accent); background: #0f1a26; }
+    #fileInput, #verticalFileInput, #recordPreviewInput { display: none; }
+    button, .btn { background: #1c2733; color: var(--text); border: 1px solid #2d3f52; border-radius: 6px; padding: 0.45rem 0.9rem; cursor: pointer; font-size: 0.9rem; }
+    button.primary { background: linear-gradient(90deg, #3fb950, #2ea043); color: #04170a; border: none; font-weight: 700; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+    .platform-card { border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.75rem; }
+    .platform-card h3 { margin: 0; font-size: 0.95rem; }
+    .platform-title { display: flex; align-items: center; gap: 0.65rem; margin-bottom: 0.65rem; }
+    .platform-logo { width: 2rem; height: 2rem; flex: 0 0 2rem; display: grid; place-items: center; }
+    .platform-logo svg { display: block; width: 100%; height: 100%; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.28)); }
+    .placement { display: flex; gap: 0.6rem; align-items: flex-start; margin: 0.35rem 0; font-size: 0.88rem; color: var(--muted); }
+    .placement strong { color: var(--text); }
+    label.inline { display: inline-flex; gap: 0.4rem; align-items: center; font-size: 0.9rem; color: var(--muted); }
+    input[type="text"], input[type="password"], select { background: #0d1117; border: 1px solid #2d3f52; color: var(--text); border-radius: 6px; padding: 0.45rem 0.65rem; font-family: monospace; font-size: 0.85rem; width: 100%; }
+    .field { margin-bottom: 0.65rem; }
+    .field label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.25rem; }
+    #log { font-family: ui-monospace, monospace; font-size: 0.78rem; background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; max-height: 220px; overflow: auto; color: #c9d1d9; }
+    #log div { margin: 0.15rem 0; }
+    .stat-row { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+    .stat .value { font-size: 1.3rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .stat .label { font-size: 0.75rem; color: var(--muted); }
+    #grid {
+      display: grid;
+      gap: 1rem 0.9rem;
+      margin-top: 0.85rem;
+      padding: 0.25rem 0;
+      overflow: visible;
+    }
+    .grid-cell {
+      --slice-progress: 0%;
+      position: relative;
+      container-type: size;
+      min-height: 12rem;
+      aspect-ratio: 1;
+      border-radius: 12px;
+      background: #1c2733;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.035);
+      transition: background 0.2s ease, box-shadow 0.2s ease;
+      overflow: visible;
+    }
+    .grid-cell.active {
+      background: linear-gradient(
+        to top,
+        #2f81f7 0 var(--slice-progress),
+        #1c2733 var(--slice-progress) 100%
+      );
+      box-shadow: inset 0 0 0 1px rgba(88,166,255,0.55);
+    }
+    .grid-cell.indeterminate {
+      background: linear-gradient(135deg, #1c2733 20%, #2f81f7 45%, #1c2733 70%);
+      background-size: 250% 250%;
+      animation: slice-progress-pulse 1.2s linear infinite;
+    }
+    .grid-cell.done { background: var(--ok); box-shadow: none; animation: none; }
+    .grid-cell.has-worker-comment {
+      box-shadow: inset 0 0 0 2px rgba(210, 153, 34, 0.55);
+      z-index: 1;
+    }
+    .grid-cell.has-worker-comment.done {
+      box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+    }
+    .slice-callout {
+      position: absolute;
+      left: 50%;
+      top: 46%;
+      z-index: 5;
+      width: max-content;
+      max-width: calc(100% - 1.1rem);
+      height: auto;
+      display: block;
+      padding: 0.45rem 0.7rem 0.55rem;
+      background: #fff6d8;
+      color: #1c1420;
+      border: 3px solid #1c1420;
+      border-radius: 1.1rem 1.1rem 1.1rem 0.55rem;
+      box-shadow: 4px 4px 0 #1c1420;
+      font-family: "Comic Neue", "Comic Sans MS", "Chalkboard SE", "Segoe Print", cursive;
+      font-size: clamp(0.78rem, 4.2cqi + 0.2cqh, 1.2rem);
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: 0.005em;
+      text-align: center;
+      text-wrap: pretty;
+      overflow-wrap: anywhere;
+      hyphens: auto;
+      pointer-events: none;
+      opacity: 1;
+      transform: translate(-50%, -50%) rotate(-1deg);
+      transform-origin: center center;
+      animation: callout-pop 0.38s cubic-bezier(0.2, 1.4, 0.4, 1);
+    }
+    .slice-callout::after {
+      content: "";
+      position: absolute;
+      left: 1.1rem;
+      top: calc(100% - 1px);
+      width: 0;
+      height: 0;
+      border-style: solid;
+      border-width: 14px 12px 0 0;
+      border-color: #1c1420 transparent transparent transparent;
+      filter: drop-shadow(3px 3px 0 #1c1420);
+    }
+    .slice-callout::before {
+      content: "";
+      position: absolute;
+      left: 1.25rem;
+      top: calc(100% - 5px);
+      width: 0;
+      height: 0;
+      border-style: solid;
+      border-width: 10px 8px 0 0;
+      border-color: #fff6d8 transparent transparent transparent;
+      z-index: 1;
+    }
+    @keyframes callout-pop {
+      from { transform: translate(-50%, -50%) scale(0.72) rotate(-4deg); }
+      to { transform: translate(-50%, -50%) scale(1) rotate(-1deg); }
+    }
+    #workerCommentLegend {
+      margin-top: 0.65rem;
+      font-size: 0.82rem;
+      min-height: 1.1em;
+    }
+    @keyframes slice-progress-pulse {
+      from { background-position: 100% 100%; }
+      to { background-position: 0 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .grid-cell { transition: none; }
+      .grid-cell.indeterminate { animation: none; }
+      .slice-callout { animation: none; }
+    }
+    .bar-track { flex: 1; height: 14px; background: #1c2733; border-radius: 7px; overflow: hidden; min-width: 120px; }
+    .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3fb950, #2ea043); transition: width 0.2s ease; }
+    video { width: 100%; max-height: 280px; border-radius: 8px; background: #000; }
+    .outputs { display: grid; gap: 0.5rem; }
+    .output-row { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.88rem; }
+    .output-actions { display: flex; gap: 0.45rem; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
+    #outputPreviewPanel { margin-top: 1rem; display: grid; gap: 0.85rem; }
+    @media (min-width: 720px) {
+      #outputPreviewPanel { grid-template-columns: minmax(0, 1.2fr) minmax(16rem, 0.8fr); align-items: start; }
+    }
+    #outputPreview { width: 100%; max-height: 360px; border-radius: 8px; background: #000; }
+    .preview-meta { margin: 0; display: grid; grid-template-columns: 8.5rem 1fr; gap: 0.28rem 0.75rem; font-size: 0.82rem; }
+    .preview-meta dt { margin: 0; color: var(--muted); }
+    .preview-meta dd { margin: 0; word-break: break-all; }
+    .badge { display: inline-block; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 0.15rem 0.45rem; border-radius: 4px; background: rgba(88,166,255,0.15); color: var(--accent); border: 1px solid rgba(88,166,255,0.35); }
+    .badge.warn { background: rgba(240,136,62,0.15); color: var(--warn); border-color: rgba(240,136,62,0.4); }
+    .muted { color: var(--muted); font-size: 0.85rem; }
+    #readyStateBadge { margin-left: 0.5rem; }
+    .error-box { background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.4); color: #ff7b72; border-radius: 8px; padding: 0.75rem; margin-bottom: 1rem; }
+    .run-meta { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; align-items: center; margin-left: auto; }
+    .run-meta .stat .value { font-size: 1.05rem; }
+    .run-meta .stat .label { font-size: 0.72rem; }
+    .run-meta button.linkish { background: transparent; border: none; color: var(--accent); padding: 0; font-size: 0.75rem; text-decoration: underline; cursor: pointer; }
+    .run-meta .warn-text { color: var(--warn); }
+    .nofunds-box { background: rgba(240,136,62,0.12); border: 1px solid rgba(240,136,62,0.45); color: #ffb77a; border-radius: 8px; padding: 0.85rem 1rem; margin: 0.75rem 0 1rem; }
+    .nofunds-box strong { color: var(--warn); display: block; margin-bottom: 0.35rem; }
+    .nofunds-box .nofunds-stats { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; margin-top: 0.65rem; }
+    .nofunds-box .stat .value { font-size: 1.05rem; color: #ffe0c2; }
+    .nofunds-box code { font-size: 0.78rem; color: #ffd7b0; }
+    .cut-summary { margin: 0.55rem 0 0; font-size: 0.82rem; color: var(--muted); }
+    .cut-summary strong { color: var(--text); }
+    dialog.cut-dialog {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      color: var(--text);
+      padding: 0;
+      max-width: min(640px, calc(100vw - 2rem));
+      width: 100%;
+    }
+    dialog.cut-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+    .cut-dialog-body { padding: 1.1rem 1.25rem 1.25rem; }
+    .cut-dialog-body h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+    .cut-slice-list { display: grid; gap: 0.75rem; margin: 0.85rem 0; max-height: min(52vh, 420px); overflow: auto; }
+    .cut-slice {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem;
+      background: #0d141d;
+    }
+    .cut-slice-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      align-items: center;
+      margin-bottom: 0.55rem;
+    }
+    .cut-slice-head strong { font-size: 0.88rem; }
+    .cut-range { display: grid; gap: 0.45rem; }
+    .cut-range label {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .cut-range input[type="range"] { width: 100%; accent-color: var(--accent); }
+    .cut-dialog-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; }
+    .cut-dialog-actions .spacer { flex: 1 1 auto; }
+    .cut-error { color: #ff7b72; font-size: 0.82rem; margin: 0.35rem 0 0; min-height: 1.1em; }
+  </style>
+</head>
+<body>
+  <header class="page-header">
+    <div class="page-header-text">
+      <h1>DCP Social Media Transcoder</h1>
+      <p class="tagline">Record in the browser. Select platforms. Transcode on DCP. Influence the world.</p>
+    </div>
+    <div class="page-header-brand">
+      <img class="brand-logo" src="./exergy_connect_logo.png" alt="Exergy Connect" width="180" height="48" />
+      <p class="build-stamp" title="Build stamp">2026-08-27T15:06:06Z · 03df790</p>
+    </div>
+  </header>
+
+  <div id="runError" class="error-box hidden">
+    <div id="runErrorMessage"></div>
+    <div id="runErrorRemedy" class="muted" style="margin-top:0.35rem"></div>
+  </div>
+
+  <section>
+    <h2>1. Video inputs</h2>
+    <p class="muted">Add a primary horizontal video and, optionally, a vertical version. With two inputs, each selected placement uses the source whose orientation matches its output; with one, the primary is used everywhere.</p>
+    <div class="row" style="margin-bottom:0.75rem">
+      <button type="button" id="recordBtn">Start recording</button>
+      <button type="button" id="stopRecordBtn" disabled>Stop</button>
+      <span id="recordStatus" class="muted">Idle</span>
+    </div>
+    <video id="livePreview" muted playsinline class="hidden"></video>
+    <div class="input-grid">
+      <div class="input-card">
+        <h3>Primary · horizontal</h3>
+        <p class="muted">Required. Used for landscape and square outputs, and for every output when no vertical video is supplied.</p>
+        <div id="dropzone" class="dropzone">
+          <p>Drop or choose the primary video</p>
+          <p class="muted" style="font-size:0.8rem;margin-top:0.4rem">WebM or MP4 · landscape recommended</p>
+          <input id="fileInput" type="file" accept="video/webm,video/mp4,video/*" />
+        </div>
+        <div id="inputLoaded" class="hidden" style="margin-top:0.75rem">
+          <span class="badge">loaded</span>
+          <span id="fileInfo" class="muted" style="margin-left:0.5rem"></span>
+          <video id="preview" controls style="margin-top:0.75rem"></video>
+          <div class="row" style="margin-top:0.55rem">
+            <button type="button" id="stageCutBtn">Stage director’s cut</button>
+            <span id="cutSummary" class="cut-summary"></span>
+          </div>
+        </div>
+      </div>
+      <div class="input-card">
+        <h3>Secondary · vertical</h3>
+        <p class="muted">Optional. Used automatically for every output that is taller than it is wide.</p>
+        <div id="verticalDropzone" class="dropzone">
+          <p>Drop or choose the vertical video</p>
+          <p class="muted" style="font-size:0.8rem;margin-top:0.4rem">WebM or MP4 · portrait recommended</p>
+          <input id="verticalFileInput" type="file" accept="video/webm,video/mp4,video/*" />
+        </div>
+        <div id="verticalInputLoaded" class="hidden" style="margin-top:0.75rem">
+          <span class="badge">loaded</span>
+          <span id="verticalFileInfo" class="muted" style="margin-left:0.5rem"></span>
+          <video id="verticalPreview" controls style="margin-top:0.75rem"></video>
+          <button type="button" id="clearVerticalBtn" style="margin-top:0.55rem">Remove vertical video</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Platforms &amp; placements</h2>
+    <p class="muted">Select any combination of feed and vertical placements. Identical Meta specs encode once and are shared.</p>
+    <div id="platformList"></div>
+    <div class="field" style="margin-top:0.75rem;max-width:320px">
+      <label for="framingSelect">Framing</label>
+      <select id="framingSelect">
+        <option value="cover" selected>Fill (center crop)</option>
+        <option value="contain">Fit (pad)</option>
+      </select>
+    </div>
+    <div id="selectionSummary" class="muted"></div>
+    <div id="preflightCost" class="stat-row" style="margin-top:0.85rem">
+      <div class="stat">
+        <div id="preflightCostValue" class="value">—</div>
+        <div class="label">estimated DCP cost</div>
+      </div>
+      <div class="stat">
+        <div id="preflightSliceValue" class="value">—</div>
+        <div class="label">estimated slices</div>
+      </div>
+    </div>
+    <p id="preflightCostDetail" class="muted" style="margin:0.35rem 0 0"></p>
+  </section>
+
+  <section>
+    <h2>3. DCP account</h2>
+    <form id="identityForm" autocomplete="off">
+      <div class="field">
+        <label for="apiKeyInput">Identity API key</label>
+        <input id="apiKeyInput" type="password" name="dcp-identity-api-key" placeholder="0x… (64 hex)" spellcheck="false" autocomplete="off" />
+        <div id="apiKeyValidation" class="muted hidden" style="color:#ff7b72">Invalid DCP identity API key format.</div>
+      </div>
+    </form>
+    <form id="computeGroupsForm" autocomplete="off" style="margin-top:0.85rem">
+      <div class="field">
+        <label>Compute groups</label>
+        <div id="computeGroupRows"></div>
+        <button type="button" id="addComputeGroupBtn" style="margin-top:0.4rem">Add group</button>
+      </div>
+    </form>
+    <div class="row" style="margin-top:0.75rem">
+      <button type="button" id="clearAccountBtn">Clear saved account</button>
+      <a id="qrcodeLink" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open worker invitation in a new tab">
+        <div id="qrcode" title="Open worker invitation in a new tab"></div>
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <h2>4. Run</h2>
+    <div class="row" style="margin-bottom:0.75rem">
+      <label class="inline"><input type="checkbox" id="maxDistributionToggle" checked /> Max distribution (one DCP slice per chunk × unique format)</label>
+    </div>
+    <div class="row" style="align-items:flex-end">
+      <button type="button" class="primary" id="runBtn" disabled>Transcode on DCP</button>
+      <span id="readyStateBadge" class="badge">idle</span>
+      <div class="run-meta" id="runMeta">
+        <div class="stat">
+          <div id="costEstimate" class="value">—</div>
+          <div class="label">est. cost</div>
+        </div>
+        <div class="stat">
+          <div id="accountBalance" class="value">—</div>
+          <div class="label">balance <button type="button" class="linkish" id="refreshBalanceBtn">refresh</button></div>
+        </div>
+      </div>
+    </div>
+    <p id="costEstimateDetail" class="muted" style="margin:0.5rem 0 0"></p>
+    <div id="nofundsBox" class="nofunds-box hidden">
+      <strong>Insufficient DCP funds</strong>
+      <div id="nofundsMessage"></div>
+      <div class="nofunds-stats">
+        <div class="stat"><div id="nofundsRequired" class="value">—</div><div class="label">funds required</div></div>
+        <div class="stat"><div id="nofundsRemaining" class="value">—</div><div class="label">slices remaining</div></div>
+        <div class="stat"><div id="nofundsSlicePay" class="value">—</div><div class="label">per-slice payment</div></div>
+      </div>
+      <div id="nofundsRemedy" class="muted" style="margin-top:0.55rem"></div>
+    </div>
+    <div id="preprocessingStatus" class="muted hidden" style="margin-top:0.75rem"></div>
+    <div class="row" style="margin-top:0.75rem">
+      <span class="muted" style="width:70px">Fleet</span>
+      <div class="bar-track"><div id="fleetBar" class="bar-fill"></div></div>
+      <span id="fleetTime" class="muted" style="width:70px;text-align:right">0.0s</span>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><div id="statCompleted" class="value">0 / 0</div><div class="label">units complete</div></div>
+      <div class="stat"><div id="statUnique" class="value">0</div><div class="label">unique formats</div></div>
+      <div class="stat"><div id="statAliases" class="value">0</div><div class="label">aliased deliverables</div></div>
+    </div>
+    <div id="grid"></div>
+    <div id="workerCommentLegend" class="muted"></div>
+  </section>
+
+  <section id="outputsSection" class="hidden">
+    <h2>5. Outputs</h2>
+    <p class="muted">One H.264/AAC MP4 upload master per selected placement. Shared Meta encodes appear under each requested name. LinkedIn outputs can be sent to the device share sheet for posting in the LinkedIn app.</p>
+    <div id="outputs" class="outputs"></div>
+    <div id="outputPreviewPanel" class="hidden">
+      <video id="outputPreview" controls playsinline></video>
+      <div>
+        <h3 style="margin:0 0 0.5rem;font-size:0.9rem">Preview</h3>
+        <div id="outputPreviewMeta"></div>
+      </div>
+    </div>
+    <div class="row" style="margin-top:1rem">
+        <button type="button" class="primary hidden" id="saveOutputsBtn">Save all MP4s…</button>
+      <span id="saveOutputsStatus" class="muted"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Activity log</h2>
+    <div id="log"></div>
+  </section>
+
+  <dialog id="cutDialog" class="cut-dialog">
+    <div class="cut-dialog-body">
+      <h2>Director’s cut</h2>
+      <p class="muted" style="margin:0">
+        Choose ordered time slices shown when play is pressed. The same program
+        stages both primary and vertical sources before transcoding.
+      </p>
+      <p id="cutDialogMeta" class="muted" style="margin:0.45rem 0 0"></p>
+      <div id="cutSliceList" class="cut-slice-list"></div>
+      <p id="cutDialogError" class="cut-error"></p>
+      <div class="cut-dialog-actions">
+        <button type="button" id="cutAddSliceBtn">Add slice</button>
+        <button type="button" id="cutResetBtn">Reset to full video</button>
+        <span class="spacer"></span>
+        <button type="button" id="cutCancelBtn">Cancel</button>
+        <button type="button" class="primary" id="cutSaveBtn">Save</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script id="app-config" type="application/json">
+{"_concept":"dcp_transcoding_app","title":"DCP Social Media Transcoder","tagline":"Record in the browser. Select platforms. Transcode on DCP. Influence the world.","default_framing":"cover","runtime_script":"dcp-transcoding.js","bank_script":"dcp-bank-account.js","worker_script":"ffmpeg-worker.js","deploy_worker_script":"dcp-deploy-worker.js","wasm_glue":"ffmpeg-wasm/dcp-transcode-glue.js","wasm_binary":"ffmpeg-wasm/dcp-transcode.wasm","dcp_package":"ffmpeg-dcp-social/ffmpeg-wasm.js","worker_invite":{"_concept":"browser_worker_invite","url":"https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/worker.html","notes":"Public GitHub Pages browser worker encoded by the account QR code (replaces dcp.live)."},"codecs":{"vp8":{"_concept":"video_codec","name":"VP8","fourcc":"vp8","notes":"Common MediaRecorder fallback"},"vp9":{"_concept":"video_codec","name":"VP9","fourcc":"vp9","notes":"Preferred MediaRecorder video codec when supported"},"h264":{"_concept":"video_codec","name":"H.264 / AVC","fourcc":"avc1","notes":"Cross-platform social upload master video codec"},"opus":{"_concept":"audio_codec","name":"Opus","sample_rate_hz":48000,"channels":2,"notes":"Typical MediaRecorder audio codec"},"aac_lc":{"_concept":"audio_codec","name":"AAC-LC","sample_rate_hz":48000,"channels":2,"notes":"Cross-platform social upload master audio codec"}},"containers":{"webm":{"_concept":"container_format","name":"WebM","mime":"video/webm","extension":"webm"},"mp4":{"_concept":"container_format","name":"MP4","mime":"video/mp4","extension":"mp4"},"mpegts":{"_concept":"container_format","name":"MPEG-TS","mime":"video/mp2t","extension":"ts"}},"framing":{"cover":{"_concept":"framing_mode","id":"cover","label":"Fill (center crop)","description":"Scale to cover the target canvas, then center-crop. Prefer for feed and short-form masters."},"contain":{"_concept":"framing_mode","id":"contain","label":"Fit (pad)","description":"Scale to fit inside the target canvas and pad. Prefer when the full frame must be preserved."},"stretch":{"_concept":"framing_mode","id":"stretch","label":"Stretch","description":"Distorts to exact width×height. Avoid for social masters."}},"color":{"sdr_bt709":{"_concept":"color_policy","primaries":"bt709","transfer":"bt709","matrix":"bt709","range":"limited","pixel_format":"yuv420p"}},"timing":{"social_default":{"_concept":"timing_policy","output_fps":30,"mode":"cfr","gop_seconds":2,"notes":"Normalize browser VFR MediaRecorder timelines to 30 fps CFR."}},"input":{"_concept":"browser_recording_input","container":"webm","video_codecs":["vp9","vp8"],"audio_codecs":["opus"],"timing":"Potentially VFR; normalize to 30 fps CFR","color":"Assume SDR unless proven otherwise","mime_preference":["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus"]},"dispatch":{"_concept":"dcp_dispatch_policy","package_name":"ffmpeg-dcp-social/ffmpeg-wasm.js","target_chunk_frames":90,"dedupe_identical_formats":true,"unit":"(chunk, unique format signature)","notes":"Identical Meta feed/reels specs encode once and alias to every selected deliverable name."},"bank":{"_concept":"dcp_bank_query","service":"bankTeller","operation":"viewAccount","address_field":"address","authorize_with":"account_key","balance_field":"payload.balance","unit":"⊇","notes":"Identity must be set before opening the teller connection (EHAVEIDENTITY is non-fatal). The queried account key may also be the identity. Request viewAccount with { address }, authorize with that account's PrivateKey or Keystore, then read payload.balance.\n"},"pipeline":{"probe":{"_concept":"pipeline_stage","id":"probe","label":"Probe WebM","parallel":false,"description":"Confirm VP8/VP9, dimensions, audio presence, and timing."},"slice":{"_concept":"pipeline_stage","id":"slice","label":"Keyframe-aligned WebM slice","parallel":false,"description":"Stream-copy independent WebM chunks at video keyframes (~3 s @ 30 fps)."},"encode":{"_concept":"pipeline_stage","id":"encode","label":"DCP encode","parallel":true,"description":"One fleet slice per (chunk, unique format). Decode once per worker unit; emit H.264/AAC MPEG-TS."},"assemble":{"_concept":"pipeline_stage","id":"assemble","label":"Assemble + remux MP4","parallel":true,"description":"Ordered concat per format signature, then faststart MP4 remux. Independent signatures finalize concurrently."}},"formats":{"yt_feed":{"_concept":"video_format_specification","id":"yt-feed","width":1920,"height":1080,"aspect":"16:9","video_bitrate_kbps":8000,"audio_bitrate_kbps":192,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1920x1080-8000-192-30","notes":"YouTube long-form 1080p SDR upload master"},"yt_shorts":{"_concept":"video_format_specification","id":"yt-shorts","width":1080,"height":1920,"aspect":"9:16","video_bitrate_kbps":8000,"audio_bitrate_kbps":192,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1920-8000-192-30","notes":"YouTube Shorts vertical master"},"x_feed":{"_concept":"video_format_specification","id":"x-feed","width":1280,"height":720,"aspect":"16:9","video_bitrate_kbps":6000,"audio_bitrate_kbps":128,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1280x720-6000-128-30","notes":"X timeline 720p master for broadest playback"},"x_vertical":{"_concept":"video_format_specification","id":"x-vertical","width":720,"height":1280,"aspect":"9:16","video_bitrate_kbps":6000,"audio_bitrate_kbps":128,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"720x1280-6000-128-30","notes":"X vertical master"},"meta_feed":{"_concept":"video_format_specification","id":"meta-feed","width":1080,"height":1350,"aspect":"4:5","video_bitrate_kbps":7000,"audio_bitrate_kbps":160,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1350-7000-160-30","notes":"Shared Instagram/Facebook feed master"},"meta_reels":{"_concept":"video_format_specification","id":"meta-reels","width":1080,"height":1920,"aspect":"9:16","video_bitrate_kbps":9000,"audio_bitrate_kbps":160,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1920-9000-160-30","notes":"Shared Instagram/Facebook Reels master"},"li_feed":{"_concept":"video_format_specification","id":"li-feed","width":1080,"height":1350,"aspect":"4:5","video_bitrate_kbps":6000,"audio_bitrate_kbps":160,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1350-6000-160-30","notes":"LinkedIn ad-safe vertical feed master"},"li_vertical":{"_concept":"video_format_specification","id":"li-vertical","width":1080,"height":1920,"aspect":"9:16","video_bitrate_kbps":6000,"audio_bitrate_kbps":160,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1920-6000-160-30","notes":"LinkedIn vertical / ads-max master"}},"platforms":{"youtube":{"_concept":"social_media_platform","id":"youtube","name":"YouTube","notes":"Bitrate-hungry; prefer native 16:9 and 9:16 without baked bars.","placements":{"feed":{"_concept":"placement_profile","id":"yt-feed","label":"Long-form / feed","family":"feed","format":{"_concept":"video_format_specification","id":"yt-feed","width":1920,"height":1080,"aspect":"16:9","video_bitrate_kbps":8000,"audio_bitrate_kbps":192,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1920x1080-8000-192-30","notes":"YouTube long-form 1080p SDR upload master"},"default_selected":true},"shorts":{"_concept":"placement_profile","id":"yt-shorts","label":"Shorts","family":"vertical","format":{"_concept":"video_format_specification","id":"yt-shorts","width":1080,"height":1920,"aspect":"9:16","video_bitrate_kbps":8000,"audio_bitrate_kbps":192,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1920-8000-192-30","notes":"YouTube Shorts vertical master"},"default_selected":false}}},"x":{"_concept":"social_media_platform","id":"x","name":"X (Twitter)","notes":"720p default for broadest playback; Premium 1080p is optional elsewhere.","placements":{"feed":{"_concept":"placement_profile","id":"x-feed","label":"Timeline","family":"feed","format":{"_concept":"video_format_specification","id":"x-feed","width":1280,"height":720,"aspect":"16:9","video_bitrate_kbps":6000,"audio_bitrate_kbps":128,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1280x720-6000-128-30","notes":"X timeline 720p master for broadest playback"},"default_selected":true},"vertical":{"_concept":"placement_profile","id":"x-vertical","label":"Vertical","family":"vertical","format":{"_concept":"video_format_specification","id":"x-vertical","width":720,"height":1280,"aspect":"9:16","video_bitrate_kbps":6000,"audio_bitrate_kbps":128,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"720x1280-6000-128-30","notes":"X vertical master"},"default_selected":false}}},"instagram":{"_concept":"social_media_platform","id":"instagram","name":"Instagram","notes":"Shares Meta feed/reels geometry with Facebook for encode dedupe.","placements":{"feed":{"_concept":"placement_profile","id":"ig-feed","label":"Feed (4:5)","family":"feed","format":{"_concept":"video_format_specification","id":"meta-feed","width":1080,"height":1350,"aspect":"4:5","video_bitrate_kbps":7000,"audio_bitrate_kbps":160,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1350-7000-160-30","notes":"Shared Instagram/Facebook feed master"},"default_selected":true},"reels":{"_concept":"placement_profile","id":"ig-reels","label":"Reels","family":"vertical","format":{"_concept":"video_format_specification","id":"meta-reels","width":1080,"height":1920,"aspect":"9:16","video_bitrate_kbps":9000,"audio_bitrate_kbps":160,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1920-9000-160-30","notes":"Shared Instagram/Facebook Reels master"},"default_selected":false}}},"facebook":{"_concept":"social_media_platform","id":"facebook","name":"Facebook","notes":"Same Meta masters as Instagram; identical signatures encode once.","placements":{"feed":{"_concept":"placement_profile","id":"fb-feed","label":"Feed (4:5)","family":"feed","format":{"_concept":"video_format_specification","id":"meta-feed","width":1080,"height":1350,"aspect":"4:5","video_bitrate_kbps":7000,"audio_bitrate_kbps":160,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1350-7000-160-30","notes":"Shared Instagram/Facebook feed master"},"default_selected":true},"reels":{"_concept":"placement_profile","id":"fb-reels","label":"Reels","family":"vertical","format":{"_concept":"video_format_specification","id":"meta-reels","width":1080,"height":1920,"aspect":"9:16","video_bitrate_kbps":9000,"audio_bitrate_kbps":160,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1920-9000-160-30","notes":"Shared Instagram/Facebook Reels master"},"default_selected":false}}},"linkedin":{"_concept":"social_media_platform","id":"linkedin","name":"LinkedIn","notes":"Ad-safe ≤30 fps masters for organic and sponsored reuse.","placements":{"feed":{"_concept":"placement_profile","id":"li-feed","label":"Feed (4:5)","family":"feed","format":{"_concept":"video_format_specification","id":"li-feed","width":1080,"height":1350,"aspect":"4:5","video_bitrate_kbps":6000,"audio_bitrate_kbps":160,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1350-6000-160-30","notes":"LinkedIn ad-safe vertical feed master"},"default_selected":true},"vertical":{"_concept":"placement_profile","id":"li-vertical","label":"Vertical","family":"vertical","format":{"_concept":"video_format_specification","id":"li-vertical","width":1080,"height":1920,"aspect":"9:16","video_bitrate_kbps":6000,"audio_bitrate_kbps":160,"max_fps":30,"video_codec":"h264","audio_codec":"aac_lc","container":"mp4","profile":"main","pixel_format":"yuv420p","gop_seconds":2,"signature":"1080x1920-6000-160-30","notes":"LinkedIn vertical / ads-max master"},"default_selected":false}}}},"_id":"app"}
+  </script>
+  <script src="./dcp-bank-account.js"></script>
+  <script src="./dcp-transcoding.js"></script>
+</body>
+</html>
