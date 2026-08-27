@@ -11,7 +11,7 @@ against, and no hardcoded identity/compute group. Point it at your own
 DCP account and compute group from the page itself.
 
 **Live xFrame social transcoder:**
-[https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/dcp-transcoding.html](https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/dcp-transcoding.html)
+[https://exergy-connect.github.io/ffmpeg-dcp/dcp-transcoding.html](https://exergy-connect.github.io/ffmpeg-dcp/dcp-transcoding.html)
 
 ## Run it
 
