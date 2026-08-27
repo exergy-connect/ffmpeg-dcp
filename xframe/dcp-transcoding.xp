@@ -182,7 +182,7 @@ app:
   deploy_worker_script: dcp-deploy-worker.js
   wasm_glue: ffmpeg-wasm/dcp-transcode-glue.js
   wasm_binary: ffmpeg-wasm/dcp-transcode.wasm
-  dcp_package: ffmpeg-dcp-social/ffmpeg-wasm.js
+  dcp_package: ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js
   worker_invite:
     _concept: browser_worker_invite
     url: https://exergy-connect.github.io/ffmpeg-dcp/worker.html
@@ -293,7 +293,7 @@ app:
 
   dispatch:
     _concept: dcp_dispatch_policy
-    package_name: ffmpeg-dcp-social/ffmpeg-wasm.js
+    package_name: ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js
     target_chunk_frames: 90
     dedupe_identical_formats: true
     unit: "(chunk, unique format signature)"

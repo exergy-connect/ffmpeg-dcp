@@ -87,8 +87,9 @@ node package/publish.js --apiKey=0x…   # or DCP_API_KEY
 ```
 
 `publish.js` deploys `ffmpeg-dcp-social` to the DCP package manager so
-`job.requires(['ffmpeg-dcp-social/ffmpeg-wasm.js'])` resolves. Until that
-package is published, fleet jobs fail with `Could not locate module
+`job.requires(['ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js'])` resolves. Pin the
+`@version` so workers do not keep an older build that lacks `extract_time_range`.
+Until that package is published, fleet jobs fail with `Could not locate module
 /packages/ffmpeg-dcp-social/package.dcp`.
 
 The Docker build fetches and compiles the required Emscripten, FFmpeg, and

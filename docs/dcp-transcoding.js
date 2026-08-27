@@ -1431,6 +1431,8 @@ let commentSpeechActive = false;
 let currentCommentAudio = null;
 let commentSpeechGeneration = 0;
 let commentAutoplayOpen = true;
+/** Grid cell whose comment is playing from a manual click (toggle-to-stop). */
+let activeManualCommentCell = null;
 const playedDemoAudioLocales = new Set();
 const DEMO_COMMENT_AUDIO_BASE =
   String(CONFIG.worker_invite?.demo_audio_base || 'crazyOnes/audio/gemini').replace(/\/+$/, '');
@@ -1583,6 +1585,10 @@ async function drainCommentSpeechQueue() {
   const generation = commentSpeechGeneration;
   try {
     while (commentSpeechQueue.length && generation === commentSpeechGeneration) {
+      if (el('readOutCommentsToggle')?.checked === false && !activeManualCommentCell) {
+        commentSpeechQueue.length = 0;
+        break;
+      }
       const normalized = commentSpeechQueue.shift();
       const audioUrl = demoCommentAudioUrl(normalized);
       const played = audioUrl ? await playCommentAudio(audioUrl) : false;
@@ -1590,13 +1596,17 @@ async function drainCommentSpeechQueue() {
       if (!played) await speakCommentWithBrowser(normalized);
     }
   } finally {
-    if (generation === commentSpeechGeneration) commentSpeechActive = false;
+    if (generation === commentSpeechGeneration) {
+      commentSpeechActive = false;
+      activeManualCommentCell = null;
+    }
   }
 }
 
 function enqueueCommentSpeech(normalized, { force = false } = {}) {
   if (!normalized?.text) return;
   if (!force && !commentAutoplayOpen) return;
+  if (!force && el('readOutCommentsToggle')?.checked === false) return;
   if (normalized.demoCommentIndex != null) {
     if (!normalized.demoAudioLocale && !force) return;
   } else {
@@ -1606,8 +1616,31 @@ function enqueueCommentSpeech(normalized, { force = false } = {}) {
   commentSpeechQueue.push(normalized);
   drainCommentSpeechQueue().catch((err) => {
     commentSpeechActive = false;
+    activeManualCommentCell = null;
     console.warn('Worker comment speech failed', err);
   });
+}
+
+function isCommentPlaybackActive() {
+  if (commentSpeechActive || currentCommentAudio) return true;
+  try {
+    if ('speechSynthesis' in window && speechSynthesis.speaking) return true;
+  } catch { /* ignore */ }
+  return commentSpeechQueue.length > 0;
+}
+
+/** Stop autoplay/manual playback immediately (pending + in-flight). */
+function stopCommentAutoplayPlayback() {
+  commentSpeechGeneration += 1;
+  commentSpeechQueue.length = 0;
+  commentSpeechActive = false;
+  activeManualCommentCell = null;
+  if (currentCommentAudio) {
+    currentCommentAudio.pause();
+    currentCommentAudio.dispatchEvent(new Event('error'));
+    currentCommentAudio = null;
+  }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
 }
 
 function workerCommentFromCell(cell) {
@@ -1737,12 +1770,18 @@ function ensureLinkedInPicker(cell) {
 function playWorkerCommentFromCell(cell) {
   let normalized = workerCommentFromCell(cell);
   if (!normalized) return;
+  if (activeManualCommentCell === cell && isCommentPlaybackActive()) {
+    stopCommentAutoplayPlayback();
+    return;
+  }
   if (normalized.demoCommentIndex != null && !normalized.demoAudioLocale) {
     const demoAudioLocale = demoAudioLocaleForLanguage(normalized.language);
     if (demoAudioLocale) {
       normalized = { ...normalized, demoAudioLocale };
     }
   }
+  stopCommentAutoplayPlayback();
+  activeManualCommentCell = cell;
   enqueueCommentSpeech(normalized, { force: true });
 }
 
@@ -1756,6 +1795,7 @@ function resetCommentSpeechQueue() {
   commentSpeechQueue.length = 0;
   commentSpeechActive = false;
   commentAutoplayOpen = true;
+  activeManualCommentCell = null;
   playedDemoAudioLocales.clear();
   if (currentCommentAudio) {
     currentCommentAudio.pause();
@@ -1764,6 +1804,12 @@ function resetCommentSpeechQueue() {
   }
   if ('speechSynthesis' in window) speechSynthesis.cancel();
 }
+
+el('readOutCommentsToggle')?.addEventListener('change', () => {
+  if (el('readOutCommentsToggle')?.checked === false) {
+    stopCommentAutoplayPlayback();
+  }
+});
 
 if ('speechSynthesis' in window) {
   speechSynthesis.getVoices();
@@ -1971,7 +2017,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     formats: uniqueFormats.length,
     maxDistribution,
     paymentPerSlice: slicePaymentDcc,
-    package: CONFIG.dcp_package || 'ffmpeg-dcp-social/ffmpeg-wasm.js',
+    package: CONFIG.dcp_package || 'ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js',
   });
   dbg('ensureIdentity…');
   await ensureIdentity();
@@ -1983,6 +2029,8 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     hasId: Boolean(pay),
   });
   await fetchAccountBalance(pay);
+
+  const dcpPackageId = CONFIG.dcp_package || 'ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js';
 
   const formatsMeta = uniqueFormats.map((f) => ({
     signature: f.signature,
@@ -2044,11 +2092,12 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   dbg(`inputSet ready: ${inputSet.length} slice(s)`, inputSummary.slice(0, 8));
   if (inputSummary.length > 8) dbg(`… ${inputSummary.length - 8} more slice(s) omitted from summary`);
 
-  async function workFunction(unit, formatsMetaJsonArg) {
+  async function workFunction(unit, formatsMetaJsonArg, packageIdArg) {
     // console.* on the worker is often forwarded as job 'console' events.
     const wlog = (...args) => {
       try { console.log('[social-wf]', ...args); } catch (_) { /* ignore */ }
     };
+    const packageId = String(packageIdArg || 'ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js');
     const readWorkerComment = () => {
       try {
         const sources = [
@@ -2153,15 +2202,16 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         : formatsMetaArg.map((_, i) => i);
       let activeFormatPosition = 0;
       const formatCount = Math.max(1, indexes.length);
-      wlog('require ffmpeg-dcp-social/ffmpeg-wasm.js…');
+      wlog('require', packageId);
       // Fully-qualified package id — bare 'ffmpeg-wasm.js' can resolve relative to
       // the sandbox evaluator path (…/src/…) as package "src" when the published
       // package is missing from the module search path (seen on iOS Safari).
-      const required = require('ffmpeg-dcp-social/ffmpeg-wasm.js');
+      // Pin @version so fleet workers do not keep a cached pre-extract build.
+      const required = require(packageId);
       wlog('require keys', required && typeof required === 'object' ? Object.keys(required) : typeof required);
       const createFfmpegModule = required.createFfmpegModule || required.default || required;
       if (typeof createFfmpegModule !== 'function') {
-        throw new Error('ffmpeg-dcp-social/ffmpeg-wasm.js did not export createFfmpegModule');
+        throw new Error(`${packageId} did not export createFfmpegModule`);
       }
       wlog('createFfmpegModule…');
       const Module = await createFfmpegModule({
@@ -2212,8 +2262,8 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       if (unit.needsTrim) {
         if (typeof Module._extract_time_range !== 'function') {
           throw new Error(
-            'extract_time_range missing from fleet WASM — republish ffmpeg-dcp-social ' +
-            'so director’s-cut boundary trims can run on DCP.',
+            'extract_time_range missing from fleet WASM — jobs must require ' +
+            'ffmpeg-dcp-social@0.1.3/ffmpeg-wasm.js (republish if that version is absent).',
           );
         }
         const trimStart = Number(unit.trimStartSec) || 0;
@@ -2335,9 +2385,9 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   setupGrid(inputSet, formatsMeta);
   el('statCompleted').textContent = `0 / ${totalUnits}`;
 
-  dbg('compute.for…', { slices: inputSet.length, argsBytes: formatsMetaJson.length });
-  const job = compute.for(inputSet, workFunction, [formatsMetaJson]);
-  job.requires([CONFIG.dcp_package || 'ffmpeg-dcp-social/ffmpeg-wasm.js']);
+  dbg('compute.for…', { slices: inputSet.length, argsBytes: formatsMetaJson.length, package: dcpPackageId });
+  const job = compute.for(inputSet, workFunction, [formatsMetaJson, dcpPackageId]);
+  job.requires([dcpPackageId]);
   job.computeGroups = getComputeGroups();
   job.public = {
     name: `🎞️ Social transcoder: ${inputBaseName}`,
