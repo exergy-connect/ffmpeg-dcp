@@ -1360,6 +1360,8 @@ function normalizeWorkerComment(raw, defaultLanguage = 'en-US') {
   if (typeof raw === 'object' && raw !== null) {
     const text = String(raw.text ?? raw.comment ?? '').trim();
     const language = String(raw.language || defaultLanguage).trim() || defaultLanguage;
+    const playbackLanguage = String(raw.playbackLanguage || raw.demoAudioLocale || '').trim();
+    const displayLanguage = playbackLanguage || language;
     const parsedDemoIndex = Number.parseInt(
       raw.demoCommentIndex ?? raw.demoIndex ?? raw.demo_index,
       10,
@@ -1374,9 +1376,10 @@ function normalizeWorkerComment(raw, defaultLanguage = 'en-US') {
       text,
       language,
       ...(demoCommentIndex != null ? { demoCommentIndex } : {}),
-      flag: languageFlag(language),
+      ...(playbackLanguage ? { playbackLanguage, demoAudioLocale: playbackLanguage } : {}),
+      flag: languageFlag(displayLanguage),
       key: `${language}\0${text}\0${demoCommentIndex || 0}`,
-      display: `${languageFlag(language)} ${text}`,
+      display: `${languageFlag(displayLanguage)} ${text}`,
     };
   }
   const value = String(raw).trim();
@@ -1493,22 +1496,41 @@ async function drainCommentSpeechQueue() {
   }
 }
 
-function enqueueCommentSpeech(normalized) {
+function enqueueCommentSpeech(normalized, { force = false } = {}) {
   if (!normalized?.text) return;
-  let queued = normalized;
   if (normalized.demoCommentIndex != null) {
-    const demoAudioLocale = reserveDemoAudioLocale(normalized.language);
-    if (!demoAudioLocale) return;
-    queued = { ...normalized, demoAudioLocale };
+    if (!normalized.demoAudioLocale && !force) return;
   } else {
-    if (spokenCommentKeys.has(normalized.key)) return;
+    if (!force && spokenCommentKeys.has(normalized.key)) return;
     spokenCommentKeys.add(normalized.key);
   }
-  commentSpeechQueue.push(queued);
+  commentSpeechQueue.push(normalized);
   drainCommentSpeechQueue().catch((err) => {
     commentSpeechActive = false;
     console.warn('Worker comment speech failed', err);
   });
+}
+
+function workerCommentFromCell(cell) {
+  if (!cell?.dataset?.workerComment) return null;
+  return normalizeWorkerComment({
+    text: cell.dataset.workerComment,
+    language: cell.dataset.workerLanguage,
+    demoCommentIndex: cell.dataset.workerDemoCommentIndex,
+    playbackLanguage: cell.dataset.workerPlaybackLanguage,
+  });
+}
+
+function playWorkerCommentFromCell(cell) {
+  let normalized = workerCommentFromCell(cell);
+  if (!normalized) return;
+  if (normalized.demoCommentIndex != null && !normalized.demoAudioLocale) {
+    const demoAudioLocale = demoAudioLocaleForLanguage(normalized.language);
+    if (demoAudioLocale) {
+      normalized = { ...normalized, demoAudioLocale };
+    }
+  }
+  enqueueCommentSpeech(normalized, { force: true });
 }
 
 function resetCommentSpeechQueue() {
@@ -1553,6 +1575,7 @@ function setupGrid(units, formatsMeta) {
     const cell = document.createElement('div');
     cell.className = 'grid-cell';
     cell.style.setProperty('--slice-progress', '0%');
+    cell.dataset.sliceProgress = '0';
     cell.dataset.baseTitle = baseTitle;
     cell.title = `${baseTitle}\npending`;
     cell.setAttribute('role', 'progressbar');
@@ -1560,6 +1583,12 @@ function setupGrid(units, formatsMeta) {
     cell.setAttribute('aria-valuemin', '0');
     cell.setAttribute('aria-valuemax', '100');
     cell.setAttribute('aria-valuenow', '0');
+    cell.addEventListener('click', () => playWorkerCommentFromCell(cell));
+    cell.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      playWorkerCommentFromCell(cell);
+    });
     grid.appendChild(cell);
     gridCells[i] = cell;
   }
@@ -1569,13 +1598,14 @@ function updateSliceProgress(sliceNumber, rawProgress) {
   const index = Number(sliceNumber) - 1; // DCP slice numbers are one-based.
   const cell = gridCells[index];
   if (!cell || cell.classList.contains('done')) return;
-  const n = Number(rawProgress);
+  const n = Number(rawProgress ?? cell.dataset.sliceProgress);
   cell.classList.add('active');
   const commentLine = cell.dataset.workerComment
     ? `\nworker: ${normalizeWorkerComment({
       text: cell.dataset.workerComment,
       language: cell.dataset.workerLanguage,
       demoCommentIndex: cell.dataset.workerDemoCommentIndex,
+      playbackLanguage: cell.dataset.workerPlaybackLanguage,
     })?.display || cell.dataset.workerComment}`
     : '';
   if (!Number.isFinite(n)) {
@@ -1587,7 +1617,10 @@ function updateSliceProgress(sliceNumber, rawProgress) {
   const ratio = Math.max(0, Math.min(1, n > 1 ? n / 100 : n));
   const percent = Math.round(ratio * 100);
   cell.style.setProperty('--slice-progress', `${percent}%`);
-  cell.setAttribute('aria-valuenow', String(percent));
+  cell.dataset.sliceProgress = String(percent);
+  if (cell.getAttribute('role') === 'progressbar') {
+    cell.setAttribute('aria-valuenow', String(percent));
+  }
   cell.title = `${cell.dataset.baseTitle}${commentLine}\n${percent}% transcoded`;
 }
 
@@ -1595,6 +1628,32 @@ function applyWorkerCommentToCell(cell, workerComment) {
   if (!cell) return;
   const normalized = normalizeWorkerComment(workerComment);
   if (!normalized) return;
+  let presented = normalized;
+  if (cell.dataset.workerSpeechKey === normalized.key) {
+    if (cell.dataset.workerPlaybackLanguage) {
+      presented = normalizeWorkerComment({
+        ...normalized,
+        playbackLanguage: cell.dataset.workerPlaybackLanguage,
+      });
+    }
+  } else {
+    const demoAudioLocale = normalized.demoCommentIndex != null
+      ? reserveDemoAudioLocale(normalized.language)
+      : null;
+    if (demoAudioLocale) {
+      presented = normalizeWorkerComment({
+        ...normalized,
+        playbackLanguage: demoAudioLocale,
+      });
+      cell.dataset.workerPlaybackLanguage = demoAudioLocale;
+    } else {
+      delete cell.dataset.workerPlaybackLanguage;
+    }
+    cell.dataset.workerSpeechKey = normalized.key;
+    if (el('readOutCommentsToggle')?.checked !== false) {
+      enqueueCommentSpeech(presented);
+    }
+  }
   cell.dataset.workerComment = normalized.text;
   cell.dataset.workerLanguage = normalized.language;
   if (normalized.demoCommentIndex != null) {
@@ -1603,6 +1662,12 @@ function applyWorkerCommentToCell(cell, workerComment) {
     delete cell.dataset.workerDemoCommentIndex;
   }
   cell.classList.add('has-worker-comment');
+  const now = cell.dataset.sliceProgress || cell.getAttribute('aria-valuenow') || '0';
+  cell.setAttribute('role', 'button');
+  cell.setAttribute('tabindex', '0');
+  cell.removeAttribute('aria-valuemin');
+  cell.removeAttribute('aria-valuemax');
+  cell.removeAttribute('aria-valuenow');
   let callout = cell.querySelector('.slice-callout');
   if (!callout) {
     callout = document.createElement('div');
@@ -1610,18 +1675,16 @@ function applyWorkerCommentToCell(cell, workerComment) {
     callout.setAttribute('aria-hidden', 'true');
     cell.appendChild(callout);
   }
-  callout.textContent = normalized.display;
-  if (cell.dataset.workerSpeechKey !== normalized.key) {
-    cell.dataset.workerSpeechKey = normalized.key;
-    enqueueCommentSpeech(normalized);
-  }
-  const commentLine = `\nworker: ${normalized.display}`;
-  const now = cell.getAttribute('aria-valuenow') || '0';
+  callout.textContent = presented.display;
+  const commentLine = `\nworker: ${presented.display}`;
   const state = cell.classList.contains('done')
     ? 'complete'
     : (cell.classList.contains('indeterminate') ? 'transcoding…' : `${now}%`);
   cell.title = `${cell.dataset.baseTitle}${commentLine}\n${state}`;
-  cell.setAttribute('aria-label', `${cell.dataset.baseTitle}; worker ${normalized.display}`);
+  cell.setAttribute(
+    'aria-label',
+    `${cell.dataset.baseTitle}; play worker comment ${presented.display}; ${state}`,
+  );
   refreshWorkerCommentLegend();
 }
 
@@ -1637,6 +1700,7 @@ function refreshWorkerCommentLegend() {
       text,
       language,
       demoCommentIndex: cell.dataset.workerDemoCommentIndex,
+      playbackLanguage: cell.dataset.workerPlaybackLanguage,
     });
     if (normalized) comments.set(normalized.key, normalized.display);
   }
@@ -2061,7 +2125,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       const sliceNumber = ev.sliceNumber ?? ev.sliceIndex ?? ev.slice;
       const index = Number(sliceNumber) - 1;
       applyWorkerCommentToCell(gridCells[index], commentMatch[1].trim());
-      updateSliceProgress(sliceNumber, gridCells[index]?.getAttribute('aria-valuenow'));
+      updateSliceProgress(sliceNumber, gridCells[index]?.dataset?.sliceProgress);
     }
     const match = message.match(/\[social-progress\]\s+([0-9.]+)/);
     if (!match) return;
@@ -2106,12 +2170,14 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       cell.classList.remove('active', 'indeterminate');
       cell.classList.add('done');
       cell.style.setProperty('--slice-progress', '100%');
-      cell.setAttribute('aria-valuenow', '100');
+      cell.dataset.sliceProgress = '100';
+      if (cell.getAttribute('role') === 'progressbar') cell.setAttribute('aria-valuenow', '100');
       const commentLine = cell.dataset.workerComment
         ? `\nworker: ${normalizeWorkerComment({
           text: cell.dataset.workerComment,
           language: cell.dataset.workerLanguage,
           demoCommentIndex: cell.dataset.workerDemoCommentIndex,
+          playbackLanguage: cell.dataset.workerPlaybackLanguage,
         })?.display || cell.dataset.workerComment}`
         : '';
       cell.title = `${cell.dataset.baseTitle}${commentLine}\ncomplete`;

@@ -60,6 +60,7 @@ assert(html.includes('id="cutDialog"'), 'HTML must include director’s cut dial
 assert(html.includes('id="cutAddSliceBtn"'), 'HTML must include add-slice control');
 assert(html.includes('id="cutSliceList"'), 'HTML must include cut slice list');
 assert(html.includes('id="cutSaveBtn"'), 'HTML must include cut save control');
+assert(html.includes('id="readOutCommentsToggle"'), 'HTML must include Read out comments toggle');
 assert(
   fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8').includes('DIRECTORS_CUT_STORAGE_PREFIX'),
   'runtime must persist director’s cut programs',
@@ -78,8 +79,10 @@ const transcoderRuntime = fs.readFileSync(path.join(root, 'dcp-transcoding.js'),
 assert(
   transcoderRuntime.includes('demoCommentAudioUrl') &&
     transcoderRuntime.includes('reserveDemoAudioLocale') &&
+    transcoderRuntime.includes('workerPlaybackLanguage') &&
+    transcoderRuntime.includes('playWorkerCommentFromCell') &&
     transcoderRuntime.includes('speakCommentWithBrowser'),
-  'web UI must rotate demo WAV languages with browser speech fallback',
+  'web UI must rotate demo WAV languages, update flags, support replay, and fall back to browser speech',
 );
 assert(
   fs.readFileSync(path.join(root, 'src/dcp-transcode.c'), 'utf8').includes('extract_time_range'),
