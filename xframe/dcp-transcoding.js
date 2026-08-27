@@ -2415,7 +2415,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   job.on('accepted', () => {
     log(
       `Job accepted id=${job.id || '(unknown)'} — waiting for workers. ` +
-      `Each worker must download/instantiate ffmpeg-dcp-social (~8MB); first result often takes 1–3+ minutes.`,
+      `Each worker must download/instantiate ffmpeg-dcp-social-v2 (~8MB); first result often takes 1–3+ minutes.`,
     );
   });
   job.on('status', (ev) => {
@@ -2567,7 +2567,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     if (Number(st.distributed) > 0 && Number(st.computed) === 0 && resultEvents === 0 && Number(sec) >= 45) {
       dbg(
         'hint: slices are distributed but none computed yet — workers are likely still loading ' +
-        'ffmpeg-dcp-social WASM; watch for job.console [social-wf] lines',
+        'ffmpeg-dcp-social-v2 WASM; watch for job.console [social-wf] lines',
       );
     }
     const status = el('preprocessingStatus');
