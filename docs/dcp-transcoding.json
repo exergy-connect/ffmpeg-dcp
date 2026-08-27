@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-27T15:06:06.425Z",
-    "modifiedAt": "2026-08-27T15:06:06.425Z",
+    "createdAt": "2026-08-27T15:08:19.492Z",
+    "modifiedAt": "2026-08-27T15:08:19.492Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp",
-      "hash": "sha256:cf029bafe2acd917133ea836c5d6b62dedc189cc0995021863c60ee3e48796e3",
+      "hash": "sha256:72ba86cfa94e07c0b487ebf316b4148bd2b7c60e4555cf759acb607b3db6e93e",
       "createdAt": "2026-08-24T19:23:37.516Z",
-      "modifiedAt": "2026-08-27T14:43:23.359Z"
+      "modifiedAt": "2026-08-27T15:08:17.070Z"
     }
   ],
   "_concepts": {
@@ -251,7 +251,7 @@
       "dcp_package": "ffmpeg-dcp-social/ffmpeg-wasm.js",
       "worker_invite": {
         "_concept": "browser_worker_invite",
-        "url": "https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/worker.html",
+        "url": "https://exergy-connect.github.io/ffmpeg-dcp/worker.html",
         "notes": "Public GitHub Pages browser worker encoded by the account QR code (replaces dcp.live)."
       },
       "codecs": {

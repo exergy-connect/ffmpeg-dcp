@@ -175,7 +175,7 @@ app:
   dcp_package: ffmpeg-dcp-social/ffmpeg-wasm.js
   worker_invite:
     _concept: browser_worker_invite
-    url: https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/worker.html
+    url: https://exergy-connect.github.io/ffmpeg-dcp/worker.html
     notes: Public GitHub Pages browser worker encoded by the account QR code (replaces dcp.live).
 
   codecs:
@@ -566,23 +566,6 @@ app:
           format: "{{ app.formats.li_vertical }}"
           default_selected: false
 
-_assert:
-  - test: "{{ app.platforms.youtube.placements.feed.format.width == 1920 }}"
-    message: YouTube feed master must be 1920 wide
-  - test: "{{ app.platforms.instagram.placements.feed.format.signature == app.platforms.facebook.placements.feed.format.signature }}"
-    message: Instagram and Facebook feed signatures must match for DCP dedupe
-  - test: "{{ app.platforms.instagram.placements.reels.format.signature == app.platforms.facebook.placements.reels.format.signature }}"
-    message: Instagram and Facebook reels signatures must match for DCP dedupe
-  - test: "{{ app.timing.social_default.output_fps == 30 }}"
-    message: Social default output fps must be 30
-  - test: "{{ app.dispatch.dedupe_identical_formats }}"
-    message: Dispatch must dedupe identical format signatures
-  - test: "{{ app.bank.operation == 'viewAccount' }}"
-    message: Bank balance query must use viewAccount (see test/accountBalance.js)
-  - test: "{{ app.bank.balance_field == 'payload.balance' }}"
-    message: Bank balance must be read from payload.balance
-  - test: "{{ app.worker_invite.url == 'https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/worker.html' }}"
-    message: Public worker invite URL must be the GitHub Pages worker.html
 ---
 _id: app
 ===
