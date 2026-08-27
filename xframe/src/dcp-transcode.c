@@ -1853,11 +1853,8 @@ int extract_time_range(const char *input_path, const char *output_path,
   if ((ret = avformat_write_header(out_fmt, NULL)) < 0)
     TRANSCODE_FAIL("extract: write_header", ret);
 
-  int64_t start_ts = (int64_t)(start_sec * av_q2d(av_inv_q(source_tb)) + 0.5);
-  int64_t end_ts = (int64_t)(end_sec * av_q2d(av_inv_q(source_tb)) + 0.5);
-  /* Prefer stream time_base conversion for seek target. */
-  start_ts = av_rescale_q((int64_t)(start_sec * 1000.0), (AVRational){1, 1000}, source_tb);
-  end_ts = av_rescale_q((int64_t)(end_sec * 1000.0), (AVRational){1, 1000}, source_tb);
+  int64_t start_ts = av_rescale_q((int64_t)(start_sec * 1000.0), (AVRational){1, 1000}, source_tb);
+  int64_t end_ts = av_rescale_q((int64_t)(end_sec * 1000.0), (AVRational){1, 1000}, source_tb);
 
   if (start_sec > 0.01) {
     int64_t seek_ts = start_ts;
@@ -1887,10 +1884,63 @@ int extract_time_range(const char *input_path, const char *output_path,
   int audio_fifo_samples = 0;
   int audio_fifo_cap = 0;
   int wrote_video = 0;
-  int reached_end = 0;
+  int video_done = 0;
+  int audio_done = !aud_dec;
 
-  while (!reached_end && av_read_frame(in_fmt, in_pkt) >= 0) {
+  /* Encode one AAC frame from the head of audio_fifo (caller ensures enough samples). */
+  #define EXTRACT_ENCODE_AUDIO_FRAME() do { \
+    aframe_res->format = AV_SAMPLE_FMT_FLTP; \
+    aframe_res->ch_layout = aud_enc->ch_layout; \
+    aframe_res->sample_rate = aud_enc->sample_rate; \
+    aframe_res->nb_samples = aud_enc->frame_size; \
+    av_frame_get_buffer(aframe_res, 0); \
+    float *_l = (float *)aframe_res->data[0]; \
+    float *_r = (float *)aframe_res->data[1]; \
+    for (int _i = 0; _i < aud_enc->frame_size; _i++) { \
+      _l[_i] = ((float *)audio_fifo)[_i * 2]; \
+      _r[_i] = ((float *)audio_fifo)[_i * 2 + 1]; \
+    } \
+    int _remain = audio_fifo_samples - aud_enc->frame_size; \
+    if (_remain > 0) { \
+      memmove(audio_fifo, \
+              (float *)audio_fifo + aud_enc->frame_size * 2, \
+              (size_t)_remain * 2 * sizeof(float)); \
+    } \
+    audio_fifo_samples = _remain; \
+    aframe_res->pts = audio_pts; \
+    audio_pts += aud_enc->frame_size; \
+    avcodec_send_frame(aud_enc, aframe_res); \
+    av_frame_unref(aframe_res); \
+    while (avcodec_receive_packet(aud_enc, out_pkt) >= 0) { \
+      av_packet_rescale_ts(out_pkt, aud_enc->time_base, out_a->time_base); \
+      out_pkt->stream_index = out_a->index; \
+      av_interleaved_write_frame(out_fmt, out_pkt); \
+    } \
+  } while (0)
+
+  #define EXTRACT_PUSH_AUDIO_SAMPLES(src0, src1, n) do { \
+    int _n = (n); \
+    if (_n <= 0) break; \
+    if (audio_fifo_samples + _n > audio_fifo_cap) { \
+      audio_fifo_cap = audio_fifo_samples + _n + aud_enc->frame_size * 4; \
+      audio_fifo = (uint8_t *)av_realloc(audio_fifo, audio_fifo_cap * sizeof(float) * 2); \
+    } \
+    for (int _i = 0; _i < _n; _i++) { \
+      ((float *)audio_fifo)[audio_fifo_samples * 2 + _i * 2] = (src0)[_i]; \
+      ((float *)audio_fifo)[audio_fifo_samples * 2 + _i * 2 + 1] = (src1)[_i]; \
+    } \
+    audio_fifo_samples += _n; \
+    while (audio_fifo_samples >= aud_enc->frame_size) { \
+      EXTRACT_ENCODE_AUDIO_FRAME(); \
+    } \
+  } while (0)
+
+  while ((!video_done || !audio_done) && av_read_frame(in_fmt, in_pkt) >= 0) {
     if (aud_dec && in_pkt->stream_index == audio_idx) {
+      if (audio_done) {
+        av_packet_unref(in_pkt);
+        continue;
+      }
       int64_t pkt_ts = in_pkt->pts != AV_NOPTS_VALUE ? in_pkt->pts
           : (in_pkt->dts != AV_NOPTS_VALUE ? in_pkt->dts : AV_NOPTS_VALUE);
       double pkt_sec = -1;
@@ -1899,30 +1949,35 @@ int extract_time_range(const char *input_path, const char *output_path,
         if (in_audio->start_time != AV_NOPTS_VALUE) adj -= in_audio->start_time;
         pkt_sec = adj * av_q2d(in_audio->time_base);
       }
+      /* Keep packets that may still decode into the window; stop once audio is past end. */
       if (pkt_sec >= 0 && pkt_sec + 0.05 < start_sec) {
         av_packet_unref(in_pkt);
         continue;
       }
-      if (pkt_sec >= end_sec) {
+      if (pkt_sec >= end_sec + 0.05) {
+        audio_done = 1;
         av_packet_unref(in_pkt);
         continue;
       }
       if (avcodec_send_packet(aud_dec, in_pkt) >= 0) {
         while (avcodec_receive_frame(aud_dec, aframe) >= 0) {
           int64_t a_ts = aframe->best_effort_timestamp;
+          if (a_ts == AV_NOPTS_VALUE) a_ts = aframe->pts;
           if (a_ts != AV_NOPTS_VALUE && in_audio) {
             int64_t adj = a_ts;
             if (in_audio->start_time != AV_NOPTS_VALUE) adj -= in_audio->start_time;
             double a_sec = adj * av_q2d(in_audio->time_base);
-            if (a_sec + 0.02 < start_sec || a_sec >= end_sec) continue;
+            double a_dur = aframe->nb_samples * av_q2d(in_audio->time_base);
+            /* Drop frames wholly before the window; stop once frames begin at/after end. */
+            if (a_sec + a_dur <= start_sec) continue;
+            if (a_sec >= end_sec) {
+              audio_done = 1;
+              continue;
+            }
           }
           int dst_nb = av_rescale_rnd(swr_get_delay(swr, aud_dec->sample_rate) + aframe->nb_samples,
                                       aud_enc->sample_rate, aud_dec->sample_rate, AV_ROUND_UP);
           if (dst_nb <= 0) continue;
-          if (audio_fifo_samples + dst_nb > audio_fifo_cap) {
-            audio_fifo_cap = audio_fifo_samples + dst_nb + aud_enc->frame_size * 4;
-            audio_fifo = (uint8_t *)av_realloc(audio_fifo, audio_fifo_cap * sizeof(float) * 2);
-          }
           float *tmp[2];
           uint8_t *out_planes[2];
           tmp[0] = (float *)av_malloc(dst_nb * sizeof(float));
@@ -1931,45 +1986,9 @@ int extract_time_range(const char *input_path, const char *output_path,
           out_planes[1] = (uint8_t *)tmp[1];
           int converted = swr_convert(swr, out_planes, dst_nb,
                                       (const uint8_t **)aframe->extended_data, aframe->nb_samples);
-          if (converted > 0) {
-            for (int i = 0; i < converted; i++) {
-              ((float *)audio_fifo)[audio_fifo_samples * 2 + i * 2] = tmp[0][i];
-              ((float *)audio_fifo)[audio_fifo_samples * 2 + i * 2 + 1] = tmp[1][i];
-            }
-            audio_fifo_samples += converted;
-          }
+          if (converted > 0) EXTRACT_PUSH_AUDIO_SAMPLES(tmp[0], tmp[1], converted);
           av_free(tmp[0]);
           av_free(tmp[1]);
-
-          while (audio_fifo_samples >= aud_enc->frame_size) {
-            aframe_res->format = AV_SAMPLE_FMT_FLTP;
-            aframe_res->ch_layout = aud_enc->ch_layout;
-            aframe_res->sample_rate = aud_enc->sample_rate;
-            aframe_res->nb_samples = aud_enc->frame_size;
-            av_frame_get_buffer(aframe_res, 0);
-            float *l = (float *)aframe_res->data[0];
-            float *r = (float *)aframe_res->data[1];
-            for (int i = 0; i < aud_enc->frame_size; i++) {
-              l[i] = ((float *)audio_fifo)[i * 2];
-              r[i] = ((float *)audio_fifo)[i * 2 + 1];
-            }
-            int remain = audio_fifo_samples - aud_enc->frame_size;
-            if (remain > 0) {
-              memmove(audio_fifo,
-                      (float *)audio_fifo + aud_enc->frame_size * 2,
-                      (size_t)remain * 2 * sizeof(float));
-            }
-            audio_fifo_samples = remain;
-            aframe_res->pts = audio_pts;
-            audio_pts += aud_enc->frame_size;
-            avcodec_send_frame(aud_enc, aframe_res);
-            av_frame_unref(aframe_res);
-            while (avcodec_receive_packet(aud_enc, out_pkt) >= 0) {
-              av_packet_rescale_ts(out_pkt, aud_enc->time_base, out_a->time_base);
-              out_pkt->stream_index = out_a->index;
-              av_interleaved_write_frame(out_fmt, out_pkt);
-            }
-          }
         }
       }
       av_packet_unref(in_pkt);
@@ -1977,6 +1996,10 @@ int extract_time_range(const char *input_path, const char *output_path,
     }
 
     if (in_pkt->stream_index != video_idx) {
+      av_packet_unref(in_pkt);
+      continue;
+    }
+    if (video_done) {
       av_packet_unref(in_pkt);
       continue;
     }
@@ -1994,7 +2017,7 @@ int extract_time_range(const char *input_path, const char *output_path,
         if (in_video->start_time != AV_NOPTS_VALUE) adj -= in_video->start_time;
         if (adj < start_ts) continue;
         if (adj >= end_ts) {
-          reached_end = 1;
+          video_done = 1;
           break;
         }
       }
@@ -2027,6 +2050,36 @@ int extract_time_range(const char *input_path, const char *output_path,
     }
   }
 
+  /* Drain remaining compressed audio after video has ended. */
+  if (aud_dec && !audio_done) {
+    avcodec_send_packet(aud_dec, NULL);
+    while (avcodec_receive_frame(aud_dec, aframe) >= 0) {
+      int64_t a_ts = aframe->best_effort_timestamp;
+      if (a_ts == AV_NOPTS_VALUE) a_ts = aframe->pts;
+      if (a_ts != AV_NOPTS_VALUE && in_audio) {
+        int64_t adj = a_ts;
+        if (in_audio->start_time != AV_NOPTS_VALUE) adj -= in_audio->start_time;
+        double a_sec = adj * av_q2d(in_audio->time_base);
+        if (a_sec + 0.02 < start_sec) continue;
+        if (a_sec >= end_sec) break;
+      }
+      int dst_nb = av_rescale_rnd(swr_get_delay(swr, aud_dec->sample_rate) + aframe->nb_samples,
+                                  aud_enc->sample_rate, aud_dec->sample_rate, AV_ROUND_UP);
+      if (dst_nb <= 0) continue;
+      float *tmp[2];
+      uint8_t *out_planes[2];
+      tmp[0] = (float *)av_malloc(dst_nb * sizeof(float));
+      tmp[1] = (float *)av_malloc(dst_nb * sizeof(float));
+      out_planes[0] = (uint8_t *)tmp[0];
+      out_planes[1] = (uint8_t *)tmp[1];
+      int converted = swr_convert(swr, out_planes, dst_nb,
+                                  (const uint8_t **)aframe->extended_data, aframe->nb_samples);
+      if (converted > 0) EXTRACT_PUSH_AUDIO_SAMPLES(tmp[0], tmp[1], converted);
+      av_free(tmp[0]);
+      av_free(tmp[1]);
+    }
+  }
+
   avcodec_send_frame(enc_ctx, NULL);
   while (avcodec_receive_packet(enc_ctx, out_pkt) >= 0) {
     av_packet_rescale_ts(out_pkt, enc_ctx->time_base, out_v->time_base);
@@ -2034,7 +2087,59 @@ int extract_time_range(const char *input_path, const char *output_path,
     av_interleaved_write_frame(out_fmt, out_pkt);
     wrote_video = 1;
   }
+
   if (aud_enc) {
+    /* Drain resampler delay, then pad/encode any leftover PCM so the slice
+     * keeps its trailing audio instead of dropping a partial AAC frame. */
+    if (swr) {
+      for (;;) {
+        float *tmp[2];
+        uint8_t *out_planes[2];
+        int room = aud_enc->frame_size * 4;
+        tmp[0] = (float *)av_malloc(room * sizeof(float));
+        tmp[1] = (float *)av_malloc(room * sizeof(float));
+        out_planes[0] = (uint8_t *)tmp[0];
+        out_planes[1] = (uint8_t *)tmp[1];
+        int converted = swr_convert(swr, out_planes, room, NULL, 0);
+        if (converted > 0) EXTRACT_PUSH_AUDIO_SAMPLES(tmp[0], tmp[1], converted);
+        av_free(tmp[0]);
+        av_free(tmp[1]);
+        if (converted <= 0) break;
+      }
+    }
+    if (audio_fifo_samples > 0) {
+      int need = aud_enc->frame_size - audio_fifo_samples;
+      if (need > 0) {
+        if (audio_fifo_samples + need > audio_fifo_cap) {
+          audio_fifo_cap = audio_fifo_samples + need;
+          audio_fifo = (uint8_t *)av_realloc(audio_fifo, audio_fifo_cap * sizeof(float) * 2);
+        }
+        memset((float *)audio_fifo + audio_fifo_samples * 2, 0,
+               (size_t)need * 2 * sizeof(float));
+        audio_fifo_samples += need;
+      }
+      while (audio_fifo_samples >= aud_enc->frame_size) {
+        EXTRACT_ENCODE_AUDIO_FRAME();
+      }
+    }
+
+    /* Match audio duration to the extracted video span so the first staged
+     * slice does not go silent early when A/V packet order ends video first. */
+    if (last_video_pts != AV_NOPTS_VALUE && first_video_pts != AV_NOPTS_VALUE) {
+      double video_sec = (last_video_pts - 0) * av_q2d(enc_ctx->time_base)
+          + av_q2d(av_inv_q(enc_ctx->framerate));
+      int64_t want_samples = (int64_t)(video_sec * aud_enc->sample_rate + 0.5);
+      while (audio_pts + aud_enc->frame_size <= want_samples) {
+        if (aud_enc->frame_size > audio_fifo_cap) {
+          audio_fifo_cap = aud_enc->frame_size;
+          audio_fifo = (uint8_t *)av_realloc(audio_fifo, audio_fifo_cap * sizeof(float) * 2);
+        }
+        memset(audio_fifo, 0, (size_t)aud_enc->frame_size * 2 * sizeof(float));
+        audio_fifo_samples = aud_enc->frame_size;
+        EXTRACT_ENCODE_AUDIO_FRAME();
+      }
+    }
+
     avcodec_send_frame(aud_enc, NULL);
     while (avcodec_receive_packet(aud_enc, out_pkt) >= 0) {
       av_packet_rescale_ts(out_pkt, aud_enc->time_base, out_a->time_base);
@@ -2060,6 +2165,8 @@ int extract_time_range(const char *input_path, const char *output_path,
   if (aframe_res) av_frame_free(&aframe_res);
   av_packet_free(&in_pkt);
   av_packet_free(&out_pkt);
+#undef EXTRACT_ENCODE_AUDIO_FRAME
+#undef EXTRACT_PUSH_AUDIO_SAMPLES
   if (!wrote_video) {
     fprintf(stderr, "[extract] no video frames in %.3f..%.3f\n", start_sec, end_sec);
     return -1006;
