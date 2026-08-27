@@ -36,8 +36,10 @@ assert(
   'app.worker_invite.url must point at public worker.html',
 );
 assert(
-  fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8').includes('PUBLIC_WORKER_URL'),
-  'runtime must read public worker invite URL from config',
+  fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8').includes(
+    "require('ffmpeg-dcp-social/ffmpeg-wasm.js')",
+  ),
+  'work function must require the fully-qualified ffmpeg-dcp-social package id',
 );
 assert(html.includes('id="stageCutBtn"'), 'HTML must include director’s cut staging button');
 assert(html.includes('id="cutDialog"'), 'HTML must include director’s cut dialog');

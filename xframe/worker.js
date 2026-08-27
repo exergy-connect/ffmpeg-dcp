@@ -184,8 +184,17 @@ function patchWorkerForContext(contextRef) {
       comment: String(contextRef.comment || '').slice(0, IDENTITY_MAX + COMMENT_MAX + 2),
       workerId: String(contextRef.workerId || ''),
     };
+    // Always importScripts an absolute URL. Relative sandbox paths like
+    // "src/…" resolve against the page (GitHub Pages) inside a blob worker and
+    // make BravoJS treat package loads as /packages/src/package.dcp.
+    let absoluteScriptURL;
+    try {
+      absoluteScriptURL = new URL(String(scriptURL), window.location.href).href;
+    } catch (_) {
+      absoluteScriptURL = String(scriptURL);
+    }
     const code = `
-(function (ctx) {
+(function (ctx, scriptURL) {
   var realDefineProperty = Object.defineProperty;
   function installContext() {
     try {
@@ -254,9 +263,9 @@ function patchWorkerForContext(contextRef) {
     };
   } catch (e9) {}
   installContext();
-  importScripts(${JSON.stringify(String(scriptURL))});
+  importScripts(scriptURL);
   installContext();
-})(${JSON.stringify(ctx)});
+})(${JSON.stringify(ctx)}, ${JSON.stringify(absoluteScriptURL)});
 `;
     const blobURL = URL.createObjectURL(
       new Blob([code], { type: 'application/javascript' }),

@@ -218,8 +218,8 @@ function showRunError(error) {
     remedy = 'Check network access to scheduler.distributed.computer.';
   } else if (/nofunds|insufficient funds/i.test(message)) {
     remedy = 'Fund the DCP payment account shown above, then retry.';
-  } else if (/fetchModuleURL|Could not locate module|package\.dcp|ffmpeg-dcp-social/i.test(message)) {
-    remedy = 'Publish the DCP package: cd xframe && node package/build-bravojs-bundle.js && node package/publish.js';
+  } else if (/fetchModuleURL|Could not locate module|package\.dcp|ffmpeg-dcp-social|\/packages\/src\//i.test(message)) {
+    remedy = 'Publish the DCP package (cd xframe && node package/build-bravojs-bundle.js && node package/publish.js). If you still see /packages/src/, hard-refresh the worker — bare requires were resolving against the sandbox evaluator path.';
   } else if (/extract_time_range|director.?s cut|stageDirectorsCut/i.test(message)) {
     remedy = 'Rebuild browser WASM so extract_time_range is exported: cd xframe && bash ffmpeg-wasm/build.sh';
   } else if (/slice_webm|Only VP8 or VP9|MediaRecorder|\.webm/i.test(message)) {
@@ -357,12 +357,15 @@ function getComputeGroups() {
 }
 
 const qrcode = new QRCode(el('qrcode'), { width: 112, height: 112 });
+const qrcodeLink = el('qrcodeLink');
 const PUBLIC_WORKER_URL = (CONFIG.worker_invite && CONFIG.worker_invite.url)
   || 'https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/worker.html';
+let nextDemoCommentIndex = 1;
 
 function updateQrCode() {
   const groups = getComputeGroups();
   if (groups.length === 1 && groups[0].joinKey === 'public') {
+    qrcodeLink.href = PUBLIC_WORKER_URL;
     qrcode.makeCode(PUBLIC_WORKER_URL);
     return;
   }
@@ -370,9 +373,16 @@ function updateQrCode() {
   const raw = first.joinSecret ? `${first.joinKey},${first.joinSecret}` : first.joinKey;
   const invite = new URL(PUBLIC_WORKER_URL);
   invite.searchParams.set('computeGroups', raw);
+  qrcodeLink.href = invite.href;
   qrcode.makeCode(invite.href);
 }
 updateQrCode();
+qrcodeLink.addEventListener('click', () => {
+  const invite = new URL(qrcodeLink.href);
+  invite.searchParams.set('demoCommentIndex', String(nextDemoCommentIndex));
+  qrcodeLink.href = invite.href;
+  nextDemoCommentIndex += 1;
+});
 
 el('clearAccountBtn').addEventListener('click', (e) => {
   e.preventDefault();
@@ -1600,12 +1610,15 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         : formatsMetaArg.map((_, i) => i);
       let activeFormatPosition = 0;
       const formatCount = Math.max(1, indexes.length);
-      wlog('require ffmpeg-wasm.js…');
-      const required = require('ffmpeg-wasm.js');
+      wlog('require ffmpeg-dcp-social/ffmpeg-wasm.js…');
+      // Fully-qualified package id — bare 'ffmpeg-wasm.js' can resolve relative to
+      // the sandbox evaluator path (…/src/…) as package "src" when the published
+      // package is missing from the module search path (seen on iOS Safari).
+      const required = require('ffmpeg-dcp-social/ffmpeg-wasm.js');
       wlog('require keys', required && typeof required === 'object' ? Object.keys(required) : typeof required);
       const createFfmpegModule = required.createFfmpegModule || required.default || required;
       if (typeof createFfmpegModule !== 'function') {
-        throw new Error('ffmpeg-wasm.js did not export createFfmpegModule');
+        throw new Error('ffmpeg-dcp-social/ffmpeg-wasm.js did not export createFfmpegModule');
       }
       wlog('createFfmpegModule…');
       const Module = await createFfmpegModule({

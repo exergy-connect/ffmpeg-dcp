@@ -347,7 +347,9 @@
     </form>
     <div class="row" style="margin-top:0.75rem">
       <button type="button" id="clearAccountBtn">Clear saved account</button>
-      <div id="qrcode" title="Join compute group"></div>
+      <a id="qrcodeLink" href="#" target="_blank" rel="noopener noreferrer" aria-label="Open worker invitation in a new tab">
+        <div id="qrcode" title="Open worker invitation in a new tab"></div>
+      </a>
     </div>
   </section>
 
