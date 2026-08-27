@@ -18,6 +18,7 @@
       --fill: rgba(0, 0, 0, 0.04);
       --fill-strong: rgba(0, 0, 0, 0.06);
       --blue: #0071e3;
+      --red: #ff3b30;
       --ok: #34c759;
       --warn: #ff9f0a;
       --danger: #ff3b30;
@@ -90,13 +91,78 @@
       letter-spacing: -0.015em;
       line-height: 1.35;
     }
+    .join-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      animation: rise 0.9s var(--ease) 0.08s both;
+    }
+    .mode-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.45rem;
+      padding: 0.28rem;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.55);
+      border: 1px solid var(--hairline);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+    .mode-tab {
+      appearance: none;
+      border: none;
+      cursor: pointer;
+      min-height: 44px;
+      padding: 0.55rem 0.7rem;
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 0.88rem;
+      font-weight: 560;
+      letter-spacing: -0.015em;
+      color: var(--muted);
+      background: transparent;
+      transition: color 0.22s var(--ease), background 0.22s var(--ease), box-shadow 0.22s var(--ease), transform 0.22s var(--ease);
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    .mode-tab:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .mode-tab[data-mode="anonymous"][aria-selected="true"] {
+      color: #fff;
+      background: linear-gradient(180deg, #0a84ff 0%, var(--blue) 100%);
+      box-shadow: 0 8px 22px rgba(0, 113, 227, 0.35), 0 0 0 1px rgba(0, 113, 227, 0.2);
+    }
+    .mode-tab[data-mode="introduce"] {
+      color: #c43b34;
+      box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.35), 0 0 18px rgba(255, 59, 48, 0.18);
+      animation: redGlow 2.4s var(--ease) infinite;
+    }
+    .mode-tab[data-mode="introduce"][aria-selected="true"] {
+      color: #fff;
+      background: linear-gradient(180deg, #ff6259 0%, var(--red) 100%);
+      animation: redGlowSelected 2.4s var(--ease) infinite;
+    }
+    .mode-panel[hidden] { display: none !important; }
+    .mode-copy {
+      margin: 0;
+      padding: 1rem 1.05rem;
+      border-radius: 18px;
+      background: rgba(0, 113, 227, 0.06);
+      border: 1px solid rgba(0, 113, 227, 0.12);
+      color: #3a6ea5;
+      font-size: 0.92rem;
+      letter-spacing: -0.015em;
+      line-height: 1.4;
+      text-align: center;
+    }
     .power {
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 0.85rem;
-      padding: 0.35rem 0 0.15rem;
-      animation: rise 0.9s var(--ease) 0.08s both;
+      padding: 0.15rem 0 0;
     }
     button#toggleBtn {
       appearance: none;
@@ -111,24 +177,29 @@
       font-weight: 560;
       letter-spacing: -0.02em;
       color: #fff;
-      background: var(--ink);
-      box-shadow: 0 10px 28px rgba(29, 29, 31, 0.18);
+      background: var(--red);
+      box-shadow: 0 10px 28px rgba(255, 59, 48, 0.28);
       transition: transform 0.22s var(--ease), background 0.22s var(--ease), box-shadow 0.22s var(--ease), opacity 0.22s var(--ease);
       -webkit-tap-highlight-color: transparent;
       touch-action: manipulation;
     }
-    button#toggleBtn:hover { transform: scale(1.02); }
-    button#toggleBtn:active { transform: scale(0.97); }
+    body[data-join-mode="anonymous"] button#toggleBtn.primary {
+      background: var(--blue);
+      box-shadow: 0 10px 28px rgba(0, 113, 227, 0.28);
+    }
+    button#toggleBtn:hover:not(:disabled) { transform: scale(1.02); }
+    button#toggleBtn:active:not(:disabled) { transform: scale(0.97); }
     button#toggleBtn.stop {
       background: var(--warn);
       color: #1d1d1f;
       box-shadow: 0 10px 28px rgba(255, 159, 10, 0.28);
     }
     button#toggleBtn:disabled {
-      opacity: 0.45;
+      opacity: 0.38;
       cursor: not-allowed;
       transform: none;
       box-shadow: none;
+      background: #c7c7cc;
     }
     .status-pill {
       display: inline-flex;
@@ -337,6 +408,14 @@
       70% { box-shadow: 0 0 0 8px rgba(52, 199, 89, 0); }
       100% { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0); }
     }
+    @keyframes redGlow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(255, 59, 48, 0.28), 0 0 14px rgba(255, 59, 48, 0.14); }
+      50% { box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.12), 0 0 26px rgba(255, 59, 48, 0.32); }
+    }
+    @keyframes redGlowSelected {
+      0%, 100% { box-shadow: 0 8px 26px rgba(255, 59, 48, 0.42), 0 0 28px rgba(255, 59, 48, 0.28); }
+      50% { box-shadow: 0 10px 34px rgba(255, 59, 48, 0.55), 0 0 42px rgba(255, 59, 48, 0.4); }
+    }
     @media (min-width: 640px) {
       .shell {
         max-width: 460px;
@@ -348,15 +427,16 @@
       .group { border-radius: 20px; }
     }
     @media (prefers-reduced-motion: reduce) {
-      .hero, .power, .group, .stats, .log-panel { animation: none; }
+      .hero, .join-flow, .group, .stats, .log-panel { animation: none; }
+      .mode-tab[data-mode="introduce"] { animation: none; }
       .status-pill[data-state="running"]::before,
       .status-pill[data-state="starting"]::before,
       .status-pill[data-state="stopping"]::before { animation: none; }
-      button#toggleBtn, button#voiceTestBtn { transition: none; }
+      button#toggleBtn, button#voiceTestBtn, .mode-tab { transition: none; }
     }
   </style>
 </head>
-<body>
+<body data-join-mode="introduce">
   <div class="atmosphere" aria-hidden="true"></div>
   <div class="shell">
     <header class="hero">
@@ -365,45 +445,74 @@
       <p class="tagline">Donate idle cycles</p>
     </header>
 
-    <section class="power" aria-label="Worker controls">
-      <button type="button" id="toggleBtn" class="primary">Join</button>
-      <span id="statusPill" class="status-pill" data-state="idle">Idle</span>
-    </section>
+    <section class="join-flow" aria-label="Join">
+      <div class="mode-tabs" role="tablist" aria-label="Join mode">
+        <button
+          type="button"
+          class="mode-tab"
+          role="tab"
+          id="modeIntroduce"
+          data-mode="introduce"
+          aria-selected="true"
+          aria-controls="panelIntroduce"
+          tabindex="0"
+        >Introduce yourself</button>
+        <button
+          type="button"
+          class="mode-tab"
+          role="tab"
+          id="modeAnonymous"
+          data-mode="anonymous"
+          aria-selected="false"
+          aria-controls="panelAnonymous"
+          tabindex="-1"
+        >Anonymous</button>
+      </div>
 
-    <section class="group" aria-label="Worker identity">
-      <div class="field">
-        <label for="workerIdentity">Identity</label>
-        <input
-          id="workerIdentity"
-          type="text"
-          maxlength="40"
-          placeholder="(anonymous)"
-          value="(anonymous)"
-          autocomplete="off"
-          spellcheck="false"
-          enterkeyhint="next"
-        />
+      <div id="panelAnonymous" class="mode-panel" role="tabpanel" aria-labelledby="modeAnonymous" hidden>
+        <p class="mode-copy">Join instantly as (anonymous). No comment.</p>
       </div>
-      <div class="field">
-        <label for="workerCommentLanguage">Comment language</label>
-        <select id="workerCommentLanguage" aria-label="Comment language for text-to-speech"></select>
-      </div>
-      <div class="field comment-field">
-        <label for="workerComment">Comment</label>
-        <textarea
-          id="workerComment"
-          maxlength="280"
-          placeholder="Optional label"
-          autocomplete="off"
-          spellcheck="false"
-          rows="4"
-        ></textarea>
-        <p id="demoCommentHint"></p>
-        <div class="comment-actions">
-          <button type="button" id="voiceTestBtn" aria-label="Speak the comment with browser text-to-speech">
-            Voice test
-          </button>
+
+      <div id="panelIntroduce" class="mode-panel group" role="tabpanel" aria-labelledby="modeIntroduce">
+        <div class="field">
+          <label for="workerIdentity">Identity</label>
+          <input
+            id="workerIdentity"
+            type="text"
+            maxlength="40"
+            placeholder="Your name"
+            value=""
+            autocomplete="off"
+            spellcheck="false"
+            enterkeyhint="next"
+          />
         </div>
+        <div class="field">
+          <label for="workerCommentLanguage">Comment language</label>
+          <select id="workerCommentLanguage" aria-label="Comment language for text-to-speech"></select>
+        </div>
+        <div class="field comment-field">
+          <label for="workerComment">Comment <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+          <textarea
+            id="workerComment"
+            maxlength="280"
+            placeholder="Share a thought"
+            autocomplete="off"
+            spellcheck="false"
+            rows="4"
+          ></textarea>
+          <p id="demoCommentHint"></p>
+          <div class="comment-actions">
+            <button type="button" id="voiceTestBtn" aria-label="Speak the comment with browser text-to-speech">
+              Voice test
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="power" aria-label="Worker controls">
+        <button type="button" id="toggleBtn" class="primary" disabled>Join</button>
+        <span id="statusPill" class="status-pill" data-state="idle">Add your name to join</span>
       </div>
     </section>
 
@@ -435,11 +544,11 @@
       <div id="log"></div>
     </section>
 
-    <p class="build-stamp" title="Build stamp">2026-08-27T18:51:57Z · 6d15b35</p>
+    <p class="build-stamp" title="Build stamp">2026-08-27T19:09:23Z · 4e1a321</p>
   </div>
 
   <script id="app-config" type="application/json">
-{"_concept":"browser_worker_app","title":"DCP Browser Worker","tagline":"Donate idle cycles","runtime_script":"worker.js","dcp_client_url":"https://scheduler.distributed.computer/dcp-client/dcp-client.js","cloud_signup_url":"https://dcp.cloud","defaults":{"_concept":"browser_worker_defaults","payment_address":"0xf221901f78c5407ca5c2837bdc4fc49ede0b8fe8","max_sandboxes":2,"leave_public_group":true,"compute_groups":[{"joinKey":"demo","joinSecret":"dcp"},{"joinKey":"exergy","joinSecret":"xp"}],"notes":"Defaults mirror the public dcp.live demo posture."},"identity":{"_concept":"worker_identity_policy","storage_key":"xframe.worker.identity","max_length":40,"default":"(anonymous)","placeholder":"(anonymous)","notes":"Display name used in supervisor logs and prefixed onto the platform comment as \"<identity>: <comment>\"."},"comment":{"_concept":"worker_comment_policy","storage_key":"xframe.worker.comment","max_length":280,"exposure":"sandbox_context_and_results","placeholder":"Optional label","notes":"Set via the Comment field, ?comment= / ?workerComment=, ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage. Sent to the platform as { text: \"<identity>: <comment>\", language, demoCommentIndex? } in dcpWorkerContext. The optional index is inferred when the comment matches one of the standard demo quotes (legacy plain strings remain accepted)."},"language":{"_concept":"worker_language_policy","storage_key":"xframe.worker.language","default":"en-US","notes":"BCP 47 tag from the Comment language selector (browser speech voices). Passed with each worker comment for transcoder text-to-speech."},"demo_comments":[{"_concept":"demo_comment","title":"The Non-Conformists","quote":"Here’s to the crazy ones. The misfits. The rebels. The troublemakers. The round pegs in the square holes. The ones who see things differently."},{"_concept":"demo_comment","title":"The Impact","quote":"They’re not fond of rules. And they have no respect for the status quo. You can quote them, disagree with them, glorify or vilify them. About the only thing you can’t do is ignore them."},{"_concept":"demo_comment","title":"The Visionaries","quote":"Because they change things. They push the human race forward."},{"_concept":"demo_comment","title":"The Ones Who Do","quote":"And while some may see them as the crazy ones, we see genius. Because the people who are crazy enough to think they can change the world, are the ones who do."}],"url_options":{"paymentAddress":{"_concept":"url_option","name":"paymentAddress","description":"Bank address that receives earned compute credits","default":"0xf221901f78c5407ca5c2837bdc4fc49ede0b8fe8"},"jobIds":{"_concept":"url_option","name":"jobIds","description":"Comma-separated job IDs to restrict this worker","default":""},"computeGroups":{"_concept":"url_option","name":"computeGroups","description":"joinKey,joinSecret pair or JSON array of groups","default":"demo,dcp"},"leavePublicGroup":{"_concept":"url_option","name":"leavePublicGroup","description":"true leaves the public group; false stays in public","default":"true"},"maxSandboxes":{"_concept":"url_option","name":"maxSandboxes","description":"Maximum concurrent sandboxes","default":"2"},"comment":{"_concept":"url_option","name":"comment","description":"Optional worker comment text (combined with identity for platform results; alias workerComment)","default":""},"identity":{"_concept":"url_option","name":"identity","description":"Worker display name used in logs and as the platform comment prefix","default":"(anonymous)"},"demoCommentIndex":{"_concept":"url_option","name":"demoCommentIndex","description":"1..4 selects a Think Different demo quote as the worker comment","default":""},"language":{"_concept":"url_option","name":"language","description":"BCP 47 language tag for comment text-to-speech on the transcoder","default":"en-US"}},"_id":"app"}
+{"_concept":"browser_worker_app","title":"DCP Browser Worker","tagline":"Donate idle cycles","runtime_script":"worker.js","dcp_client_url":"https://scheduler.distributed.computer/dcp-client/dcp-client.js","cloud_signup_url":"https://dcp.cloud","defaults":{"_concept":"browser_worker_defaults","payment_address":"0xf221901f78c5407ca5c2837bdc4fc49ede0b8fe8","max_sandboxes":2,"leave_public_group":true,"compute_groups":[{"joinKey":"demo","joinSecret":"dcp"},{"joinKey":"exergy","joinSecret":"xp"}],"notes":"Defaults mirror the public dcp.live demo posture."},"identity":{"_concept":"worker_identity_policy","storage_key":"xframe.worker.identity","max_length":40,"default":"(anonymous)","placeholder":"(anonymous)","notes":"Display name used in supervisor logs and prefixed onto the platform comment as \"<identity>: <comment>\"."},"comment":{"_concept":"worker_comment_policy","storage_key":"xframe.worker.comment","max_length":280,"exposure":"sandbox_context_and_results","placeholder":"Share a thought","notes":"Optional comment under Introduce yourself. Field value defaults empty; placeholder is quiet invitation copy. Set via the Comment field, ?comment= / ?workerComment=, ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage. Sent to the platform as { text: \"<identity>: <comment>\", language, demoCommentIndex? } in dcpWorkerContext. The optional index is inferred when the comment matches one of the standard demo quotes (legacy plain strings remain accepted)."},"language":{"_concept":"worker_language_policy","storage_key":"xframe.worker.language","default":"en-US","notes":"BCP 47 tag from the Comment language selector (browser speech voices). Passed with each worker comment for transcoder text-to-speech."},"demo_comments":[{"_concept":"demo_comment","title":"The Non-Conformists","quote":"Here’s to the crazy ones. The misfits. The rebels. The troublemakers. The round pegs in the square holes. The ones who see things differently."},{"_concept":"demo_comment","title":"The Impact","quote":"They’re not fond of rules. And they have no respect for the status quo. You can quote them, disagree with them, glorify or vilify them. About the only thing you can’t do is ignore them."},{"_concept":"demo_comment","title":"The Visionaries","quote":"Because they change things. They push the human race forward."},{"_concept":"demo_comment","title":"The Ones Who Do","quote":"And while some may see them as the crazy ones, we see genius. Because the people who are crazy enough to think they can change the world, are the ones who do."}],"url_options":{"paymentAddress":{"_concept":"url_option","name":"paymentAddress","description":"Bank address that receives earned compute credits","default":"0xf221901f78c5407ca5c2837bdc4fc49ede0b8fe8"},"jobIds":{"_concept":"url_option","name":"jobIds","description":"Comma-separated job IDs to restrict this worker","default":""},"computeGroups":{"_concept":"url_option","name":"computeGroups","description":"joinKey,joinSecret pair or JSON array of groups","default":"demo,dcp"},"leavePublicGroup":{"_concept":"url_option","name":"leavePublicGroup","description":"true leaves the public group; false stays in public","default":"true"},"maxSandboxes":{"_concept":"url_option","name":"maxSandboxes","description":"Maximum concurrent sandboxes","default":"2"},"comment":{"_concept":"url_option","name":"comment","description":"Optional worker comment text (combined with identity for platform results; alias workerComment)","default":""},"identity":{"_concept":"url_option","name":"identity","description":"Worker display name used in logs and as the platform comment prefix","default":"(anonymous)"},"demoCommentIndex":{"_concept":"url_option","name":"demoCommentIndex","description":"1..4 selects a Think Different demo quote as the worker comment","default":""},"language":{"_concept":"url_option","name":"language","description":"BCP 47 language tag for comment text-to-speech on the transcoder","default":"en-US"}},"_id":"app"}
   </script>
   <script src="./worker.js"></script>
 </body>

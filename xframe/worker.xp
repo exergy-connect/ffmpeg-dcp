@@ -117,8 +117,10 @@ app:
     storage_key: xframe.worker.comment
     max_length: 280
     exposure: sandbox_context_and_results
-    placeholder: Optional label
+    placeholder: "Share a thought"
     notes: >-
+      Optional comment under Introduce yourself. Field value defaults empty;
+      placeholder is quiet invitation copy.
       Set via the Comment field, ?comment= / ?workerComment=,
       ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage.
       Sent to the platform as

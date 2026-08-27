@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-27T18:51:42.854Z",
-    "modifiedAt": "2026-08-27T18:51:42.854Z",
+    "createdAt": "2026-08-27T19:09:22.995Z",
+    "modifiedAt": "2026-08-27T19:09:22.995Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/worker.xp",
-      "hash": "sha256:bc3a3c1a5616af21beaf3fdae035a5dd958fe7bfaa9a668062f4bab76d4bce47",
+      "hash": "sha256:410c08e3e91ac822ce50482377a310e5b36c7925246bfb79d5de9589c485a245",
       "createdAt": "2026-08-27T13:25:30.585Z",
-      "modifiedAt": "2026-08-27T15:59:30.844Z"
+      "modifiedAt": "2026-08-27T19:06:19.559Z"
     }
   ],
   "_concepts": {
@@ -151,8 +151,8 @@
         "storage_key": "xframe.worker.comment",
         "max_length": 280,
         "exposure": "sandbox_context_and_results",
-        "placeholder": "Optional label",
-        "notes": "Set via the Comment field, ?comment= / ?workerComment=, ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage. Sent to the platform as { text: \"<identity>: <comment>\", language, demoCommentIndex? } in dcpWorkerContext. The optional index is inferred when the comment matches one of the standard demo quotes (legacy plain strings remain accepted)."
+        "placeholder": "Share a thought",
+        "notes": "Optional comment under Introduce yourself. Field value defaults empty; placeholder is quiet invitation copy. Set via the Comment field, ?comment= / ?workerComment=, ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage. Sent to the platform as { text: \"<identity>: <comment>\", language, demoCommentIndex? } in dcpWorkerContext. The optional index is inferred when the comment matches one of the standard demo quotes (legacy plain strings remain accepted)."
       },
       "language": {
         "_concept": "worker_language_policy",
@@ -193,7 +193,7 @@
               "_payload": "0xf221901f78c5407ca5c2837bdc4fc49ede0b8fe8",
               "_provenance": {
                 "source": 0,
-                "line": 165,
+                "line": 167,
                 "path": "file:///workspaces/ffmpeg-dcp/xframe/worker.xp"
               }
             }
@@ -285,7 +285,7 @@
             "_resolved": {
               "_provenance": {
                 "source": 0,
-                "line": 225,
+                "line": 227,
                 "path": "file:///workspaces/ffmpeg-dcp/xframe/worker.xp"
               }
             }

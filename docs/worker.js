@@ -26,6 +26,8 @@ let identityKeystore = null;
 let starting = false;
 let stopping = false;
 let activeSandboxes = 0;
+/** @type {'introduce' | 'anonymous'} */
+let joinMode = 'introduce';
 /** @type {null | (() => void)} */
 let unpatchWorker = null;
 /** Mutable so sandbox creation (after start) sees the resolved worker id. */
@@ -40,18 +42,70 @@ function log(msg) {
   console.log(msg);
 }
 
-function getWorkerIdentity() {
-  const raw = String(el('workerIdentity').value || '').trim().slice(0, IDENTITY_MAX);
-  return raw || IDENTITY_DEFAULT;
+function identityInputValue() {
+  return String(el('workerIdentity')?.value || '').trim().slice(0, IDENTITY_MAX);
 }
 
-function getComment() {
+function hasNamedIdentity() {
+  const raw = identityInputValue();
+  return Boolean(raw) && raw !== IDENTITY_DEFAULT;
+}
+
+function getWorkerIdentity() {
+  if (joinMode === 'anonymous') return IDENTITY_DEFAULT;
+  return identityInputValue() || IDENTITY_DEFAULT;
+}
+
+function canJoin() {
+  return joinMode === 'anonymous' || hasNamedIdentity();
+}
+
+function idleStatusLabel() {
+  if (joinMode === 'anonymous') return 'Ready to join anonymously';
+  if (hasNamedIdentity()) return 'Ready to join';
+  return 'Add your name to join';
+}
+
+function setJoinMode(mode, { focusIdentity = false } = {}) {
+  joinMode = mode === 'anonymous' ? 'anonymous' : 'introduce';
+  document.body.dataset.joinMode = joinMode;
+
+  const anonTab = el('modeAnonymous');
+  const introTab = el('modeIntroduce');
+  const anonPanel = el('panelAnonymous');
+  const introPanel = el('panelIntroduce');
+  const isAnon = joinMode === 'anonymous';
+
+  if (anonTab) {
+    anonTab.setAttribute('aria-selected', isAnon ? 'true' : 'false');
+    anonTab.tabIndex = isAnon ? 0 : -1;
+  }
+  if (introTab) {
+    introTab.setAttribute('aria-selected', isAnon ? 'false' : 'true');
+    introTab.tabIndex = isAnon ? -1 : 0;
+  }
+  if (anonPanel) anonPanel.hidden = !isAnon;
+  if (introPanel) introPanel.hidden = isAnon;
+
+  if (!isAnon && focusIdentity) el('workerIdentity')?.focus();
+  syncJoinControls();
+}
+
+function getCommentInput() {
   return String(el('workerComment').value || '').trim().slice(0, COMMENT_MAX);
+}
+
+/** Platform-facing comment text; anonymous joins never send comment body. */
+function getComment() {
+  if (joinMode === 'anonymous') return '';
+  return getCommentInput();
 }
 
 /** Platform-facing comment: "<identity>: <comment>". */
 function platformComment() {
-  return `${getWorkerIdentity()}: ${getComment()}`.slice(0, IDENTITY_MAX + COMMENT_MAX + 2);
+  const comment = getComment();
+  if (!comment) return getWorkerIdentity();
+  return `${getWorkerIdentity()}: ${comment}`.slice(0, IDENTITY_MAX + COMMENT_MAX + 2);
 }
 
 function standardDemoCommentIndex(comment = getComment()) {
@@ -81,14 +135,15 @@ function platformCommentPayload() {
 
 function saveWorkerFields() {
   try {
-    localStorage.setItem(IDENTITY_KEY, getWorkerIdentity());
+    localStorage.setItem(IDENTITY_KEY, identityInputValue() || IDENTITY_DEFAULT);
   } catch (_) { /* ignore */ }
   try {
-    localStorage.setItem(COMMENT_KEY, getComment());
+    localStorage.setItem(COMMENT_KEY, getCommentInput());
   } catch (_) { /* ignore */ }
   try {
     localStorage.setItem(LANGUAGE_KEY, getCommentLanguage());
   } catch (_) { /* ignore */ }
+  syncJoinControls();
 }
 
 function collectSpeechLanguages() {
@@ -245,15 +300,15 @@ function loadWorkerFields() {
 
   const identityFromUrl = params.get('identity');
   if (identityFromUrl != null) {
-    el('workerIdentity').value = String(identityFromUrl).trim().slice(0, IDENTITY_MAX) || IDENTITY_DEFAULT;
+    const next = String(identityFromUrl).trim().slice(0, IDENTITY_MAX);
+    el('workerIdentity').value = next === IDENTITY_DEFAULT ? '' : next;
   } else {
     try {
       const savedId = localStorage.getItem(IDENTITY_KEY);
-      el('workerIdentity').value = savedId != null && String(savedId).trim()
-        ? String(savedId).trim().slice(0, IDENTITY_MAX)
-        : IDENTITY_DEFAULT;
+      const next = savedId != null ? String(savedId).trim().slice(0, IDENTITY_MAX) : '';
+      el('workerIdentity').value = next && next !== IDENTITY_DEFAULT ? next : '';
     } catch (_) {
-      el('workerIdentity').value = IDENTITY_DEFAULT;
+      el('workerIdentity').value = '';
     }
   }
 
@@ -305,6 +360,8 @@ function setStatus(state, label) {
   el('workerIdentity').disabled = lockFields;
   const langSelect = el('workerCommentLanguage');
   if (langSelect) langSelect.disabled = lockFields;
+  el('modeAnonymous') && (el('modeAnonymous').disabled = lockFields);
+  el('modeIntroduce') && (el('modeIntroduce').disabled = lockFields);
   if (state === 'running') {
     btn.textContent = 'Leave';
     btn.classList.remove('primary');
@@ -316,7 +373,20 @@ function setStatus(state, label) {
     btn.textContent = 'Join';
     btn.classList.add('primary');
     btn.classList.remove('stop');
-    btn.disabled = false;
+    syncJoinControls(state, label);
+  }
+}
+
+function syncJoinControls(state, label) {
+  const btn = el('toggleBtn');
+  const pill = el('statusPill');
+  if (!btn || !pill) return;
+  const current = state || pill.dataset.state || 'idle';
+  if (current === 'running' || current === 'starting' || current === 'stopping') return;
+
+  btn.disabled = !canJoin();
+  if (current === 'idle') {
+    pill.textContent = label || idleStatusLabel();
   }
 }
 
@@ -701,6 +771,11 @@ async function ensureIdentity() {
 
 async function startWorker() {
   if (worker || starting || stopping) return;
+  if (!canJoin()) {
+    setJoinMode('introduce', { focusIdentity: true });
+    setStatus('idle', idleStatusLabel());
+    return;
+  }
   starting = true;
   saveWorkerFields();
   setStatus('starting', 'Joining…');
@@ -727,6 +802,7 @@ async function startWorker() {
     await worker.start();
     setStatus('running', 'Joined');
     diag('worker joined', {
+      mode: joinMode,
       identity: getWorkerIdentity(),
       comment: getComment() || '(none)',
       language: getCommentLanguage(),
@@ -766,12 +842,22 @@ el('toggleBtn').addEventListener('click', () => {
   else startWorker();
 });
 
+el('modeAnonymous')?.addEventListener('click', () => {
+  if (worker || starting || stopping) return;
+  setJoinMode('anonymous');
+});
+el('modeIntroduce')?.addEventListener('click', () => {
+  if (worker || starting || stopping) return;
+  setJoinMode('introduce', { focusIdentity: true });
+});
+
 el('voiceTestBtn')?.addEventListener('click', (event) => {
   // Keep speak() inside the user-gesture stack for iOS Safari.
   event.preventDefault();
   speakCommentVoiceTest();
 });
 
+el('workerIdentity').addEventListener('input', syncJoinControls);
 el('workerIdentity').addEventListener('change', saveWorkerFields);
 el('workerIdentity').addEventListener('blur', saveWorkerFields);
 el('workerComment').addEventListener('change', saveWorkerFields);
@@ -788,6 +874,7 @@ if ('speechSynthesis' in window) {
 
 loadWorkerFields();
 paintConfig(buildWorkerConfig());
-setStatus('idle', 'Idle');
+setJoinMode('introduce');
+setStatus('idle', idleStatusLabel());
 updateSandboxCount();
 log('Ready.');
