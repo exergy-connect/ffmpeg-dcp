@@ -70,12 +70,16 @@
       --slice-progress: 0%;
       position: relative;
       container-type: size;
-      min-height: 12rem;
+      width: 25%;
+      min-width: 3rem;
+      min-height: 0;
       aspect-ratio: 1;
+      justify-self: center;
+      align-self: center;
       border-radius: 12px;
       background: #1c2733;
       box-shadow: inset 0 0 0 1px rgba(255,255,255,0.035);
-      transition: background 0.2s ease, box-shadow 0.2s ease;
+      transition: background 0.2s ease, box-shadow 0.2s ease, width 0.2s ease;
       overflow: visible;
     }
     .grid-cell.active:not(.done) {
@@ -98,6 +102,11 @@
       animation: none;
     }
     .grid-cell.has-worker-comment {
+      width: 100%;
+      min-width: 12rem;
+      min-height: 12rem;
+      justify-self: stretch;
+      align-self: stretch;
       box-shadow: inset 0 0 0 2px rgba(210, 153, 34, 0.55);
       cursor: pointer;
       z-index: 1;

@@ -877,7 +877,8 @@ function programDuration(slices) {
 
 /**
  * Build a [start, end) timeline for keyframe chunks from slicer durations.
- * Chunk files keep original PTS, so absolute seconds match extract_time_range.
+ * Used to decide which source chunks overlap the director’s cut; trim offsets
+ * sent to extract_time_range are chunk-relative (see mapDirectorsCutToProgram).
  */
 function buildChunkTimeline(durations, sourceDurationSec) {
   const sourceDuration = Number(sourceDurationSec);
@@ -916,6 +917,8 @@ function buildChunkTimeline(durations, sourceDurationSec) {
 /**
  * Map an ordered director’s-cut program onto keyframe chunks.
  * Dropped ranges never become DCP units; boundary overlaps set needsTrim.
+ * trimStartSec/trimEndSec are relative to the chunk file (extract_time_range
+ * subtracts stream start_time, so absolute source times would miss all frames).
  */
 function mapDirectorsCutToProgram(slices, durations, sourceDurationSec) {
   const timeline = buildChunkTimeline(durations, sourceDurationSec);
@@ -924,8 +927,8 @@ function mapDirectorsCutToProgram(slices, durations, sourceDurationSec) {
     return timeline.starts.map((_, chunkIndex) => ({
       programIndex: chunkIndex,
       chunkIndex,
-      trimStartSec: timeline.starts[chunkIndex],
-      trimEndSec: timeline.ends[chunkIndex],
+      trimStartSec: 0,
+      trimEndSec: timeline.durations[chunkIndex],
       needsTrim: false,
       durationSec: timeline.durations[chunkIndex],
     }));
@@ -944,8 +947,8 @@ function mapDirectorsCutToProgram(slices, durations, sourceDurationSec) {
       segments.push({
         programIndex,
         chunkIndex,
-        trimStartSec: overlapStart,
-        trimEndSec: overlapEnd,
+        trimStartSec: overlapStart - chunkStart,
+        trimEndSec: overlapEnd - chunkStart,
         needsTrim,
         durationSec: overlapEnd - overlapStart,
       });

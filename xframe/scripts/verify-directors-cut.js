@@ -78,8 +78,8 @@ function mapDirectorsCutToProgram(slices, durations, sourceDurationSec) {
     return timeline.starts.map((_, chunkIndex) => ({
       programIndex: chunkIndex,
       chunkIndex,
-      trimStartSec: timeline.starts[chunkIndex],
-      trimEndSec: timeline.ends[chunkIndex],
+      trimStartSec: 0,
+      trimEndSec: timeline.durations[chunkIndex],
       needsTrim: false,
       durationSec: timeline.durations[chunkIndex],
     }));
@@ -98,8 +98,8 @@ function mapDirectorsCutToProgram(slices, durations, sourceDurationSec) {
       segments.push({
         programIndex,
         chunkIndex,
-        trimStartSec: overlapStart,
-        trimEndSec: overlapEnd,
+        trimStartSec: overlapStart - chunkStart,
+        trimEndSec: overlapEnd - chunkStart,
         needsTrim,
         durationSec: overlapEnd - overlapStart,
       });
@@ -147,10 +147,10 @@ assert(fullPieces.every((p) => !p.needsTrim), 'full program needs no trim');
 const midCut = mapDirectorsCutToProgram([{ start: 4, end: 8 }], chunkDurations, 12);
 assert(midCut.length === 2, 'mid cut spans two chunks');
 assert(midCut[0].chunkIndex === 1 && midCut[0].needsTrim, 'first piece trims start of chunk 1');
-assert(Math.abs(midCut[0].trimStartSec - 4) < 1e-9, 'trim start absolute');
-assert(Math.abs(midCut[0].trimEndSec - 6) < 1e-9, 'trim end at chunk boundary');
+assert(Math.abs(midCut[0].trimStartSec - 1) < 1e-9, 'trim start is chunk-relative');
+assert(Math.abs(midCut[0].trimEndSec - 3) < 1e-9, 'trim end is chunk-relative at chunk length');
 assert(midCut[1].chunkIndex === 2 && midCut[1].needsTrim, 'second piece trims end of chunk 2');
-assert(Math.abs(midCut[1].trimStartSec - 6) < 1e-9 && Math.abs(midCut[1].trimEndSec - 8) < 1e-9, 'second trim range');
+assert(Math.abs(midCut[1].trimStartSec - 0) < 1e-9 && Math.abs(midCut[1].trimEndSec - 2) < 1e-9, 'second trim range relative');
 
 const skipMiddle = mapDirectorsCutToProgram(
   [{ start: 0, end: 2.5 }, { start: 9.5, end: 12 }],
@@ -160,10 +160,13 @@ const skipMiddle = mapDirectorsCutToProgram(
 assert(skipMiddle.length === 2, 'skipped middle chunks never become pieces');
 assert(skipMiddle[0].chunkIndex === 0 && skipMiddle[1].chunkIndex === 3, 'only edge chunks');
 assert(skipMiddle[0].needsTrim && skipMiddle[1].needsTrim, 'edge pieces trim');
+assert(Math.abs(skipMiddle[0].trimStartSec - 0) < 1e-9 && Math.abs(skipMiddle[0].trimEndSec - 2.5) < 1e-9, 'first edge relative');
+assert(Math.abs(skipMiddle[1].trimStartSec - 0.5) < 1e-9 && Math.abs(skipMiddle[1].trimEndSec - 3) < 1e-9, 'last edge relative');
 
 const interiorOnly = mapDirectorsCutToProgram([{ start: 3, end: 6 }], chunkDurations, 12);
 assert(interiorOnly.length === 1, 'exact chunk overlap is one piece');
 assert(interiorOnly[0].chunkIndex === 1 && !interiorOnly[0].needsTrim, 'exact chunk needs no trim');
+assert(Math.abs(interiorOnly[0].trimStartSec - 0) < 1e-9 && Math.abs(interiorOnly[0].trimEndSec - 3) < 1e-9, 'full-chunk relative window');
 
 const passthrough = mapDirectorsCutToProgram([{ start: 1, end: 5 }], [0], 10);
 assert(passthrough.length === 1, 'zero-duration single chunk uses source length');
