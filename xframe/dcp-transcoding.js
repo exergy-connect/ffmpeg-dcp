@@ -2516,8 +2516,7 @@ async function assembleMasters(bySignature, uniqueFormats, deliverables, workerC
       const sub = document.createElement('div');
       sub.className = 'muted';
       sub.textContent =
-        `${name} · ${alias.width}×${alias.height} · ${formatBytes(mp4Bytes.length)}` +
-        (workerLabels.length ? ` · workers: ${workerLabels.map((c) => `“${c}”`).join(', ')}` : '');
+        `${name} · ${alias.width}×${alias.height} · ${formatBytes(mp4Bytes.length)}`;
       info.append(title, sub);
       const actions = document.createElement('div');
       actions.className = 'output-actions';
