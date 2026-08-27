@@ -95,6 +95,7 @@ function attachJobDebug(job) {
           const line = typeof head === 'string'
             ? head
             : (head?.message || head?.data || safeJson(head));
+          if (String(line).includes('[social-progress]')) return;
           dbg(`job.${name}`, line);
           return;
         }
@@ -356,15 +357,20 @@ function getComputeGroups() {
 }
 
 const qrcode = new QRCode(el('qrcode'), { width: 112, height: 112 });
+const PUBLIC_WORKER_URL = (CONFIG.worker_invite && CONFIG.worker_invite.url)
+  || 'https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/worker.html';
+
 function updateQrCode() {
   const groups = getComputeGroups();
   if (groups.length === 1 && groups[0].joinKey === 'public') {
-    qrcode.makeCode('https://dcp.live');
+    qrcode.makeCode(PUBLIC_WORKER_URL);
     return;
   }
   const first = groups[0];
   const raw = first.joinSecret ? `${first.joinKey},${first.joinSecret}` : first.joinKey;
-  qrcode.makeCode(`https://dcp.live/?computeGroups=${encodeURIComponent(raw)}`);
+  const invite = new URL(PUBLIC_WORKER_URL);
+  invite.searchParams.set('computeGroups', raw);
+  qrcode.makeCode(invite.href);
 }
 updateQrCode();
 
@@ -1314,19 +1320,106 @@ async function stageDirectorsCut(bytes, slices, durationSec, onProgress) {
 
 // ---- Grid / progress ----
 let gridCells = {};
-function setupGrid(total) {
+function setupGrid(units, formatsMeta) {
   const grid = el('grid');
   grid.innerHTML = '';
   gridCells = {};
-  const cols = Math.min(24, Math.max(1, Math.ceil(Math.sqrt(total))));
-  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  const legend = el('workerCommentLegend');
+  if (legend) legend.textContent = '';
+  const total = units.length;
+  const cols = Math.min(4, Math.max(1, Math.ceil(Math.sqrt(total))));
+  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(12rem, 1fr))`;
   for (let i = 0; i < total; i++) {
+    const unit = units[i];
+    const formatLabels = (unit.formatIndexes || [])
+      .map((index) => formatsMeta[index]?.signature || `format ${index}`)
+      .join(', ');
+    const baseTitle =
+      `slice ${i + 1} · ${unit.sourceId || 'primary'} chunk ${(unit.chunkIndex ?? i) + 1}` +
+      (formatLabels ? `\n${formatLabels}` : '');
     const cell = document.createElement('div');
     cell.className = 'grid-cell';
-    cell.title = `unit ${i}`;
+    cell.style.setProperty('--slice-progress', '0%');
+    cell.dataset.baseTitle = baseTitle;
+    cell.title = `${baseTitle}\npending`;
+    cell.setAttribute('role', 'progressbar');
+    cell.setAttribute('aria-label', baseTitle);
+    cell.setAttribute('aria-valuemin', '0');
+    cell.setAttribute('aria-valuemax', '100');
+    cell.setAttribute('aria-valuenow', '0');
     grid.appendChild(cell);
     gridCells[i] = cell;
   }
+}
+
+function updateSliceProgress(sliceNumber, rawProgress) {
+  const index = Number(sliceNumber) - 1; // DCP slice numbers are one-based.
+  const cell = gridCells[index];
+  if (!cell || cell.classList.contains('done')) return;
+  const n = Number(rawProgress);
+  cell.classList.add('active');
+  const commentLine = cell.dataset.workerComment
+    ? `\nworker: ${cell.dataset.workerComment}`
+    : '';
+  if (!Number.isFinite(n)) {
+    cell.classList.add('indeterminate');
+    cell.title = `${cell.dataset.baseTitle}${commentLine}\ntranscoding…`;
+    return;
+  }
+  cell.classList.remove('indeterminate');
+  const ratio = Math.max(0, Math.min(1, n > 1 ? n / 100 : n));
+  const percent = Math.round(ratio * 100);
+  cell.style.setProperty('--slice-progress', `${percent}%`);
+  cell.setAttribute('aria-valuenow', String(percent));
+  cell.title = `${cell.dataset.baseTitle}${commentLine}\n${percent}% transcoded`;
+}
+
+function applyWorkerCommentToCell(cell, workerComment) {
+  if (!cell) return;
+  const comment = workerComment != null ? String(workerComment).trim() : '';
+  if (!comment) return;
+  cell.dataset.workerComment = comment;
+  cell.classList.add('has-worker-comment');
+  let callout = cell.querySelector('.slice-callout');
+  if (!callout) {
+    callout = document.createElement('div');
+    callout.className = 'slice-callout';
+    callout.setAttribute('aria-hidden', 'true');
+    cell.appendChild(callout);
+  }
+  callout.textContent = comment;
+  const commentLine = `\nworker: ${comment}`;
+  const now = cell.getAttribute('aria-valuenow') || '0';
+  const state = cell.classList.contains('done')
+    ? 'complete'
+    : (cell.classList.contains('indeterminate') ? 'transcoding…' : `${now}%`);
+  cell.title = `${cell.dataset.baseTitle}${commentLine}\n${state}`;
+  cell.setAttribute('aria-label', `${cell.dataset.baseTitle}; worker ${comment}`);
+  refreshWorkerCommentLegend();
+}
+
+function refreshWorkerCommentLegend() {
+  const legend = el('workerCommentLegend');
+  if (!legend) return;
+  const comments = new Set();
+  for (const cell of Object.values(gridCells)) {
+    const c = cell?.dataset?.workerComment;
+    if (c) comments.add(c);
+  }
+  if (!comments.size) {
+    legend.textContent = '';
+    return;
+  }
+  const short = [...comments].map((c) => {
+    const t = c.length > 48 ? `${c.slice(0, 45)}…` : c;
+    return `“${t}”`;
+  });
+  legend.textContent = `Workers (${comments.size}): ${short.join(' · ')}`;
+}
+
+function formatWorkerComments(comments) {
+  const unique = [...new Set((comments || []).map((c) => String(c || '').trim()).filter(Boolean))];
+  return unique;
 }
 
 // ---- DCP dispatch ----
@@ -1426,6 +1519,59 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     const wlog = (...args) => {
       try { console.log('[social-wf]', ...args); } catch (_) { /* ignore */ }
     };
+    const readWorkerComment = () => {
+      try {
+        const sources = [
+          (typeof globalThis !== 'undefined' && globalThis.dcpWorkerContext),
+          (typeof self !== 'undefined' && self.dcpWorkerContext),
+          (typeof self !== 'undefined' && self.work && self.work.xframeContext),
+          (typeof work !== 'undefined' && work && work.xframeContext),
+          (typeof progress !== 'undefined' && progress && progress.xframeContext),
+          (typeof require !== 'undefined' && require && require.xframeContext),
+        ];
+        for (const ctx of sources) {
+          if (!ctx || ctx.comment == null) continue;
+          const comment = String(ctx.comment).trim();
+          if (comment) return comment;
+        }
+        return null;
+      } catch (_) {
+        return null;
+      }
+    };
+    const workerComment = readWorkerComment();
+    wlog('context', {
+      comment: workerComment,
+      hasDcpWorkerContext: !!(
+        (typeof globalThis !== 'undefined' && globalThis.dcpWorkerContext)
+        || (typeof self !== 'undefined' && self.dcpWorkerContext)
+      ),
+      hasWorkContext: !!(
+        (typeof self !== 'undefined' && self.work && self.work.xframeContext)
+        || (typeof work !== 'undefined' && work && work.xframeContext)
+      ),
+      hasProgressContext: !!(typeof progress !== 'undefined' && progress && progress.xframeContext),
+    });
+    if (workerComment) {
+      try { console.log(`[social-worker-comment] ${workerComment}`); } catch (_) { /* ignore */ }
+    }
+    let lastDeterminateProgress = -1;
+    const reportProgress = (value) => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) {
+        progress();
+        return;
+      }
+      const next = Math.max(0, Math.min(1, n));
+      if (next <= lastDeterminateProgress) return false;
+      lastDeterminateProgress = next;
+      progress(next);
+      // JobHandle does not consistently forward scheduler progress reports to
+      // clients. Console events retain the slice index, so mirror this compact
+      // marker for the per-slice grid.
+      console.log(`[social-progress] ${next.toFixed(6)}`);
+      return true;
+    };
     // Keep the slice alive while the ~8MB WASM package downloads/instantiates;
     // without periodic progress() the scheduler may reclaim the slice mid-load.
     let progressTick = 0;
@@ -1441,7 +1587,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     };
 
     try {
-      progress();
+      reportProgress(0);
       wlog('start', {
         chunkIndex: unit.chunkIndex,
         formatIndexes: unit.formatIndexes,
@@ -1449,6 +1595,11 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         b64Len: unit.chunkBase64?.length,
       });
       const formatsMetaArg = JSON.parse(formatsMetaJsonArg);
+      const indexes = unit.formatIndexes !== undefined
+        ? unit.formatIndexes
+        : formatsMetaArg.map((_, i) => i);
+      let activeFormatPosition = 0;
+      const formatCount = Math.max(1, indexes.length);
       wlog('require ffmpeg-wasm.js…');
       const required = require('ffmpeg-wasm.js');
       wlog('require keys', required && typeof required === 'object' ? Object.keys(required) : typeof required);
@@ -1457,8 +1608,18 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         throw new Error('ffmpeg-wasm.js did not export createFfmpegModule');
       }
       wlog('createFfmpegModule…');
-      const Module = await createFfmpegModule();
-      progress();
+      const Module = await createFfmpegModule({
+        onTranscodeProgress(ratio) {
+          const localRatio = Number(ratio);
+          if (!Number.isFinite(localRatio) || localRatio < 0) {
+            progress();
+            return;
+          }
+          // Reserve 10% for module setup and 2% for result serialization.
+          reportProgress(0.1 + (0.88 * (activeFormatPosition + Math.min(1, localRatio)) / formatCount));
+        },
+      });
+      reportProgress(0.1);
       wlog('module ready', {
         hasCcall: typeof Module.ccall === 'function',
         hasFS: Boolean(Module.FS),
@@ -1489,12 +1650,10 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       });
       Module.FS.writeFile(inPath, chunkBytes);
 
-      const indexes = unit.formatIndexes !== undefined
-        ? unit.formatIndexes
-        : formatsMetaArg.map((_, i) => i);
-
       const results = [];
-      for (const formatIndex of indexes) {
+      for (let formatPosition = 0; formatPosition < indexes.length; formatPosition++) {
+        const formatIndex = indexes[formatPosition];
+        activeFormatPosition = formatPosition;
         const fmt = formatsMetaArg[formatIndex];
         const outPath = `/chunk-out-${formatIndex}.ts`;
         const computeT0 = Date.now();
@@ -1524,7 +1683,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         }
         const segBytes = Module.FS.readFile(outPath);
         Module.FS.unlink(outPath);
-        progress();
+        reportProgress(0.1 + (0.88 * (formatPosition + 1) / formatCount));
         let binary = '';
         const chunkSize = 0x8000;
         for (let i = 0; i < segBytes.length; i += chunkSize) {
@@ -1534,8 +1693,19 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         wlog('segment encoded', { signature: fmt.signature, outBytes: segBytes.length, computeSeconds });
       }
       Module.FS.unlink(inPath);
-      wlog('return', { chunkIndex: unit.chunkIndex, segments: results.length });
-      return { sourceId: unit.sourceId, chunkIndex: unit.chunkIndex, segments: results };
+      reportProgress(1);
+      const finalComment = readWorkerComment() || workerComment;
+      wlog('return', {
+        chunkIndex: unit.chunkIndex,
+        segments: results.length,
+        workerComment: finalComment || null,
+      });
+      return {
+        sourceId: unit.sourceId,
+        chunkIndex: unit.chunkIndex,
+        segments: results,
+        workerComment: finalComment || null,
+      };
     } catch (err) {
       wlog('FAILED', err && err.message ? err.message : String(err));
       throw err;
@@ -1552,12 +1722,14 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   let completed = 0;
   let resultEvents = 0;
   const bySignature = {};
+  const workerCommentsBySignature = {};
   for (const f of uniqueFormats) {
     const source = sourceById.get(f.sourceId);
     bySignature[f.signature] = new Array(source?.chunks.length || 0).fill(null);
+    workerCommentsBySignature[f.signature] = new Array(source?.chunks.length || 0).fill(null);
   }
 
-  setupGrid(inputSet.length);
+  setupGrid(inputSet, formatsMeta);
   el('statCompleted').textContent = `0 / ${totalUnits}`;
 
   dbg('compute.for…', { slices: inputSet.length, argsBytes: formatsMetaJson.length });
@@ -1616,6 +1788,25 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       `for ${ev?.remainingSlices ?? '?'} remaining slice(s).`,
     ));
   });
+  job.on('console', (ev) => {
+    if (!ev || typeof ev !== 'object') return;
+    const raw = ev.message ?? ev.data ?? '';
+    const message = Array.isArray(raw)
+      ? raw.map((part) => (typeof part === 'string' ? part : (() => {
+          try { return JSON.stringify(part); } catch (_) { return String(part); }
+        })())).join(' ')
+      : String(raw);
+    const commentMatch = message.match(/\[social-worker-comment\]\s+(.+?)(?:\s*$)/);
+    if (commentMatch) {
+      const sliceNumber = ev.sliceNumber ?? ev.sliceIndex ?? ev.slice;
+      const index = Number(sliceNumber) - 1;
+      applyWorkerCommentToCell(gridCells[index], commentMatch[1].trim());
+      updateSliceProgress(sliceNumber, gridCells[index]?.getAttribute('aria-valuenow'));
+    }
+    const match = message.match(/\[social-progress\]\s+([0-9.]+)/);
+    if (!match) return;
+    updateSliceProgress(ev.sliceNumber ?? ev.sliceIndex ?? ev.slice, Number(match[1]));
+  });
   job.on('result', (ev) => {
     resultEvents += 1;
     dbg(`result event #${resultEvents}`, {
@@ -1628,6 +1819,9 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     const sourceId = payload?.sourceId || 'primary';
     const chunkIndex = payload?.chunkIndex;
     const segments = payload?.segments;
+    const workerComment = payload?.workerComment != null
+      ? String(payload.workerComment).trim()
+      : '';
     if (!Array.isArray(segments)) {
       log(`Unexpected result payload (slice ${ev?.sliceNumber ?? '?'}): ${safeJson(payload)}`);
       return;
@@ -1638,10 +1832,27 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
         continue;
       }
       bySignature[seg.signature][chunkIndex] = seg.segmentBase64;
+      if (workerComment && workerCommentsBySignature[seg.signature]) {
+        workerCommentsBySignature[seg.signature][chunkIndex] = workerComment;
+      }
       completed += 1;
     }
-    const cell = gridCells[unitIndex++];
-    if (cell) cell.classList.add('done');
+    const sliceIndex = Number.isFinite(Number(ev?.sliceNumber))
+      ? Number(ev.sliceNumber) - 1
+      : unitIndex;
+    unitIndex += 1;
+    const cell = gridCells[sliceIndex];
+    if (cell) {
+      applyWorkerCommentToCell(cell, workerComment);
+      cell.classList.remove('active', 'indeterminate');
+      cell.classList.add('done');
+      cell.style.setProperty('--slice-progress', '100%');
+      cell.setAttribute('aria-valuenow', '100');
+      const commentLine = cell.dataset.workerComment
+        ? `\nworker: ${cell.dataset.workerComment}`
+        : '';
+      cell.title = `${cell.dataset.baseTitle}${commentLine}\ncomplete`;
+    }
     el('fleetBar').style.width = `${(completed / totalUnits) * 100}%`;
     el('statCompleted').textContent = `${completed} / ${totalUnits}`;
     const status = el('preprocessingStatus');
@@ -1650,7 +1861,9 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     }
     log(
       `Received slice ${ev?.sliceNumber ?? unitIndex}: chunk ${chunkIndex}, ` +
-      `${sourceId} source, ${segments.length} segment(s) (${completed}/${totalUnits} format-units)`,
+      `${sourceId} source, ${segments.length} segment(s)` +
+      `${workerComment ? `, worker “${workerComment}”` : ''}` +
+      ` (${completed}/${totalUnits} format-units)`,
     );
   });
 
@@ -1682,7 +1895,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     });
     if (Number(sec) >= 30 && (st.distributed == null || Number(st.distributed) === 0) && resultEvents === 0) {
       dbg(
-        'hint: still 0 distributed slices — public workers may be scarce, or open https://dcp.live ' +
+        `hint: still 0 distributed slices — public workers may be scarce, or open ${PUBLIC_WORKER_URL} ` +
         'and join this compute group so a worker can pick up work',
       );
     }
@@ -1732,7 +1945,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       'Some slices failed on the fleet; assemble aborted to avoid corrupt masters.',
     );
   }
-  return { bySignature };
+  return { bySignature, workerCommentsBySignature };
 }
 
 function framingLabel() {
@@ -1802,7 +2015,7 @@ async function shareOutputToLinkedIn(out) {
   }
 }
 
-async function assembleMasters(bySignature, uniqueFormats, deliverables) {
+async function assembleMasters(bySignature, uniqueFormats, deliverables, workerCommentsBySignature = {}) {
   const outputs = [];
   el('outputsSection').classList.remove('hidden');
   const host = el('outputs');
@@ -1824,6 +2037,7 @@ async function assembleMasters(bySignature, uniqueFormats, deliverables) {
     }
     const parts = segs.map((b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
     const total = parts.reduce((n, p) => n + p.length, 0);
+    const workerLabels = formatWorkerComments(workerCommentsBySignature[fmt.signature]);
 
     log(`Remuxing ${fmt.signature} → MP4 (${formatBytes(total)} TS, ${parts.length} segment(s))…`);
     const mp4Bytes = await remuxToMp4(parts);
@@ -1832,7 +2046,7 @@ async function assembleMasters(bySignature, uniqueFormats, deliverables) {
       const name = `${inputBaseName}-${alias.deliverableId}.mp4`;
       const blob = new Blob([mp4Bytes], { type: 'video/mp4' });
       const url = URL.createObjectURL(blob);
-      const out = { name, blob, url, alias, bytes: mp4Bytes.length };
+      const out = { name, blob, url, alias, bytes: mp4Bytes.length, workerComments: workerLabels };
       outputs.push(out);
       const row = document.createElement('div');
       row.className = 'output-row';
@@ -1841,7 +2055,9 @@ async function assembleMasters(bySignature, uniqueFormats, deliverables) {
       title.textContent = `${alias.platformName} · ${alias.placementLabel}`;
       const sub = document.createElement('div');
       sub.className = 'muted';
-      sub.textContent = `${name} · ${alias.width}×${alias.height} · ${formatBytes(mp4Bytes.length)}`;
+      sub.textContent =
+        `${name} · ${alias.width}×${alias.height} · ${formatBytes(mp4Bytes.length)}` +
+        (workerLabels.length ? ` · workers: ${workerLabels.map((c) => `“${c}”`).join(', ')}` : '');
       info.append(title, sub);
       const actions = document.createElement('div');
       actions.className = 'output-actions';
@@ -2049,9 +2265,19 @@ el('runBtn').addEventListener('click', async () => {
     updateCostEstimate(exactSliceCount);
     el('preprocessingStatus').textContent = 'Dispatching to DCP…';
 
-    const { bySignature } = await dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBaseName);
+    const { bySignature, workerCommentsBySignature } = await dispatchJob(
+      sourcePlans,
+      uniqueFormats,
+      maxDistribution,
+      inputBaseName,
+    );
     el('preprocessingStatus').textContent = 'Assembling MP4 masters…';
-    lastOutputs = await assembleMasters(bySignature, uniqueFormats, deliverables);
+    lastOutputs = await assembleMasters(
+      bySignature,
+      uniqueFormats,
+      deliverables,
+      workerCommentsBySignature,
+    );
     el('saveOutputsBtn').classList.toggle('hidden', !lastOutputs.length || !window.showDirectoryPicker);
     el('preprocessingStatus').textContent = `Done — ${lastOutputs.length} deliverable(s).`;
     log(`Produced ${lastOutputs.length} MP4 deliverable(s).`);

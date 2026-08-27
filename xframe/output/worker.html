@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0f14" />
+  <title>DCP Browser Worker</title>
+  <link rel="icon" href="./favicon.ico" sizes="any" />
+  <script src="https://scheduler.distributed.computer/dcp-client/dcp-client.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0f14;
+      --card: #111823;
+      --border: #1e2b3a;
+      --text: #e6edf3;
+      --muted: #9aa7b2;
+      --ok: #3fb950;
+      --warn: #f0883e;
+      --danger: #ff7b72;
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+      --safe-top: env(safe-area-inset-top, 0px);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      font-family: -apple-system, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: calc(12px + var(--safe-top)) 14px calc(12px + var(--safe-bottom));
+      max-width: 480px;
+      margin-inline: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      min-height: 100dvh;
+    }
+    .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .top h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+    }
+    .brand-logo {
+      height: 28px;
+      width: auto;
+      max-width: 120px;
+      object-fit: contain;
+      display: block;
+    }
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.9rem;
+    }
+    .panel.main { flex: 0 0 auto; }
+    .panel.log-panel {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+    label {
+      display: block;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 0.3rem;
+    }
+    input[type="text"],
+    textarea#workerComment {
+      width: 100%;
+      background: #0d1117;
+      border: 1px solid #2d3f52;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0.7rem 0.75rem;
+      font-size: 1rem;
+      font-family: inherit;
+      -webkit-appearance: none;
+    }
+    textarea#workerComment {
+      min-height: 5.5rem;
+      resize: vertical;
+      line-height: 1.35;
+    }
+    #demoCommentHint {
+      margin: 0.35rem 0 0;
+      font-size: 0.75rem;
+      color: var(--muted);
+      min-height: 1.1em;
+    }
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 0.65rem;
+      align-items: center;
+      margin-top: 0.75rem;
+    }
+    button#toggleBtn {
+      appearance: none;
+      border: none;
+      border-radius: 10px;
+      min-height: 48px;
+      padding: 0.75rem 1rem;
+      font-size: 1.05rem;
+      font-weight: 700;
+      cursor: pointer;
+      background: linear-gradient(90deg, #3fb950, #2ea043);
+      color: #04170a;
+    }
+    button#toggleBtn.stop {
+      background: linear-gradient(90deg, #f0883e, #db6d28);
+      color: #1a0b00;
+    }
+    button#toggleBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 36px;
+      padding: 0.35rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid #2d3f52;
+      background: #0d1117;
+      font-size: 0.82rem;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    .status-pill[data-state="running"] { border-color: rgba(63,185,80,0.55); color: var(--ok); }
+    .status-pill[data-state="stopping"],
+    .status-pill[data-state="starting"] { border-color: rgba(240,136,62,0.55); color: var(--warn); }
+    .status-pill[data-state="error"] { border-color: rgba(255,123,114,0.55); color: var(--danger); }
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.45rem 0.75rem;
+      margin-top: 0.75rem;
+      font-size: 0.78rem;
+    }
+    .stats dt { color: var(--muted); margin: 0; }
+    .stats dd {
+      margin: 0.1rem 0 0;
+      font-family: ui-monospace, monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .stats .wide { grid-column: 1 / -1; }
+    .log-title {
+      margin: 0;
+      font-size: 0.78rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    #log {
+      flex: 1 1 auto;
+      min-height: 140px;
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      font-family: ui-monospace, monospace;
+      font-size: 0.72rem;
+      line-height: 1.35;
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.65rem;
+      color: #c9d1d9;
+      white-space: pre-wrap;
+    }
+    #log div { margin: 0.12rem 0; }
+    .build-stamp {
+      margin: 0;
+      font-size: 0.6rem;
+      color: #5c6b78;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    @media (min-width: 640px) {
+      body { max-width: 560px; padding: 20px; gap: 1rem; }
+      .top h1 { font-size: 1.45rem; }
+      .brand-logo { height: 32px; }
+      .panel { padding: 1.1rem; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <h1>DCP Browser Worker</h1>
+    <img class="brand-logo" src="./exergy_connect_logo.png" alt="Exergy Connect" width="120" height="28" />
+  </header>
+
+  <section class="panel main">
+    <label for="workerIdentity">Identity</label>
+    <input
+      id="workerIdentity"
+      type="text"
+      maxlength="40"
+      placeholder="(anonymous)"
+      value="(anonymous)"
+      autocomplete="off"
+      spellcheck="false"
+      enterkeyhint="next"
+    />
+    <label for="workerComment" style="margin-top:0.75rem">Comment</label>
+    <textarea
+      id="workerComment"
+      maxlength="280"
+      placeholder="Optional label"
+      autocomplete="off"
+      spellcheck="false"
+      rows="4"
+    ></textarea>
+    <p id="demoCommentHint"></p>
+    <div class="controls">
+      <button type="button" id="toggleBtn">Start</button>
+      <span id="statusPill" class="status-pill" data-state="idle">Idle</span>
+    </div>
+    <dl class="stats">
+      <div>
+        <dt>Sandboxes</dt>
+        <dd id="sandboxCount">0</dd>
+      </div>
+      <div>
+        <dt>Jobs</dt>
+        <dd id="jobIds">any</dd>
+      </div>
+      <div class="wide">
+        <dt>Worker</dt>
+        <dd id="workerId">—</dd>
+      </div>
+      <div class="wide">
+        <dt>Payment</dt>
+        <dd id="paymentAddress">—</dd>
+      </div>
+      <div class="wide">
+        <dt>Groups</dt>
+        <dd id="computeGroups">—</dd>
+      </div>
+    </dl>
+  </section>
+
+  <section class="panel log-panel">
+    <p class="log-title">Log</p>
+    <div id="log"></div>
+  </section>
+
+  <p class="build-stamp" title="Build stamp">2026-08-27T14:43:24Z · 09a8a6f</p>
+
+  <script id="app-config" type="application/json">
+{"_concept":"browser_worker_app","title":"DCP Browser Worker","tagline":"Donate idle cycles","runtime_script":"worker.js","dcp_client_url":"https://scheduler.distributed.computer/dcp-client/dcp-client.js","cloud_signup_url":"https://dcp.cloud","defaults":{"_concept":"browser_worker_defaults","payment_address":"0xf221901f78c5407ca5c2837bdc4fc49ede0b8fe8","max_sandboxes":2,"leave_public_group":true,"compute_groups":[{"joinKey":"demo","joinSecret":"dcp"},{"joinKey":"exergy","joinSecret":"xp"}],"notes":"Defaults mirror the public dcp.live demo posture."},"identity":{"_concept":"worker_identity_policy","storage_key":"xframe.worker.identity","max_length":40,"default":"(anonymous)","placeholder":"(anonymous)","notes":"Display name used in supervisor logs and prefixed onto the platform comment as \"<identity>: <comment>\"."},"comment":{"_concept":"worker_comment_policy","storage_key":"xframe.worker.comment","max_length":280,"exposure":"sandbox_context_and_results","placeholder":"Optional label","notes":"Set via the Comment field, ?comment= / ?workerComment=, ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage. Sent to the platform as \"<identity>: <comment>\" in dcpWorkerContext."},"demo_comments":[{"_concept":"demo_comment","title":"The Non-Conformists","quote":"Here’s to the crazy ones. The misfits. The rebels. The troublemakers. The round pegs in the square holes. The ones who see things differently."},{"_concept":"demo_comment","title":"The Impact","quote":"They’re not fond of rules. And they have no respect for the status quo. You can quote them, disagree with them, glorify or vilify them. About the only thing you can’t do is ignore them."},{"_concept":"demo_comment","title":"The Visionaries","quote":"Because they change things. They push the human race forward."},{"_concept":"demo_comment","title":"The Ones Who Do","quote":"And while some may see them as the crazy ones, we see genius. Because the people who are crazy enough to think they can change the world, are the ones who do."}],"url_options":{"paymentAddress":{"_concept":"url_option","name":"paymentAddress","description":"Bank address that receives earned compute credits","default":"0xf221901f78c5407ca5c2837bdc4fc49ede0b8fe8"},"jobIds":{"_concept":"url_option","name":"jobIds","description":"Comma-separated job IDs to restrict this worker","default":""},"computeGroups":{"_concept":"url_option","name":"computeGroups","description":"joinKey,joinSecret pair or JSON array of groups","default":"demo,dcp"},"leavePublicGroup":{"_concept":"url_option","name":"leavePublicGroup","description":"true leaves the public group; false stays in public","default":"true"},"maxSandboxes":{"_concept":"url_option","name":"maxSandboxes","description":"Maximum concurrent sandboxes","default":"2"},"comment":{"_concept":"url_option","name":"comment","description":"Optional worker comment text (combined with identity for platform results; alias workerComment)","default":""},"identity":{"_concept":"url_option","name":"identity","description":"Worker display name used in logs and as the platform comment prefix","default":"(anonymous)"},"demoCommentIndex":{"_concept":"url_option","name":"demoCommentIndex","description":"1..4 selects a Think Different demo quote as the worker comment","default":""}},"_id":"app"}
+  </script>
+  <script src="./worker.js"></script>
+</body>
+</html>

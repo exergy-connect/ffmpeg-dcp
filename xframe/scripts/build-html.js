@@ -4,18 +4,24 @@
  * Stage browser assets next to the xForm --final html output.
  * Runtime JSON is {{ app | _resolve(unwrap=true) | to_json }} in html.xpt.
  *
- * Usage (after: xform dcp-transcoding.xp --tree --final html): node scripts/build-html.js
+ * Usage:
+ *   node scripts/build-html.js                 # dcp-transcoding (default)
+ *   node scripts/build-html.js worker          # worker page
  */
 const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
 const outputDir = path.join(root, 'output');
-const treePath = path.join(outputDir, 'dcp-transcoding.json');
-const outPath = path.join(outputDir, 'dcp-transcoding.html');
+const basename = process.argv[2] || 'dcp-transcoding';
+const treePath = path.join(outputDir, `${basename}.json`);
+const outPath = path.join(outputDir, `${basename}.html`);
 
 if (!fs.existsSync(outPath)) {
   throw new Error(`Missing ${outPath}; compile with --final html first`);
+}
+if (!fs.existsSync(treePath)) {
+  throw new Error(`Missing ${treePath}; compile with --tree first`);
 }
 
 const tree = JSON.parse(fs.readFileSync(treePath, 'utf8'));
@@ -53,6 +59,16 @@ function stageAsset(sourcePath, outputRelativePath, { allowMissing = false } = {
   const destination = path.join(outputDir, outputRelativePath);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(sourcePath, destination);
+}
+
+if (basename === 'worker') {
+  const runtimeScript = app.runtime_script || 'worker.js';
+  stageAsset(path.join(root, runtimeScript), runtimeScript);
+  stageAsset(path.join(root, 'exergy_connect_logo.png'), 'exergy_connect_logo.png');
+  stageAsset(path.join(root, '..', 'favicon.ico'), 'favicon.ico');
+  console.log(`Wrote ${outPath} (${html.length} bytes)`);
+  console.log(`Staged worker runtime under ${outputDir}`);
+  process.exit(0);
 }
 
 const runtimeScript = app.runtime_script || 'dcp-transcoding.js';

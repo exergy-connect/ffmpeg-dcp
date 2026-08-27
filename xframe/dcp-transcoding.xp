@@ -126,6 +126,12 @@ dcp_bank_query:
     unit: _string
     notes: _string
 
+# Public browser-worker landing page encoded by the account QR code.
+browser_worker_invite:
+  _attributes:
+    url: { _type: _string, _required: true }
+    notes: _string
+
 dcp_transcoding_app:
   _attributes:
     title: _string
@@ -138,6 +144,7 @@ dcp_transcoding_app:
     wasm_glue: _string
     wasm_binary: _string
     dcp_package: _string
+    worker_invite: { _concept: browser_worker_invite }
     containers: { _dict: container_format }
     framing: { _dict: framing_mode }
     color: { _dict: color_policy }
@@ -166,6 +173,10 @@ app:
   wasm_glue: ffmpeg-wasm/dcp-transcode-glue.js
   wasm_binary: ffmpeg-wasm/dcp-transcode.wasm
   dcp_package: ffmpeg-dcp-social/ffmpeg-wasm.js
+  worker_invite:
+    _concept: browser_worker_invite
+    url: https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/worker.html
+    notes: Public GitHub Pages browser worker encoded by the account QR code (replaces dcp.live).
 
   codecs:
     vp8:
@@ -570,6 +581,8 @@ _assert:
     message: Bank balance query must use viewAccount (see test/accountBalance.js)
   - test: "{{ app.bank.balance_field == 'payload.balance' }}"
     message: Bank balance must be read from payload.balance
+  - test: "{{ app.worker_invite.url == 'https://exergy-connect.github.io/ffmpeg-dcp/xframe/output/worker.html' }}"
+    message: Public worker invite URL must be the GitHub Pages worker.html
 ---
 _id: app
 ===

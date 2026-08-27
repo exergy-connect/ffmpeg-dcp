@@ -21,6 +21,7 @@ importScripts(new URL('dcp-transcode-glue.js', WASM_DIR).href);
 
 let modulePromise = null;
 let lastFfmpegErr = [];
+let activeWasmProgress = null;
 
 function getModule() {
   if (!modulePromise) {
@@ -40,6 +41,15 @@ function getModule() {
         console.warn('[ffmpeg]', text);
         lastFfmpegErr.push(String(text));
         if (lastFfmpegErr.length > 40) lastFfmpegErr.shift();
+      },
+      onTranscodeProgress: (ratio, processedFrames, totalFrames) => {
+        if (!activeWasmProgress) return;
+        activeWasmProgress({
+          phase: 'transcode',
+          ratio: ratio >= 0 ? ratio : null,
+          processedFrames,
+          totalFrames: totalFrames > 0 ? totalFrames : null,
+        });
       },
     });
   }
@@ -358,7 +368,7 @@ async function stageDirectorsCut(inputBytes, slices, sourceDurationSec, onProgre
   return { bytes: mp4, staged: true, sliceCount: cleaned.length };
 }
 
-async function transcodeSocialSegment(chunkBytes, params = {}) {
+async function transcodeSocialSegment(chunkBytes, params = {}, onProgress) {
   const Module = await getModule();
   lastFfmpegErr = [];
   const {
@@ -369,16 +379,20 @@ async function transcodeSocialSegment(chunkBytes, params = {}) {
   const inPath = `/seg-in-${Math.random().toString(36).slice(2)}.${inExt}`;
   const outPath = `/seg-out-${Math.random().toString(36).slice(2)}.ts`;
   Module.FS.writeFile(inPath, chunkBytes);
-  const code = Module.ccall(
-    'transcode_social_segment', 'number',
-    ['string', 'string', 'number', 'number', 'number', 'number', 'number', 'number', 'string'],
-    [inPath, outPath, width, height, bitrateKbps, audioBitrateKbps, gop, frameMode, 'libopenh264'],
-  );
-  requireSuccess(code, 'transcode_social_segment');
-  const out = Module.FS.readFile(outPath);
-  Module.FS.unlink(inPath);
-  Module.FS.unlink(outPath);
-  return out;
+  activeWasmProgress = onProgress || null;
+  try {
+    const code = Module.ccall(
+      'transcode_social_segment', 'number',
+      ['string', 'string', 'number', 'number', 'number', 'number', 'number', 'number', 'string'],
+      [inPath, outPath, width, height, bitrateKbps, audioBitrateKbps, gop, frameMode, 'libopenh264'],
+    );
+    requireSuccess(code, 'transcode_social_segment');
+    return Module.FS.readFile(outPath);
+  } finally {
+    activeWasmProgress = null;
+    try { Module.FS.unlink(inPath); } catch (_) { /* ignore cleanup errors */ }
+    try { Module.FS.unlink(outPath); } catch (_) { /* ignore cleanup errors */ }
+  }
 }
 
 const handlers = { sliceVideo, remuxToMp4, transcodeSocialSegment, stageDirectorsCut, extractTimeRange };

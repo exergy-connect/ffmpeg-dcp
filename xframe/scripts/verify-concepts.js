@@ -31,6 +31,14 @@ assert(cfg.dcp_package === 'ffmpeg-dcp-social/ffmpeg-wasm.js', 'distinct package
 assert(cfg.bank?.operation === 'viewAccount', 'bank.operation must be viewAccount');
 assert(cfg.bank?.balance_field === 'payload.balance', 'bank.balance_field must be payload.balance');
 assert(html.includes('dcp-bank-account.js'), 'HTML must load dcp-bank-account.js');
+assert(
+  typeof cfg.worker_invite?.url === 'string' && cfg.worker_invite.url.endsWith('/worker.html'),
+  'app.worker_invite.url must point at public worker.html',
+);
+assert(
+  fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8').includes('PUBLIC_WORKER_URL'),
+  'runtime must read public worker invite URL from config',
+);
 assert(html.includes('id="stageCutBtn"'), 'HTML must include director’s cut staging button');
 assert(html.includes('id="cutDialog"'), 'HTML must include director’s cut dialog');
 assert(html.includes('id="cutAddSliceBtn"'), 'HTML must include add-slice control');

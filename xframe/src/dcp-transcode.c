@@ -23,6 +23,20 @@
 #include <stdio.h>
 #include <math.h>
 
+/*
+ * A synchronous WASM ccall blocks its worker's JavaScript event loop, so a
+ * setInterval cannot keep a long transcode alive. Cross the WASM boundary from
+ * the frame loop instead. Embedders opt in by supplying
+ * Module.onTranscodeProgress(ratio, processed_frames, total_frames).
+ */
+EM_JS(void, report_social_progress,
+      (double ratio, int processed_frames, int total_frames), {
+  var callback = Module['onTranscodeProgress'];
+  if (typeof callback === 'function') {
+    callback(ratio, processed_frames, total_frames);
+  }
+});
+
 /* fprintf(stderr, ...) only reaches the caller if the JS wrapper passes
  * explicit print/printErr callbacks - not wired to anything by default. */
 #define TRANSCODE_FAIL(step, ret) \
@@ -1439,6 +1453,18 @@ int transcode_social_segment(const char *input_path, const char *output_path,
   double source_fps = source_fr.den > 0 ? av_q2d(source_fr) : 0.0;
   if (source_fps < 1.0 || source_fps > 120.0)
     source_fr = (AVRational){30, 1};
+  double progress_fps = source_fps;
+  if (progress_fps < 1.0 || progress_fps > 120.0)
+    progress_fps = av_q2d(source_fr);
+  int64_t estimated_total_frames = in_video->nb_frames;
+  if (estimated_total_frames <= 0 && in_video->duration > 0) {
+    estimated_total_frames = (int64_t)ceil(
+        in_video->duration * av_q2d(in_video->time_base) * progress_fps);
+  }
+  if (estimated_total_frames <= 0 && in_fmt->duration > 0) {
+    estimated_total_frames = (int64_t)ceil(
+        ((double)in_fmt->duration / AV_TIME_BASE) * progress_fps);
+  }
   enc_ctx->time_base = source_tb;
   enc_ctx->framerate = source_fr;
   enc_ctx->gop_size = gop_size;
@@ -1534,6 +1560,12 @@ int transcode_social_segment(const char *input_path, const char *output_path,
   uint8_t *audio_fifo = NULL;
   int audio_fifo_samples = 0;
   int audio_fifo_cap = 0;
+  int processed_video_frames = 0;
+  double last_progress_ms = emscripten_get_now();
+  report_social_progress(
+      estimated_total_frames > 0 ? 0.0 : -1.0,
+      0,
+      estimated_total_frames > 0 ? (int)estimated_total_frames : 0);
 
   while (av_read_frame(in_fmt, in_pkt) >= 0) {
     if (aud_dec && in_pkt->stream_index == audio_idx) {
@@ -1671,6 +1703,19 @@ int transcode_social_segment(const char *input_path, const char *output_path,
         out_pkt->stream_index = out_v->index;
         av_interleaved_write_frame(out_fmt, out_pkt);
       }
+      processed_video_frames++;
+      double progress_ms = emscripten_get_now();
+      if (progress_ms - last_progress_ms >= 1000.0) {
+        double ratio = estimated_total_frames > 0
+            ? (double)processed_video_frames / (double)estimated_total_frames
+            : -1.0;
+        if (ratio > 0.99) ratio = 0.99;
+        report_social_progress(
+            ratio,
+            processed_video_frames,
+            estimated_total_frames > 0 ? (int)estimated_total_frames : 0);
+        last_progress_ms = progress_ms;
+      }
     }
   }
 
@@ -1707,6 +1752,10 @@ int transcode_social_segment(const char *input_path, const char *output_path,
   if (aframe_res) av_frame_free(&aframe_res);
   av_packet_free(&in_pkt);
   av_packet_free(&out_pkt);
+  report_social_progress(
+      1.0,
+      processed_video_frames,
+      estimated_total_frames > 0 ? (int)estimated_total_frames : processed_video_frames);
   return 0;
 }
 

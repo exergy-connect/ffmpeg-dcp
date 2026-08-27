@@ -9,14 +9,18 @@ Accepts a browser `MediaRecorder` WebM (VP8/VP9 + Opus), lets the user pick any 
 | Path | Role |
 | --- | --- |
 | [`dcp-transcoding.xp`](dcp-transcoding.xp) | Semantic concepts: platforms, placements, format specs, pipeline, dispatch |
-| [`templates/_final/html.xpt`](templates/_final/html.xpt) | HTML final template |
+| [`worker.xp`](worker.xp) | Browser worker page concepts (dcp.live-style Start/Stop + optional comment) |
+| [`templates/_final/html.xpt`](templates/_final/html.xpt) | Transcoder HTML final template |
+| [`templates/worker/_final/html.xpt`](templates/worker/_final/html.xpt) | Worker HTML final template |
 | [`dcp-transcoding.js`](dcp-transcoding.js) | Browser runtime |
+| [`worker.js`](worker.js) | Browser worker runtime |
 | [`ffmpeg-worker.js`](ffmpeg-worker.js) | Local WASM: `slice_webm`, `remux_to_mp4` |
 | [`dcp-deploy-worker.js`](dcp-deploy-worker.js) | Base64 input-set prep |
 | [`src/dcp-transcode.c`](src/dcp-transcode.c) | Forked work-function + social APIs |
 | [`build.sh`](build.sh) | WASM build with VP8/VP9/Opus |
 | [`package/`](package/) | Distinct DCP package `ffmpeg-dcp-social` |
-| [`output/dcp-transcoding.html`](output/dcp-transcoding.html) | Compiled app (after xForm) |
+| [`output/dcp-transcoding.html`](output/dcp-transcoding.html) | Compiled transcoder (after xForm) |
+| [`output/worker.html`](output/worker.html) | Compiled browser worker (after xForm) |
 
 ## Compile the UI
 
@@ -42,8 +46,18 @@ for a local static server:
 cd /workspaces/ffmpeg-dcp/xframe/output
 python3 -m http.server 8765
 # open http://127.0.0.1:8765/dcp-transcoding.html
-# (worker fetches ../ffmpeg-wasm/dcp-transcode.wasm)
+# open http://127.0.0.1:8765/worker.html
+# (transcoder worker fetches ../ffmpeg-wasm/dcp-transcode.wasm)
 ```
+
+### Browser worker page
+
+Mobile-first Start/Stop page at [`worker.html`](output/worker.html). Optional
+comment is persisted and prefixed onto this page’s log. URL options:
+`paymentAddress`, `jobIds`, `computeGroups`, `leavePublicGroup`, `maxSandboxes`,
+`identity` (default `(anonymous)`), `comment` (alias `workerComment`),
+`demoCommentIndex` (1–4 Think Different quotes). Platform results use
+`<identity>: <comment>`.
 
 The custom WASM module is single-threaded and does not require
 `SharedArrayBuffer` or cross-origin isolation headers.
