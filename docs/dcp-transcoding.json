@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "createdAt": "2026-08-28T18:18:24.776Z",
-    "modifiedAt": "2026-08-28T18:18:24.776Z",
+    "createdAt": "2026-08-28T19:06:18.674Z",
+    "modifiedAt": "2026-08-28T19:06:18.674Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
@@ -9,8 +9,8 @@
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp",
       "hash": "sha256:a30fdba24e8fe47d869d3c58545001c389cef879b4b73207b2b9b3f2225a0533",
-      "createdAt": "2026-08-24T19:23:37.516Z",
-      "modifiedAt": "2026-08-28T18:02:28.906Z"
+      "createdAt": "2026-08-28T18:18:52.379Z",
+      "modifiedAt": "2026-08-28T18:28:22.824Z"
     }
   ],
   "_concepts": {
@@ -18,106 +18,106 @@
       "_target": "html"
     },
     "demo": {
+      "presentation": "slidedeck",
+      "format": "desktop",
+      "title": "Demo Messages",
+      "subtitle": "Gemini voice narration demo",
+      "author": "Exergy LLC",
+      "lang": "en-US",
+      "themes": [
+        "dark"
+      ],
+      "narrative": {
+        "provider": "gemini",
+        "model": "gemini-3.1-flash-preview-tts",
+        "voice": "male",
+        "pause_seconds": 3,
+        "direction": {
+          "profile": "For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.",
+          "scene": "A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.",
+          "style": "Intimate, assured, idealistic, and cinematic without sounding theatrical.",
+          "accent": "Native pronunciation for the selected language.",
+          "pacing": "Deliberate, with clean pauses between short sentences.",
+          "notes": "Let each final phrase land before the audio ends."
+        }
+      },
+      "messages": [
+        {
+          "_concept": "demo_message",
+          "id": "non-conformists",
+          "title": "The Non-Conformists",
+          "quotes": [
+            {
+              "language": "en-US",
+              "text": "Here’s to the crazy ones. The ones who see things differently."
+            },
+            {
+              "language": "fr-FR",
+              "text": "Hommage aux fous. À ceux qui voient les choses différemment."
+            },
+            {
+              "language": "es-ES",
+              "text": "Esto es para los locos. Los que ven las cosas de forma diferente."
+            },
+            {
+              "language": "de-DE",
+              "text": "Ein Hoch auf die Verrückten. Diejenigen, die die Dinge anders sehen."
+            },
+            {
+              "language": "nl-NL",
+              "text": "Een ode aan de dwazen. Degenen die de dingen anders zien."
+            }
+          ]
+        },
+        {
+          "_concept": "demo_message",
+          "id": "dcp-boring",
+          "title": "DCP is boring",
+          "quotes": [
+            {
+              "language": "en-US",
+              "text": "J: I think DCP is kind of boring. Sent handsfree from my second Tesla."
+            },
+            {
+              "language": "fr-CA",
+              "text": "J : Je trouve que le DCP est un peu plate. Envoyé mains libres depuis ma deuxième Tesla."
+            }
+          ]
+        },
+        {
+          "_concept": "demo_message",
+          "id": "from-target",
+          "title": "From Target",
+          "quotes": [
+            {
+              "language": "en-CA",
+              "text": "From Target: Dan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!"
+            }
+          ]
+        },
+        {
+          "_concept": "demo_message",
+          "id": "desjardins-fridge",
+          "title": "From Desjardin’s fridge",
+          "quotes": [
+            {
+              "language": "en-CA",
+              "text": "From Desjardin’s fridge. Dan, your son is running out of milk. Be sure to bring some when you’re done. Concentrated, not distributed this time - please"
+            }
+          ]
+        }
+      ],
       "_xform_included": true,
       "_all": "@id non-conformists\n@layout cover\n\n# Here’s to the crazy ones.\n\nThe ones who see things differently.\n\n@narrative\n  direction:\n    notes: >-\n      Begin as a quiet toast, then add warmth with the second sentence.\n      Speak only the two script sentences. Do not read these notes, the scene,\n      or the style brief aloud.\n  entries: '{{ messages[0].quotes }}'\n@id dcp-boring\n@layout cover\n\n# J:\n\nI think DCP is kind of boring.\n\n(sent handsfree from my second Tesla)\n\n@narrative\n  direction:\n    style: Casual and offhand, like a voice text from a car.\n    pacing: Natural conversational cadence; treat the parenthetical as a quiet send-status, not a punchline shout.\n    notes: Keep “J” as a brief speaker tag, then the complaint, then the Tesla footer as an afterthought. Speak only the language of this script — never switch languages.\n  entries: '{{ messages[1].quotes }}'\n@id from-target\n@layout cover\n\n# From Target:\n\nDan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!\n\n@narrative\n  direction:\n    style: Formal, clipped, and faintly indignant — a corporate complaint, not a toast.\n    pacing: Even and pointed; let the free-giveaway clause land without shouting.\n    notes: Read “From Target” as a sender line, then address Dan by name.\n  entries: '{{ messages[2].quotes }}'\n@id desjardins-fridge\n@layout cover\n\n# From Desjardin’s fridge:\n\nDan, your son is running out of milk! Be sure to bring some when you’re done.\n\n@narrative\n  direction:\n    style: Flat, robotic smart-appliance voice. Even pitch, little warmth, slight Canadian English.\n    pacing: Measured and slightly mechanical; do not rush the milk warning.\n    accent: Canadian English.\n    notes: >-\n      Read “From Desjardin’s fridge” as a device sender line, then the warning to Dan.\n      Stay in Canadian English only. Sound like a household robot, not a film narrator.\n  entries: '{{ messages[3].quotes }}'\n",
       "_segments": {
-        "0": "presentation: slidedeck\nformat: desktop\ntitle: Demo Messages\nsubtitle: Gemini voice narration demo\nauthor: Exergy LLC\nlang: en-US\nthemes: [dark]\nnarrative:\n  provider: gemini\n  model: gemini-2.5-flash-preview-tts\n  voice: male\n  pause_seconds: 3\n  direction:\n    profile: >-\n      For Speaker 1: A warm, reflective male campaign-film narrator. Keep the\n      delivery original; do not imitate any specific person's voice.\n    scene: >-\n      A sparse recording studio. The words accompany a black-and-white montage\n      celebrating people who challenge convention.\n    style: Intimate, assured, idealistic, and cinematic without sounding theatrical.\n    accent: Native pronunciation for the selected language.\n    pacing: Deliberate, with clean pauses between short sentences.\n    notes: Let each final phrase land before the audio ends.\n\n# Audience catalog included by dcp-transcoding.xp (app.audience.messages → messages).\n# Slide order must match messages[0]… — @narrative entries reference these quotes.\nmessages:\n  - _concept: demo_message\n    id: non-conformists\n    title: The Non-Conformists\n    quotes:\n      - language: en-US\n        text: >-\n          Here’s to the crazy ones. The ones who see things differently.\n      - language: fr-FR\n        text: >-\n          Hommage aux fous. À ceux qui voient les choses différemment.\n      - language: es-ES\n        text: >-\n          Esto es para los locos. Los que ven las cosas de forma diferente.\n      - language: de-DE\n        text: >-\n          Ein Hoch auf die Verrückten. Diejenigen, die die Dinge anders sehen.\n      - language: nl-NL\n        text: >-\n          Een ode aan de dwazen. Degenen die de dingen anders zien.\n  - _concept: demo_message\n    id: dcp-boring\n    title: DCP is boring\n    quotes:\n      - language: en-US\n        text: >-\n          J: I think DCP is kind of boring.\n          Sent handsfree from my second Tesla.\n      - language: fr-CA\n        text: >-\n          J : Je trouve que le DCP est un peu plate.\n          Envoyé mains libres depuis ma deuxième Tesla.\n  - _concept: demo_message\n    id: from-target\n    title: From Target\n    quotes:\n      - language: en-CA\n        text: >-\n          From Target: Dan, you owe us 100 compute credits, not to mention the\n          compounding damage caused by implying to our customers that we would be\n          giving away anything for free!\n  - _concept: demo_message\n    id: desjardins-fridge\n    title: From Desjardin’s fridge\n    quotes:\n      - language: en-CA\n        text: >-\n          From Desjardin’s fridge. Dan, your son is running out of milk.\n          Be sure to bring some when you’re done. Concentrated, not distributed this time - please",
+        "0": "presentation: slidedeck\nformat: desktop\ntitle: Demo Messages\nsubtitle: Gemini voice narration demo\nauthor: Exergy LLC\nlang: en-US\nthemes: [dark]\nnarrative:\n  provider: gemini\n  model: gemini-3.1-flash-preview-tts\n  voice: male\n  pause_seconds: 3\n  direction:\n    profile: >-\n      For Speaker 1: A warm, reflective male campaign-film narrator. Keep the\n      delivery original; do not imitate any specific person's voice.\n    scene: >-\n      A sparse recording studio. The words accompany a black-and-white montage\n      celebrating people who challenge convention.\n    style: Intimate, assured, idealistic, and cinematic without sounding theatrical.\n    accent: Native pronunciation for the selected language.\n    pacing: Deliberate, with clean pauses between short sentences.\n    notes: Let each final phrase land before the audio ends.\n\n# Audience catalog included by dcp-transcoding.xp (app.audience.messages → messages).\n# Slide order must match messages[0]… — @narrative entries reference these quotes.\nmessages:\n  - _concept: demo_message\n    id: non-conformists\n    title: The Non-Conformists\n    quotes:\n      - language: en-US\n        text: >-\n          Here’s to the crazy ones. The ones who see things differently.\n      - language: fr-FR\n        text: >-\n          Hommage aux fous. À ceux qui voient les choses différemment.\n      - language: es-ES\n        text: >-\n          Esto es para los locos. Los que ven las cosas de forma diferente.\n      - language: de-DE\n        text: >-\n          Ein Hoch auf die Verrückten. Diejenigen, die die Dinge anders sehen.\n      - language: nl-NL\n        text: >-\n          Een ode aan de dwazen. Degenen die de dingen anders zien.\n  - _concept: demo_message\n    id: dcp-boring\n    title: DCP is boring\n    quotes:\n      - language: en-US\n        text: >-\n          J: I think DCP is kind of boring.\n          Sent handsfree from my second Tesla.\n      - language: fr-CA\n        text: >-\n          J : Je trouve que le DCP est un peu plate.\n          Envoyé mains libres depuis ma deuxième Tesla.\n  - _concept: demo_message\n    id: from-target\n    title: From Target\n    quotes:\n      - language: en-CA\n        text: >-\n          From Target: Dan, you owe us 100 compute credits, not to mention the\n          compounding damage caused by implying to our customers that we would be\n          giving away anything for free!\n  - _concept: demo_message\n    id: desjardins-fridge\n    title: From Desjardin’s fridge\n    quotes:\n      - language: en-CA\n        text: >-\n          From Desjardin’s fridge. Dan, your son is running out of milk.\n          Be sure to bring some when you’re done. Concentrated, not distributed this time - please",
         "1": "@id non-conformists\n@layout cover\n\n# Here’s to the crazy ones.\n\nThe ones who see things differently.\n\n@narrative\n  direction:\n    notes: >-\n      Begin as a quiet toast, then add warmth with the second sentence.\n      Speak only the two script sentences. Do not read these notes, the scene,\n      or the style brief aloud.\n  entries: '{{ messages[0].quotes }}'\n",
         "2": "@id dcp-boring\n@layout cover\n\n# J:\n\nI think DCP is kind of boring.\n\n(sent handsfree from my second Tesla)\n\n@narrative\n  direction:\n    style: Casual and offhand, like a voice text from a car.\n    pacing: Natural conversational cadence; treat the parenthetical as a quiet send-status, not a punchline shout.\n    notes: Keep “J” as a brief speaker tag, then the complaint, then the Tesla footer as an afterthought. Speak only the language of this script — never switch languages.\n  entries: '{{ messages[1].quotes }}'\n",
         "3": "@id from-target\n@layout cover\n\n# From Target:\n\nDan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!\n\n@narrative\n  direction:\n    style: Formal, clipped, and faintly indignant — a corporate complaint, not a toast.\n    pacing: Even and pointed; let the free-giveaway clause land without shouting.\n    notes: Read “From Target” as a sender line, then address Dan by name.\n  entries: '{{ messages[2].quotes }}'\n",
         "4": "@id desjardins-fridge\n@layout cover\n\n# From Desjardin’s fridge:\n\nDan, your son is running out of milk! Be sure to bring some when you’re done.\n\n@narrative\n  direction:\n    style: Flat, robotic smart-appliance voice. Even pitch, little warmth, slight Canadian English.\n    pacing: Measured and slightly mechanical; do not rush the milk warning.\n    accent: Canadian English.\n    notes: >-\n      Read “From Desjardin’s fridge” as a device sender line, then the warning to Dan.\n      Stay in Canadian English only. Sound like a household robot, not a film narrator.\n  entries: '{{ messages[3].quotes }}'\n",
-        "_front_matter": "presentation: slidedeck\nformat: desktop\ntitle: Demo Messages\nsubtitle: Gemini voice narration demo\nauthor: Exergy LLC\nlang: en-US\nthemes: [dark]\nnarrative:\n  provider: gemini\n  model: gemini-2.5-flash-preview-tts\n  voice: male\n  pause_seconds: 3\n  direction:\n    profile: >-\n      For Speaker 1: A warm, reflective male campaign-film narrator. Keep the\n      delivery original; do not imitate any specific person's voice.\n    scene: >-\n      A sparse recording studio. The words accompany a black-and-white montage\n      celebrating people who challenge convention.\n    style: Intimate, assured, idealistic, and cinematic without sounding theatrical.\n    accent: Native pronunciation for the selected language.\n    pacing: Deliberate, with clean pauses between short sentences.\n    notes: Let each final phrase land before the audio ends.\n\n# Audience catalog included by dcp-transcoding.xp (app.audience.messages → messages).\n# Slide order must match messages[0]… — @narrative entries reference these quotes.\nmessages:\n  - _concept: demo_message\n    id: non-conformists\n    title: The Non-Conformists\n    quotes:\n      - language: en-US\n        text: >-\n          Here’s to the crazy ones. The ones who see things differently.\n      - language: fr-FR\n        text: >-\n          Hommage aux fous. À ceux qui voient les choses différemment.\n      - language: es-ES\n        text: >-\n          Esto es para los locos. Los que ven las cosas de forma diferente.\n      - language: de-DE\n        text: >-\n          Ein Hoch auf die Verrückten. Diejenigen, die die Dinge anders sehen.\n      - language: nl-NL\n        text: >-\n          Een ode aan de dwazen. Degenen die de dingen anders zien.\n  - _concept: demo_message\n    id: dcp-boring\n    title: DCP is boring\n    quotes:\n      - language: en-US\n        text: >-\n          J: I think DCP is kind of boring.\n          Sent handsfree from my second Tesla.\n      - language: fr-CA\n        text: >-\n          J : Je trouve que le DCP est un peu plate.\n          Envoyé mains libres depuis ma deuxième Tesla.\n  - _concept: demo_message\n    id: from-target\n    title: From Target\n    quotes:\n      - language: en-CA\n        text: >-\n          From Target: Dan, you owe us 100 compute credits, not to mention the\n          compounding damage caused by implying to our customers that we would be\n          giving away anything for free!\n  - _concept: demo_message\n    id: desjardins-fridge\n    title: From Desjardin’s fridge\n    quotes:\n      - language: en-CA\n        text: >-\n          From Desjardin’s fridge. Dan, your son is running out of milk.\n          Be sure to bring some when you’re done. Concentrated, not distributed this time - please"
+        "_front_matter": "presentation: slidedeck\nformat: desktop\ntitle: Demo Messages\nsubtitle: Gemini voice narration demo\nauthor: Exergy LLC\nlang: en-US\nthemes: [dark]\nnarrative:\n  provider: gemini\n  model: gemini-3.1-flash-preview-tts\n  voice: male\n  pause_seconds: 3\n  direction:\n    profile: >-\n      For Speaker 1: A warm, reflective male campaign-film narrator. Keep the\n      delivery original; do not imitate any specific person's voice.\n    scene: >-\n      A sparse recording studio. The words accompany a black-and-white montage\n      celebrating people who challenge convention.\n    style: Intimate, assured, idealistic, and cinematic without sounding theatrical.\n    accent: Native pronunciation for the selected language.\n    pacing: Deliberate, with clean pauses between short sentences.\n    notes: Let each final phrase land before the audio ends.\n\n# Audience catalog included by dcp-transcoding.xp (app.audience.messages → messages).\n# Slide order must match messages[0]… — @narrative entries reference these quotes.\nmessages:\n  - _concept: demo_message\n    id: non-conformists\n    title: The Non-Conformists\n    quotes:\n      - language: en-US\n        text: >-\n          Here’s to the crazy ones. The ones who see things differently.\n      - language: fr-FR\n        text: >-\n          Hommage aux fous. À ceux qui voient les choses différemment.\n      - language: es-ES\n        text: >-\n          Esto es para los locos. Los que ven las cosas de forma diferente.\n      - language: de-DE\n        text: >-\n          Ein Hoch auf die Verrückten. Diejenigen, die die Dinge anders sehen.\n      - language: nl-NL\n        text: >-\n          Een ode aan de dwazen. Degenen die de dingen anders zien.\n  - _concept: demo_message\n    id: dcp-boring\n    title: DCP is boring\n    quotes:\n      - language: en-US\n        text: >-\n          J: I think DCP is kind of boring.\n          Sent handsfree from my second Tesla.\n      - language: fr-CA\n        text: >-\n          J : Je trouve que le DCP est un peu plate.\n          Envoyé mains libres depuis ma deuxième Tesla.\n  - _concept: demo_message\n    id: from-target\n    title: From Target\n    quotes:\n      - language: en-CA\n        text: >-\n          From Target: Dan, you owe us 100 compute credits, not to mention the\n          compounding damage caused by implying to our customers that we would be\n          giving away anything for free!\n  - _concept: demo_message\n    id: desjardins-fridge\n    title: From Desjardin’s fridge\n    quotes:\n      - language: en-CA\n        text: >-\n          From Desjardin’s fridge. Dan, your son is running out of milk.\n          Be sure to bring some when you’re done. Concentrated, not distributed this time - please"
       }
     },
-    "presentation": "slidedeck",
-    "format": "desktop",
-    "title": "Demo Messages",
-    "subtitle": "Gemini voice narration demo",
-    "author": "Exergy LLC",
-    "lang": "en-US",
-    "themes": [
-      "dark"
-    ],
-    "narrative": {
-      "provider": "gemini",
-      "model": "gemini-2.5-flash-preview-tts",
-      "voice": "male",
-      "pause_seconds": 3,
-      "direction": {
-        "profile": "For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.",
-        "scene": "A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.",
-        "style": "Intimate, assured, idealistic, and cinematic without sounding theatrical.",
-        "accent": "Native pronunciation for the selected language.",
-        "pacing": "Deliberate, with clean pauses between short sentences.",
-        "notes": "Let each final phrase land before the audio ends."
-      }
-    },
-    "messages": [
-      {
-        "_concept": "demo_message",
-        "id": "non-conformists",
-        "title": "The Non-Conformists",
-        "quotes": [
-          {
-            "language": "en-US",
-            "text": "Here’s to the crazy ones. The ones who see things differently."
-          },
-          {
-            "language": "fr-FR",
-            "text": "Hommage aux fous. À ceux qui voient les choses différemment."
-          },
-          {
-            "language": "es-ES",
-            "text": "Esto es para los locos. Los que ven las cosas de forma diferente."
-          },
-          {
-            "language": "de-DE",
-            "text": "Ein Hoch auf die Verrückten. Diejenigen, die die Dinge anders sehen."
-          },
-          {
-            "language": "nl-NL",
-            "text": "Een ode aan de dwazen. Degenen die de dingen anders zien."
-          }
-        ]
-      },
-      {
-        "_concept": "demo_message",
-        "id": "dcp-boring",
-        "title": "DCP is boring",
-        "quotes": [
-          {
-            "language": "en-US",
-            "text": "J: I think DCP is kind of boring. Sent handsfree from my second Tesla."
-          },
-          {
-            "language": "fr-CA",
-            "text": "J : Je trouve que le DCP est un peu plate. Envoyé mains libres depuis ma deuxième Tesla."
-          }
-        ]
-      },
-      {
-        "_concept": "demo_message",
-        "id": "from-target",
-        "title": "From Target",
-        "quotes": [
-          {
-            "language": "en-CA",
-            "text": "From Target: Dan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!"
-          }
-        ]
-      },
-      {
-        "_concept": "demo_message",
-        "id": "desjardins-fridge",
-        "title": "From Desjardin’s fridge",
-        "quotes": [
-          {
-            "language": "en-CA",
-            "text": "From Desjardin’s fridge. Dan, your son is running out of milk. Be sure to bring some when you’re done. Concentrated, not distributed this time - please"
-          }
-        ]
-      }
-    ],
     "_final": {
       "_templates": [
         "html"
@@ -424,32 +424,75 @@
         "messages": {
           "_raw": "{{ demo.messages }}",
           "_value": {
-            "_jinja": [
+            "_payload": [
               {
-                "type": "Output",
-                "children": [
+                "_concept": "demo_message",
+                "id": "non-conformists",
+                "title": "The Non-Conformists",
+                "quotes": [
                   {
-                    "type": "LookupVal",
-                    "_provenance": {
-                      "source": 0,
-                      "line": 306,
-                      "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
-                    }
+                    "language": "en-US",
+                    "text": "Here’s to the crazy ones. The ones who see things differently."
+                  },
+                  {
+                    "language": "fr-FR",
+                    "text": "Hommage aux fous. À ceux qui voient les choses différemment."
+                  },
+                  {
+                    "language": "es-ES",
+                    "text": "Esto es para los locos. Los que ven las cosas de forma diferente."
+                  },
+                  {
+                    "language": "de-DE",
+                    "text": "Ein Hoch auf die Verrückten. Diejenigen, die die Dinge anders sehen."
+                  },
+                  {
+                    "language": "nl-NL",
+                    "text": "Een ode aan de dwazen. Degenen die de dingen anders zien."
                   }
-                ],
-                "_provenance": {
-                  "source": 0,
-                  "line": 306,
-                  "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
-                }
+                ]
+              },
+              {
+                "_concept": "demo_message",
+                "id": "dcp-boring",
+                "title": "DCP is boring",
+                "quotes": [
+                  {
+                    "language": "en-US",
+                    "text": "J: I think DCP is kind of boring. Sent handsfree from my second Tesla."
+                  },
+                  {
+                    "language": "fr-CA",
+                    "text": "J : Je trouve que le DCP est un peu plate. Envoyé mains libres depuis ma deuxième Tesla."
+                  }
+                ]
+              },
+              {
+                "_concept": "demo_message",
+                "id": "from-target",
+                "title": "From Target",
+                "quotes": [
+                  {
+                    "language": "en-CA",
+                    "text": "From Target: Dan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!"
+                  }
+                ]
+              },
+              {
+                "_concept": "demo_message",
+                "id": "desjardins-fridge",
+                "title": "From Desjardin’s fridge",
+                "quotes": [
+                  {
+                    "language": "en-CA",
+                    "text": "From Desjardin’s fridge. Dan, your son is running out of milk. Be sure to bring some when you’re done. Concentrated, not distributed this time - please"
+                  }
+                ]
               }
-            ],
-            "unresolved": [
-              "<expression>"
             ],
             "_provenance": {
               "source": 0,
-              "line": 306,
+              "line": 228,
               "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
             }
           }
@@ -808,7 +851,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 620,
+                    "line": 555,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -843,7 +886,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 627,
+                    "line": 562,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -886,7 +929,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 640,
+                    "line": 575,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -921,7 +964,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 647,
+                    "line": 582,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -964,7 +1007,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 660,
+                    "line": 595,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -999,7 +1042,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 667,
+                    "line": 602,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1042,7 +1085,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 680,
+                    "line": 615,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1077,7 +1120,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 687,
+                    "line": 622,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1125,7 +1168,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 704,
+                    "line": 639,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1160,7 +1203,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 711,
+                    "line": 646,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
