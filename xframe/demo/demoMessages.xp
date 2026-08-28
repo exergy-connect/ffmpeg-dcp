@@ -8,7 +8,7 @@ lang: en-US
 themes: [dark]
 narrative:
   provider: gemini
-  model: gemini-2.5-flash-preview-tts
+  model: gemini-3.1-flash-preview-tts
   voice: male
   pause_seconds: 3
   direction:
