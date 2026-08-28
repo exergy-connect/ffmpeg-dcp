@@ -1,0 +1,13 @@
+---
+# Full-bleed title slide for demo/demoMessages.xp (@layout cover).
+styles: [cover]
+defaults:
+  region: main
+---
+@stack
+  direction: vertical
+  align: stretch
+  content:
+    @region main
+      default: true
+      weight: 1

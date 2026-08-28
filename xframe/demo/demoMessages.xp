@@ -3,11 +3,9 @@ presentation: slidedeck
 format: desktop
 title: Demo Messages
 subtitle: Gemini voice narration demo
-author: Steve Jobs
+author: Exergy LLC
 lang: en-US
 themes: [dark]
-text_to_speech:
-  authorized: true
 narrative:
   provider: gemini
   model: gemini-2.5-flash-preview-tts

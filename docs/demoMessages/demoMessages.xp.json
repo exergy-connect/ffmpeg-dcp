@@ -5,13 +5,14 @@
   },
   "document": {
     "source": {
-      "path": "/workspaces/ffmpeg-dcp/xframe/demoMessages.xp",
-      "baseDir": "/workspaces/ffmpeg-dcp/xframe"
+      "path": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+      "baseDir": "/workspaces/ffmpeg-dcp/xframe/demo"
     },
     "meta": {
       "canvas": true,
       "layout": "framed-deck",
       "styles": {
+        "cover": {},
         "slidedeck": {}
       },
       "constraints": {
@@ -23,11 +24,8 @@
       ],
       "title": "Demo Messages",
       "subtitle": "Gemini voice narration demo",
-      "author": "Steve Jobs",
+      "author": "Exergy LLC",
       "lang": "en-US",
-      "text_to_speech": {
-        "authorized": true
-      },
       "narrative": {
         "provider": "gemini",
         "model": "gemini-2.5-flash-preview-tts",
@@ -59,9 +57,10 @@
         "id": "non-conformists",
         "layout": "cover",
         "title": "Here’s to the crazy ones.",
+        "template": "cover.xpt",
         "content": [
           {
-            "index": 0,
+            "index": 2,
             "kind": "narrative",
             "narrative": {
               "entries": [
@@ -110,8 +109,8 @@
               "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Intimate, assured, idealistic, and cinematic without sounding theatrical.\",\"accent\":\"Native pronunciation for the selected language.\",\"pacing\":\"Deliberate, with clean pauses between short sentences.\",\"notes\":\"Begin as a quiet toast, then add warmth and conviction with each phrase.\"}"
             },
             "provenance": {
-              "source": "/workspaces/ffmpeg-dcp/xframe/demoMessages.xp",
-              "line": 37
+              "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+              "line": 35
             },
             "structural": {
               "document": {
@@ -126,6 +125,73 @@
               }
             }
           }
+        ],
+        "structure": [
+          {
+            "kind": "container",
+            "mode": "stack",
+            "direction": "vertical",
+            "align": "stretch",
+            "children": [
+              {
+                "kind": "region",
+                "name": "main",
+                "default": true,
+                "weight": 1,
+                "content": [
+                  {
+                    "index": 0,
+                    "kind": "heading",
+                    "heading": {
+                      "level": 1,
+                      "text": "Here’s to the crazy ones.",
+                      "inlines": [
+                        {
+                          "kind": "text",
+                          "text": "Here’s to the crazy ones."
+                        }
+                      ]
+                    },
+                    "provenance": {
+                      "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+                      "line": 29
+                    }
+                  },
+                  {
+                    "index": 1,
+                    "kind": "paragraph",
+                    "paragraph": {
+                      "text": "The misfits. The rebels. The troublemakers.\nThe round pegs in the square holes.\nThe ones who see things differently.",
+                      "inlines": [
+                        {
+                          "kind": "text",
+                          "text": "The misfits. The rebels. The troublemakers."
+                        },
+                        {
+                          "kind": "break"
+                        },
+                        {
+                          "kind": "text",
+                          "text": "The round pegs in the square holes."
+                        },
+                        {
+                          "kind": "break"
+                        },
+                        {
+                          "kind": "text",
+                          "text": "The ones who see things differently."
+                        }
+                      ]
+                    },
+                    "provenance": {
+                      "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+                      "line": 29
+                    }
+                  }
+                ]
+              }
+            ]
+          }
         ]
       },
       {
@@ -133,9 +199,10 @@
         "id": "dcp-boring",
         "layout": "cover",
         "title": "J:",
+        "template": "cover.xpt",
         "content": [
           {
-            "index": 0,
+            "index": 3,
             "kind": "narrative",
             "narrative": {
               "entries": [
@@ -163,8 +230,8 @@
               "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Casual and offhand, like a voice text from a car.\",\"accent\":\"Native pronunciation for the selected language.\",\"pacing\":\"Natural conversational cadence; treat the parenthetical as a quiet send-status, not a punchline shout.\",\"notes\":\"Keep “J” as a brief speaker tag, then the complaint, then the Tesla footer as an afterthought. Speak only the language of this script — never switch languages.\"}"
             },
             "provenance": {
-              "source": "/workspaces/ffmpeg-dcp/xframe/demoMessages.xp",
-              "line": 69
+              "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+              "line": 67
             },
             "structural": {
               "document": {
@@ -179,6 +246,76 @@
               }
             }
           }
+        ],
+        "structure": [
+          {
+            "kind": "container",
+            "mode": "stack",
+            "direction": "vertical",
+            "align": "stretch",
+            "children": [
+              {
+                "kind": "region",
+                "name": "main",
+                "default": true,
+                "weight": 1,
+                "content": [
+                  {
+                    "index": 0,
+                    "kind": "heading",
+                    "heading": {
+                      "level": 1,
+                      "text": "J:",
+                      "inlines": [
+                        {
+                          "kind": "text",
+                          "text": "J:"
+                        }
+                      ]
+                    },
+                    "provenance": {
+                      "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+                      "line": 61
+                    }
+                  },
+                  {
+                    "index": 1,
+                    "kind": "paragraph",
+                    "paragraph": {
+                      "text": "I think DCP is kind of boring.",
+                      "inlines": [
+                        {
+                          "kind": "text",
+                          "text": "I think DCP is kind of boring."
+                        }
+                      ]
+                    },
+                    "provenance": {
+                      "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+                      "line": 61
+                    }
+                  },
+                  {
+                    "index": 2,
+                    "kind": "paragraph",
+                    "paragraph": {
+                      "text": "(sent handsfree from my second Tesla)",
+                      "inlines": [
+                        {
+                          "kind": "text",
+                          "text": "(sent handsfree from my second Tesla)"
+                        }
+                      ]
+                    },
+                    "provenance": {
+                      "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+                      "line": 61
+                    }
+                  }
+                ]
+              }
+            ]
+          }
         ]
       },
       {
@@ -186,9 +323,10 @@
         "id": "from-target",
         "layout": "cover",
         "title": "From Target:",
+        "template": "cover.xpt",
         "content": [
           {
-            "index": 0,
+            "index": 2,
             "kind": "narrative",
             "narrative": {
               "entries": [
@@ -209,8 +347,8 @@
               "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Formal, clipped, and faintly indignant — a corporate complaint, not a toast.\",\"accent\":\"Native pronunciation for the selected language.\",\"pacing\":\"Even and pointed; let the free-giveaway clause land without shouting.\",\"notes\":\"Read “From Target” as a sender line, then address Dan by name.\"}"
             },
             "provenance": {
-              "source": "/workspaces/ffmpeg-dcp/xframe/demoMessages.xp",
-              "line": 90
+              "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+              "line": 88
             },
             "structural": {
               "document": {
@@ -225,6 +363,59 @@
               }
             }
           }
+        ],
+        "structure": [
+          {
+            "kind": "container",
+            "mode": "stack",
+            "direction": "vertical",
+            "align": "stretch",
+            "children": [
+              {
+                "kind": "region",
+                "name": "main",
+                "default": true,
+                "weight": 1,
+                "content": [
+                  {
+                    "index": 0,
+                    "kind": "heading",
+                    "heading": {
+                      "level": 1,
+                      "text": "From Target:",
+                      "inlines": [
+                        {
+                          "kind": "text",
+                          "text": "From Target:"
+                        }
+                      ]
+                    },
+                    "provenance": {
+                      "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+                      "line": 84
+                    }
+                  },
+                  {
+                    "index": 1,
+                    "kind": "paragraph",
+                    "paragraph": {
+                      "text": "Dan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!",
+                      "inlines": [
+                        {
+                          "kind": "text",
+                          "text": "Dan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!"
+                        }
+                      ]
+                    },
+                    "provenance": {
+                      "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+                      "line": 84
+                    }
+                  }
+                ]
+              }
+            ]
+          }
         ]
       },
       {
@@ -232,9 +423,10 @@
         "id": "desjardins-fridge",
         "layout": "cover",
         "title": "From Desjardin’s fridge:",
+        "template": "cover.xpt",
         "content": [
           {
-            "index": 0,
+            "index": 2,
             "kind": "narrative",
             "narrative": {
               "entries": [
@@ -255,8 +447,8 @@
               "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Flat, robotic smart-appliance voice. Even pitch, little warmth, slight Canadian English.\",\"accent\":\"Canadian English.\",\"pacing\":\"Measured and slightly mechanical; do not rush the milk warning.\",\"notes\":\"Read “From Desjardin’s fridge” as a device sender line, then the warning to Dan. Stay in Canadian English only. Sound like a household robot, not a film narrator.\"}"
             },
             "provenance": {
-              "source": "/workspaces/ffmpeg-dcp/xframe/demoMessages.xp",
-              "line": 109
+              "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+              "line": 107
             },
             "structural": {
               "document": {
@@ -270,6 +462,59 @@
                 "direction": "{\"style\":\"Flat, robotic smart-appliance voice. Even pitch, little warmth, slight Canadian English.\",\"accent\":\"Canadian English.\",\"pacing\":\"Measured and slightly mechanical; do not rush the milk warning.\",\"notes\":\"Read “From Desjardin’s fridge” as a device sender line, then the warning to Dan. Stay in Canadian English only. Sound like a household robot, not a film narrator.\"}"
               }
             }
+          }
+        ],
+        "structure": [
+          {
+            "kind": "container",
+            "mode": "stack",
+            "direction": "vertical",
+            "align": "stretch",
+            "children": [
+              {
+                "kind": "region",
+                "name": "main",
+                "default": true,
+                "weight": 1,
+                "content": [
+                  {
+                    "index": 0,
+                    "kind": "heading",
+                    "heading": {
+                      "level": 1,
+                      "text": "From Desjardin’s fridge:",
+                      "inlines": [
+                        {
+                          "kind": "text",
+                          "text": "From Desjardin’s fridge:"
+                        }
+                      ]
+                    },
+                    "provenance": {
+                      "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+                      "line": 103
+                    }
+                  },
+                  {
+                    "index": 1,
+                    "kind": "paragraph",
+                    "paragraph": {
+                      "text": "Dan, your son is running out of milk! Be sure to bring some when you’re done.",
+                      "inlines": [
+                        {
+                          "kind": "text",
+                          "text": "Dan, your son is running out of milk! Be sure to bring some when you’re done."
+                        }
+                      ]
+                    },
+                    "provenance": {
+                      "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
+                      "line": 103
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
@@ -395,6 +640,11 @@
         "boxShadow": "0 12px 40px rgb(0 0 0 / 12%)",
         "textAlign": "left"
       }
+    },
+    {
+      "kind": "style",
+      "name": "cover",
+      "body": "[data-layout=\"cover\"] {\n  display: flex;\n  flex-direction: column;\n  justify-content: center;\n}\n\n[data-layout=\"cover\"] [data-region=\"main\"],\n#xframe[data-xframe-positioning=\"dynamic\"] [data-layout=\"cover\"] [data-region=\"main\"] {\n  display: flex;\n  flex-direction: column;\n  justify-content: center;\n  padding: 3.5rem 4.5rem;\n  text-align: center;\n}\n\n[data-layout=\"cover\"] h1 {\n  margin: 0 0 1.25rem;\n  font-size: 2.6rem;\n  line-height: 1.2;\n  font-weight: 700;\n  letter-spacing: -0.02em;\n}\n\n[data-layout=\"cover\"] p {\n  margin: 0.35rem 0;\n  font-size: 1.35rem;\n  line-height: 1.45;\n  color: var(--muted);\n}"
     },
     {
       "kind": "style",

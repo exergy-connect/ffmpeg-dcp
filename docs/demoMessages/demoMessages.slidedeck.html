@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="author" content="Steve Jobs">
+<meta name="author" content="Exergy LLC">
 <title>Demo Messages</title>
 <style>
 :root {
@@ -192,6 +192,36 @@ body {
     border-radius: 0;
     transform: none !important;
   }
+}
+
+[data-layout="cover"] {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+[data-layout="cover"] [data-region="main"],
+#xframe[data-xframe-positioning="dynamic"] [data-layout="cover"] [data-region="main"] {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 3.5rem 4.5rem;
+  text-align: center;
+}
+
+[data-layout="cover"] h1 {
+  margin: 0 0 1.25rem;
+  font-size: 2.6rem;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+[data-layout="cover"] p {
+  margin: 0.35rem 0;
+  font-size: 1.35rem;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
 /* Shared slide content — positioning and typography. Shell chrome lives in
@@ -646,16 +676,37 @@ body {
 <main id="xframe" data-theme="dark" data-themes="dark" data-xframe-presentation="slidedeck" data-xframe-format="desktop" data-xframe-positioning="dynamic" data-xframe-walkthrough-pause="2" data-xframe-walkthrough-side="left" data-xframe-layout="framed-deck" data-xframe-canvas="1280,792">
 <div class="xframe-frame-host"><div id="xframe-frame" class="xframe-frame"><div class="layout-segments">
     <section class="segment" id="non-conformists" data-title="Here’s to the crazy ones." data-layout="cover" data-themes="dark" data-theme="dark" data-runtime-index="0" data-index="0">
-  
+  <div class="layout-container layout-stack" data-layout-direction="vertical" style="align-items: stretch; --layout-weight: 0; --layout-shrink: 0; --layout-basis: auto">
+    <div class="region cover-main layout-default-region" data-region="main" style="--layout-weight: 1; --layout-shrink: 1; --layout-basis: 0%">
+    <h1>Here’s to the crazy ones.</h1>
+    <p>The misfits. The rebels. The troublemakers.<br>The round pegs in the square holes.<br>The ones who see things differently.</p>
+  </div>
+  </div>
 </section>
 <section class="segment" id="dcp-boring" data-title="J:" data-layout="cover" data-themes="dark" data-theme="dark" data-runtime-index="1" data-index="1">
-  
+  <div class="layout-container layout-stack" data-layout-direction="vertical" style="align-items: stretch; --layout-weight: 0; --layout-shrink: 0; --layout-basis: auto">
+    <div class="region cover-main layout-default-region" data-region="main" style="--layout-weight: 1; --layout-shrink: 1; --layout-basis: 0%">
+    <h1>J:</h1>
+    <p>I think DCP is kind of boring.</p>
+    <p>(sent handsfree from my second Tesla)</p>
+  </div>
+  </div>
 </section>
 <section class="segment" id="from-target" data-title="From Target:" data-layout="cover" data-themes="dark" data-theme="dark" data-runtime-index="2" data-index="2">
-  
+  <div class="layout-container layout-stack" data-layout-direction="vertical" style="align-items: stretch; --layout-weight: 0; --layout-shrink: 0; --layout-basis: auto">
+    <div class="region cover-main layout-default-region" data-region="main" style="--layout-weight: 1; --layout-shrink: 1; --layout-basis: 0%">
+    <h1>From Target:</h1>
+    <p>Dan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!</p>
+  </div>
+  </div>
 </section>
 <section class="segment" id="desjardins-fridge" data-title="From Desjardin’s fridge:" data-layout="cover" data-themes="dark" data-theme="dark" data-runtime-index="3" data-index="3">
-  
+  <div class="layout-container layout-stack" data-layout-direction="vertical" style="align-items: stretch; --layout-weight: 0; --layout-shrink: 0; --layout-basis: auto">
+    <div class="region cover-main layout-default-region" data-region="main" style="--layout-weight: 1; --layout-shrink: 1; --layout-basis: 0%">
+    <h1>From Desjardin’s fridge:</h1>
+    <p>Dan, your son is running out of milk! Be sure to bring some when you’re done.</p>
+  </div>
+  </div>
 </section>
   </div></div></div>
 <footer id="xframe-chrome">
@@ -676,10 +727,10 @@ body {
     <button type="button" class="xframe-narrative-language" data-narrative-language-button="en-US" aria-pressed="true" aria-label="English" title="English">🇺🇸</button><button type="button" class="xframe-narrative-language" data-narrative-language-button="fr-FR" aria-pressed="false" aria-label="Français" title="Français">🇫🇷</button><button type="button" class="xframe-narrative-language" data-narrative-language-button="es-ES" aria-pressed="false" aria-label="Español" title="Español">🇪🇸</button><button type="button" class="xframe-narrative-language" data-narrative-language-button="de-DE" aria-pressed="false" aria-label="Deutsch" title="Deutsch">🇩🇪</button><button type="button" class="xframe-narrative-language" data-narrative-language-button="nl-NL" aria-pressed="false" aria-label="nl-NL" title="nl-NL">🌐</button><button type="button" class="xframe-narrative-language" data-narrative-language-button="fr-CA" aria-pressed="false" aria-label="Français" title="Français">🇫🇷</button><button type="button" class="xframe-narrative-language" data-narrative-language-button="en-CA" aria-pressed="false" aria-label="English" title="English">🇺🇸</button>
   </div>
 </nav>
-    <div class="xframe-chrome-wing xframe-chrome-wing-right"><div class="xframe-audio-dock" aria-label="Slide narration"><div id="xframe-narrative-dock" class="xframe-narrative-dock"><div class="xframe-narrative-slide" data-xframe-narrative-slide="0"><div class="xframe-narrative" data-xframe-narrative data-selected-language="en-US"><div data-narrative-text><span data-narrative-language="en-US" data-selected="true">Here’s to the crazy ones. The misfits. The rebels. The troublemakers. The round pegs in the square holes. The ones who see things differently.</span><span data-narrative-language="fr-FR" hidden>Hommage aux fous. Aux marginaux. Aux rebelles. Aux fauteurs de troubles. Aux chevilles rondes dans les trous carrés. À ceux qui voient les choses différemment.</span><span data-narrative-language="es-ES" hidden>Esto es para los locos. Los inadaptados. Los rebeldes. Los alborotadores. Las clavijas redondas en los agujeros cuadrados. Los que ven las cosas de forma diferente.</span><span data-narrative-language="de-DE" hidden>Ein Hoch auf die Verrückten. Die Außenseiter. Die Rebellen. Die Unruhestifter. Die runden Stifte in den eckigen Löchern. Diejenigen, die die Dinge anders sehen.</span><span data-narrative-language="nl-NL" hidden>Een ode aan de dwazen. De buitenbeentjes. De rebellen. De onruststokers. De ronde pinnen in de vierkante gaten. Degenen die de dingen anders zien.</span></div><audio controls preload="none" data-narrative-audio data-narrative-language="en-US" src="../../xframe/output/demoMessages/audio/gemini/non-conformists-en-US.wav"></audio><audio controls preload="none" data-narrative-audio data-narrative-language="fr-FR" hidden src="../../xframe/output/demoMessages/audio/gemini/non-conformists-fr-FR.wav"></audio><audio controls preload="none" data-narrative-audio data-narrative-language="es-ES" hidden src="../../xframe/output/demoMessages/audio/gemini/non-conformists-es-ES.wav"></audio><audio controls preload="none" data-narrative-audio data-narrative-language="de-DE" hidden src="../../xframe/output/demoMessages/audio/gemini/non-conformists-de-DE.wav"></audio><audio controls preload="none" data-narrative-audio data-narrative-language="nl-NL" hidden src="../../xframe/output/demoMessages/audio/gemini/non-conformists-nl-NL.wav"></audio></div></div>
-<div class="xframe-narrative-slide" data-xframe-narrative-slide="1" hidden><div class="xframe-narrative" data-xframe-narrative data-selected-language="en-US"><div data-narrative-text><span data-narrative-language="en-US" data-selected="true">J: I think DCP is kind of boring. Sent handsfree from my second Tesla.</span><span data-narrative-language="fr-CA" hidden>J : Je trouve que le DCP est un peu plate. Envoyé mains libres depuis ma deuxième Tesla.</span></div><audio controls preload="none" data-narrative-audio data-narrative-language="en-US" src="../../xframe/output/demoMessages/audio/gemini/dcp-boring-en-US.wav"></audio><audio controls preload="none" data-narrative-audio data-narrative-language="fr-CA" hidden src="../../xframe/output/demoMessages/audio/gemini/dcp-boring-fr-CA.wav"></audio></div></div>
-<div class="xframe-narrative-slide" data-xframe-narrative-slide="2" hidden><div class="xframe-narrative" data-xframe-narrative data-selected-language="en-CA"><div data-narrative-text><span data-narrative-language="en-CA" data-selected="true">From Target: Dan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!</span></div><audio controls preload="none" data-narrative-audio data-narrative-language="en-CA" src="../../xframe/output/demoMessages/audio/gemini/from-target-en-CA.wav"></audio></div></div>
-<div class="xframe-narrative-slide" data-xframe-narrative-slide="3" hidden><div class="xframe-narrative" data-xframe-narrative data-selected-language="en-CA"><div data-narrative-text><span data-narrative-language="en-CA" data-selected="true">From Desjardin’s fridge. Dan, your son is running out of milk. Be sure to bring some when you’re done. Concentrated, not distributed this time - please</span></div><audio controls preload="none" data-narrative-audio data-narrative-language="en-CA" src="../../xframe/output/demoMessages/audio/gemini/desjardins-fridge-en-CA.wav"></audio></div></div></div></div></div>
+    <div class="xframe-chrome-wing xframe-chrome-wing-right"><div class="xframe-audio-dock" aria-label="Slide narration"><div id="xframe-narrative-dock" class="xframe-narrative-dock"><div class="xframe-narrative-slide" data-xframe-narrative-slide="0"><div class="xframe-narrative" data-xframe-narrative data-selected-language="en-US"><div data-narrative-text><span data-narrative-language="en-US" data-selected="true">Here’s to the crazy ones. The misfits. The rebels. The troublemakers. The round pegs in the square holes. The ones who see things differently.</span><span data-narrative-language="fr-FR" hidden>Hommage aux fous. Aux marginaux. Aux rebelles. Aux fauteurs de troubles. Aux chevilles rondes dans les trous carrés. À ceux qui voient les choses différemment.</span><span data-narrative-language="es-ES" hidden>Esto es para los locos. Los inadaptados. Los rebeldes. Los alborotadores. Las clavijas redondas en los agujeros cuadrados. Los que ven las cosas de forma diferente.</span><span data-narrative-language="de-DE" hidden>Ein Hoch auf die Verrückten. Die Außenseiter. Die Rebellen. Die Unruhestifter. Die runden Stifte in den eckigen Löchern. Diejenigen, die die Dinge anders sehen.</span><span data-narrative-language="nl-NL" hidden>Een ode aan de dwazen. De buitenbeentjes. De rebellen. De onruststokers. De ronde pinnen in de vierkante gaten. Degenen die de dingen anders zien.</span></div><audio controls preload="none" data-narrative-audio data-narrative-language="en-US" src="audio/gemini/non-conformists-en-US.wav"></audio><audio controls preload="none" data-narrative-audio data-narrative-language="fr-FR" hidden src="audio/gemini/non-conformists-fr-FR.wav"></audio><audio controls preload="none" data-narrative-audio data-narrative-language="es-ES" hidden src="audio/gemini/non-conformists-es-ES.wav"></audio><audio controls preload="none" data-narrative-audio data-narrative-language="de-DE" hidden src="audio/gemini/non-conformists-de-DE.wav"></audio><audio controls preload="none" data-narrative-audio data-narrative-language="nl-NL" hidden src="audio/gemini/non-conformists-nl-NL.wav"></audio></div></div>
+<div class="xframe-narrative-slide" data-xframe-narrative-slide="1" hidden><div class="xframe-narrative" data-xframe-narrative data-selected-language="en-US"><div data-narrative-text><span data-narrative-language="en-US" data-selected="true">J: I think DCP is kind of boring. Sent handsfree from my second Tesla.</span><span data-narrative-language="fr-CA" hidden>J : Je trouve que le DCP est un peu plate. Envoyé mains libres depuis ma deuxième Tesla.</span></div><audio controls preload="none" data-narrative-audio data-narrative-language="en-US" src="audio/gemini/dcp-boring-en-US.wav"></audio><audio controls preload="none" data-narrative-audio data-narrative-language="fr-CA" hidden src="audio/gemini/dcp-boring-fr-CA.wav"></audio></div></div>
+<div class="xframe-narrative-slide" data-xframe-narrative-slide="2" hidden><div class="xframe-narrative" data-xframe-narrative data-selected-language="en-CA"><div data-narrative-text><span data-narrative-language="en-CA" data-selected="true">From Target: Dan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!</span></div><audio controls preload="none" data-narrative-audio data-narrative-language="en-CA" src="audio/gemini/from-target-en-CA.wav"></audio></div></div>
+<div class="xframe-narrative-slide" data-xframe-narrative-slide="3" hidden><div class="xframe-narrative" data-xframe-narrative data-selected-language="en-CA"><div data-narrative-text><span data-narrative-language="en-CA" data-selected="true">From Desjardin’s fridge. Dan, your son is running out of milk. Be sure to bring some when you’re done. Concentrated, not distributed this time - please</span></div><audio controls preload="none" data-narrative-audio data-narrative-language="en-CA" src="audio/gemini/desjardins-fridge-en-CA.wav"></audio></div></div></div></div></div>
   </div>
 </footer>
 </main>

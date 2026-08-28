@@ -12,6 +12,7 @@ Accepts a browser `MediaRecorder` WebM (VP8/VP9 + Opus), lets the user pick any 
 | [`worker.xp`](worker.xp) | Browser worker page concepts (dcp.live-style Start/Stop + optional comment) |
 | [`templates/_final/html.xpt`](templates/_final/html.xpt) | Transcoder HTML final template |
 | [`templates/worker/_final/html.xpt`](templates/worker/_final/html.xpt) | Worker HTML final template |
+| [`demo/demoMessages.xp`](demo/demoMessages.xp) | Demo-message slidedeck (`demo/templates/`, output via `demo/output` → `docs/`) |
 | [`dcp-transcoding.js`](dcp-transcoding.js) | Browser runtime |
 | [`worker.js`](worker.js) | Browser worker runtime |
 | [`ffmpeg-worker.js`](ffmpeg-worker.js) | Local WASM: `slice_webm`, `remux_to_mp4` |
