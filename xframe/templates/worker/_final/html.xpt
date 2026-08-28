@@ -299,13 +299,6 @@
       resize: vertical;
       line-height: 1.4;
     }
-    #demoCommentHint {
-      margin: 0.55rem 0 0;
-      font-size: 0.78rem;
-      color: var(--muted);
-      min-height: 1.1em;
-      letter-spacing: -0.01em;
-    }
     .comment-actions {
       display: flex;
       gap: 0.55rem;
@@ -505,7 +498,6 @@
             spellcheck="false"
             rows="4"
           ></textarea>
-          <p id="demoCommentHint"></p>
           <div class="comment-actions">
             <button type="button" id="voiceTestBtn" aria-label="Speak the comment with browser text-to-speech">
               Voice test

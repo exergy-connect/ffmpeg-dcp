@@ -462,6 +462,9 @@
     <div class="row" style="margin-bottom:0.75rem">
       <label class="inline"><input type="checkbox" id="readOutCommentsToggle" checked /> Read out comments</label>
     </div>
+    <div class="row" style="margin-bottom:0.75rem">
+      <label class="inline"><input type="checkbox" id="emulateAudienceToggle"{% if app.audience.enabled_default %} checked{% endif %} /> Emulate audience</label>
+    </div>
     <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:0.55rem">
       <button type="button" class="primary" id="runBtn" disabled>Transcode on DCP</button>
       <button type="button" id="runGithubBtn" disabled>Transcode via GitHub</button>
@@ -552,7 +555,9 @@
         Uploads the current recording to <code>docs/uploads/</code>, triggers the
         self-hosted runner workflow, and dispatches one DCP slice that runs the
         browser <code>dcpGhRunner</code> package (JIT register → transcode → LinkedIn).
-        Requires a token with <code>repo</code> and <code>workflow</code> scopes.
+        Requires a token that can <strong>push</strong> to the repo (Contents write).
+        Classic PAT: <code>repo</code> + <code>workflow</code>.
+        Fine-grained: Contents Read and write, Actions Read and write, Administration Read and write on this repository (authorize org SSO if prompted).
       </p>
       <div class="github-dialog-fields">
         <label>GitHub personal access token

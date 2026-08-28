@@ -5,7 +5,7 @@
  * Simplified dcp.live-style participant page driven by concepts in #app-config.
  * Identity + comment are persisted locally; logs use identity; sandboxes receive
  * dcpWorkerContext.comment as
- * { text: "<identity>: <comment>", language, demoCommentIndex? }.
+ * { text: "<identity>: <comment>", language }.
  */
 
 const CONFIG = JSON.parse(document.getElementById('app-config').textContent);
@@ -19,7 +19,6 @@ const IDENTITY_DEFAULT = String(CONFIG.identity?.default || '(anonymous)');
 const LANGUAGE_KEY = CONFIG.language?.storage_key || 'xframe.worker.language';
 const DEFAULT_LANGUAGE = String(CONFIG.language?.default || 'en-US');
 const DEFAULTS = CONFIG.defaults || {};
-const DEMO_COMMENTS = Array.isArray(CONFIG.demo_comments) ? CONFIG.demo_comments : [];
 
 let worker = null;
 let identityKeystore = null;
@@ -114,15 +113,6 @@ function platformComment() {
   return `${getWorkerIdentity()}: ${comment}`.slice(0, IDENTITY_MAX + COMMENT_MAX + 2);
 }
 
-function standardDemoCommentIndex(comment = getComment()) {
-  const normalized = String(comment || '').replace(/\s+/g, ' ').trim();
-  if (!normalized) return null;
-  for (let index = 1; index <= DEMO_COMMENTS.length; index += 1) {
-    if (demoCommentByIndex(index)?.quote === normalized) return index;
-  }
-  return null;
-}
-
 function getCommentLanguage() {
   const select = el('workerCommentLanguage');
   return String(select?.value || DEFAULT_LANGUAGE).trim() || DEFAULT_LANGUAGE;
@@ -130,13 +120,10 @@ function getCommentLanguage() {
 
 /** Platform-facing comment payload for sandbox context and DCP results. */
 function platformCommentPayload() {
-  const payload = {
+  return {
     text: platformComment(),
     language: getCommentLanguage(),
   };
-  const demoCommentIndex = standardDemoCommentIndex();
-  if (demoCommentIndex != null) payload.demoCommentIndex = demoCommentIndex;
-  return payload;
 }
 
 function saveWorkerFields() {
@@ -282,24 +269,6 @@ function loadCommentLanguage(params) {
   populateLanguageSelect(saved);
 }
 
-function demoCommentByIndex(raw) {
-  const n = Number.parseInt(raw, 10);
-  if (!Number.isFinite(n) || n < 1 || n > DEMO_COMMENTS.length) return null;
-  const entry = DEMO_COMMENTS[n - 1];
-  if (!entry || entry.quote == null) return null;
-  return {
-    index: n,
-    title: String(entry.title || '').trim(),
-    quote: String(entry.quote).replace(/\s+/g, ' ').trim().slice(0, COMMENT_MAX),
-  };
-}
-
-function setDemoHint(text) {
-  const hint = el('demoCommentHint');
-  if (!hint) return;
-  hint.textContent = text || '';
-}
-
 function loadWorkerFields() {
   const params = queryParams();
   loadCommentLanguage(params);
@@ -318,14 +287,6 @@ function loadWorkerFields() {
     }
   }
 
-  const demo = demoCommentByIndex(params.get('demoCommentIndex'));
-  if (demo) {
-    el('workerComment').value = demo.quote;
-    setDemoHint(`Demo ${demo.index}/4 · ${demo.title}`);
-    saveWorkerFields();
-    return;
-  }
-  setDemoHint('');
   const fromUrl = params.get('comment') ?? params.get('workerComment');
   if (fromUrl != null) {
     el('workerComment').value = String(fromUrl).trim().slice(0, COMMENT_MAX);
@@ -427,9 +388,6 @@ function patchWorkerForContext(contextRef) {
       comment: {
         text: String(payload.text || '').slice(0, IDENTITY_MAX + COMMENT_MAX + 2),
         language: String(payload.language || DEFAULT_LANGUAGE).slice(0, 35),
-        ...(Number.isInteger(payload.demoCommentIndex)
-          ? { demoCommentIndex: payload.demoCommentIndex }
-          : {}),
       },
       workerId: String(contextRef.workerId || ''),
     };
@@ -961,7 +919,6 @@ async function startWorker() {
       comment: getComment() || '(none)',
       language: getCommentLanguage(),
       platformComment: platformCommentPayload(),
-      demoCommentIndex: demoCommentByIndex(queryParams().get('demoCommentIndex'))?.index || false,
       paymentAddress: String(config.paymentAddress),
       maxSandboxes: config.maxSandboxes,
       leavePublicGroup: config.leavePublicGroup,

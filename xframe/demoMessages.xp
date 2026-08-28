@@ -1,0 +1,121 @@
+---
+presentation: slidedeck
+format: desktop
+title: Demo Messages
+subtitle: Gemini voice narration demo
+author: Steve Jobs
+lang: en-US
+themes: [dark]
+text_to_speech:
+  authorized: true
+narrative:
+  provider: gemini
+  model: gemini-2.5-flash-preview-tts
+  voice: male
+  pause_seconds: 3
+  direction:
+    profile: >-
+      For Speaker 1: A warm, reflective male campaign-film narrator. Keep the
+      delivery original; do not imitate any specific person's voice.
+    scene: >-
+      A sparse recording studio. The words accompany a black-and-white montage
+      celebrating people who challenge convention.
+    style: Intimate, assured, idealistic, and cinematic without sounding theatrical.
+    accent: Native pronunciation for the selected language.
+    pacing: Deliberate, with clean pauses between short sentences.
+    notes: Let each final phrase land before the audio ends.
+---
+@id non-conformists
+@layout cover
+
+# Here’s to the crazy ones.
+
+The misfits. The rebels. The troublemakers.  
+The round pegs in the square holes.  
+The ones who see things differently.
+
+@narrative
+  direction:
+    notes: Begin as a quiet toast, then add warmth and conviction with each phrase.
+  entries:
+    - en-US: >-
+        Here’s to the crazy ones. The misfits. The rebels. The troublemakers.
+        The round pegs in the square holes. The ones who see things differently.
+    - fr-FR: >-
+        Hommage aux fous. Aux marginaux. Aux rebelles. Aux fauteurs de troubles.
+        Aux chevilles rondes dans les trous carrés. À ceux qui voient les choses
+        différemment.
+    - es-ES: >-
+        Esto es para los locos. Los inadaptados. Los rebeldes. Los alborotadores.
+        Las clavijas redondas en los agujeros cuadrados. Los que ven las cosas de
+        forma diferente.
+    - de-DE: >-
+        Ein Hoch auf die Verrückten. Die Außenseiter. Die Rebellen. Die Unruhestifter.
+        Die runden Stifte in den eckigen Löchern. Diejenigen, die die Dinge anders sehen.
+    - nl-NL: >-
+        Een ode aan de dwazen. De buitenbeentjes. De rebellen. De onruststokers.
+        De ronde pinnen in de vierkante gaten. Degenen die de dingen anders zien.
+
+---
+@id dcp-boring
+@layout cover
+
+# J:
+
+I think DCP is kind of boring.
+
+(sent handsfree from my second Tesla)
+
+@narrative
+  direction:
+    style: Casual and offhand, like a voice text from a car.
+    pacing: Natural conversational cadence; treat the parenthetical as a quiet send-status, not a punchline shout.
+    notes: Keep “J” as a brief speaker tag, then the complaint, then the Tesla footer as an afterthought. Speak only the language of this script — never switch languages.
+  entries:
+    - en-US: >-
+        J: I think DCP is kind of boring.
+        Sent handsfree from my second Tesla.
+    - fr-CA: >-
+        J : Je trouve que le DCP est un peu plate.
+        Envoyé mains libres depuis ma deuxième Tesla.
+
+---
+@id from-target
+@layout cover
+
+# From Target:
+
+Dan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!
+
+@narrative
+  direction:
+    style: Formal, clipped, and faintly indignant — a corporate complaint, not a toast.
+    pacing: Even and pointed; let the free-giveaway clause land without shouting.
+    notes: Read “From Target” as a sender line, then address Dan by name.
+  entries:
+    - en-CA: >-
+        From Target: Dan, you owe us 100 compute credits, not to mention the
+        compounding damage caused by implying to our customers that we would be
+        giving away anything for free!
+
+---
+@id desjardins-fridge
+@layout cover
+
+# From Desjardin’s fridge:
+
+Dan, your son is running out of milk! Be sure to bring some when you’re done.
+
+@narrative
+  direction:
+    style: Flat, robotic smart-appliance voice. Even pitch, little warmth, slight Canadian English.
+    pacing: Measured and slightly mechanical; do not rush the milk warning.
+    accent: Canadian English.
+    notes: >-
+      Read “From Desjardin’s fridge” as a device sender line, then the warning to Dan.
+      Stay in Canadian English only. Sound like a household robot, not a film narrator.
+  entries:
+    - en-CA: >-
+        From Desjardin’s fridge. Dan, your son is running out of milk.
+        Be sure to bring some when you’re done. Concentrated, not distributed this time - please
+

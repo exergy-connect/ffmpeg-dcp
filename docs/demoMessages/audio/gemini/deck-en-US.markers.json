@@ -1,0 +1,22 @@
+{
+  "language": "en-US",
+  "audio": "audio/gemini/deck-en-US.wav",
+  "content_hash": "4e0e9487b5016a14746febf3a4e21245446ca311ef55c0644c9fbf611be1cbc0",
+  "pause_seconds": 3,
+  "voice": "Charon",
+  "model": "gemini-3.1-flash-tts-preview",
+  "markers": [
+    {
+      "id": "non-conformists",
+      "content_hash": "257b7cadc5abca7555f4372ddbf40095431316b84a3a63f0bca4e1f7b6990781",
+      "startSeconds": 0,
+      "endSeconds": 15.5
+    },
+    {
+      "id": "dcp-boring",
+      "content_hash": "38a5c45aa7d6c845c898a3997ffa9585250372a69fcb6c0dcc5aaa17bef2c05b",
+      "startSeconds": 18.5,
+      "endSeconds": 24.47
+    }
+  ]
+}

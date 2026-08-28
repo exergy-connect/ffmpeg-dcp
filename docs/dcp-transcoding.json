@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-28T01:55:08.735Z",
-    "modifiedAt": "2026-08-28T01:55:08.735Z",
+    "createdAt": "2026-08-28T16:26:21.499Z",
+    "modifiedAt": "2026-08-28T16:26:21.499Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp",
-      "hash": "sha256:e877884a531447607c4a2eced216df647597873c82be4bd01a4a2207fdda7770",
+      "hash": "sha256:6286505f59d7132239c14279e6cd23a47b3910decc1fca084639f9277efa4e3e",
       "createdAt": "2026-08-24T19:23:37.516Z",
-      "modifiedAt": "2026-08-28T01:55:05.794Z"
+      "modifiedAt": "2026-08-28T16:24:59.929Z"
     }
   ],
   "_concepts": {
@@ -229,6 +229,41 @@
         "notes": "_string"
       }
     },
+    "demo_message_quote": {
+      "_attributes": {
+        "language": {
+          "_required": true,
+          "_type": "_string"
+        },
+        "text": {
+          "_required": true,
+          "_type": "_string"
+        }
+      }
+    },
+    "demo_message": {
+      "_attributes": {
+        "id": {
+          "_required": true,
+          "_type": "_string"
+        },
+        "title": "_string",
+        "quotes": [
+          "demo_message_quote"
+        ]
+      }
+    },
+    "audience_emulation": {
+      "_attributes": {
+        "enabled_default": "_boolean",
+        "every_nth_segment": "_integer",
+        "audio_base": "_string",
+        "messages": [
+          "demo_message"
+        ],
+        "notes": "_string"
+      }
+    },
     "dcp_transcoding_app": {
       "_attributes": {
         "title": "_string",
@@ -242,6 +277,7 @@
         "wasm_binary": "_string",
         "dcp_package": "_string",
         "worker_invite": "browser_worker_invite",
+        "audience": "audience_emulation",
         "containers": {
           "_dict": "container_format"
         },
@@ -299,6 +335,79 @@
           "nl-NL"
         ],
         "notes": "Public GitHub Pages browser worker encoded by the account QR code (replaces dcp.live)."
+      },
+      "audience": {
+        "_concept": "audience_emulation",
+        "enabled_default": true,
+        "every_nth_segment": 4,
+        "audio_base": "demoMessages/audio/gemini",
+        "notes": "When Emulate audience is on, every 4th DCP slice with no worker comment receives a unique demo message from this catalog, played from generated Gemini WAV clips. Messages are never reused in the same job.",
+        "messages": [
+          {
+            "_concept": "demo_message",
+            "id": "non-conformists",
+            "title": "The Non-Conformists",
+            "quotes": [
+              {
+                "language": "en-US",
+                "text": "Here’s to the crazy ones. The misfits. The rebels. The troublemakers. The round pegs in the square holes. The ones who see things differently."
+              },
+              {
+                "language": "fr-FR",
+                "text": "Hommage aux fous. Aux marginaux. Aux rebelles. Aux fauteurs de troubles. Aux chevilles rondes dans les trous carrés. À ceux qui voient les choses différemment."
+              },
+              {
+                "language": "es-ES",
+                "text": "Esto es para los locos. Los inadaptados. Los rebeldes. Los alborotadores. Las clavijas redondas en los agujeros cuadrados. Los que ven las cosas de forma diferente."
+              },
+              {
+                "language": "de-DE",
+                "text": "Ein Hoch auf die Verrückten. Die Außenseiter. Die Rebellen. Die Unruhestifter. Die runden Stifte in den eckigen Löchern. Diejenigen, die die Dinge anders sehen."
+              },
+              {
+                "language": "nl-NL",
+                "text": "Een ode aan de dwazen. De buitenbeentjes. De rebellen. De onruststokers. De ronde pinnen in de vierkante gaten. Degenen die de dingen anders zien."
+              }
+            ]
+          },
+          {
+            "_concept": "demo_message",
+            "id": "dcp-boring",
+            "title": "DCP is boring",
+            "quotes": [
+              {
+                "language": "en-US",
+                "text": "J: I think DCP is kind of boring. Sent handsfree from my second Tesla."
+              },
+              {
+                "language": "fr-CA",
+                "text": "J : Je trouve que le DCP est un peu plate. Envoyé mains libres depuis ma deuxième Tesla."
+              }
+            ]
+          },
+          {
+            "_concept": "demo_message",
+            "id": "from-target",
+            "title": "From Target",
+            "quotes": [
+              {
+                "language": "en-CA",
+                "text": "From Target: Dan, you owe us 100 compute credits, not to mention the compounding damage caused by implying to our customers that we would be giving away anything for free!"
+              }
+            ]
+          },
+          {
+            "_concept": "demo_message",
+            "id": "desjardins-fridge",
+            "title": "From Desjardin’s fridge",
+            "quotes": [
+              {
+                "language": "en-CA",
+                "text": "From Desjardin’s fridge. Dan, your son is running out of milk. Be sure to bring some when you’re done. Concentrated, not distributed this time - please"
+              }
+            ]
+          }
+        ]
       },
       "codecs": {
         "vp8": {
@@ -652,7 +761,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 534,
+                    "line": 620,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -687,7 +796,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 541,
+                    "line": 627,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -730,7 +839,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 554,
+                    "line": 640,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -765,7 +874,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 561,
+                    "line": 647,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -808,7 +917,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 574,
+                    "line": 660,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -843,7 +952,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 581,
+                    "line": 667,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -886,7 +995,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 594,
+                    "line": 680,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -921,7 +1030,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 601,
+                    "line": 687,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -969,7 +1078,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 618,
+                    "line": 704,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1004,7 +1113,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 625,
+                    "line": 711,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1051,7 +1160,7 @@
             "_resolved": {
               "_provenance": {
                 "source": 0,
-                "line": 631,
+                "line": 717,
                 "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
               }
             }

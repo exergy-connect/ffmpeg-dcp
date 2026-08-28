@@ -51,11 +51,6 @@ worker_language_policy:
     default: _string
     notes: _string
 
-demo_comment:
-  _attributes:
-    title: { _type: _string, _required: true }
-    quote: { _type: _string, _required: true }
-
 browser_worker_defaults:
   _attributes:
     payment_address: _string
@@ -75,7 +70,6 @@ browser_worker_app:
     identity: { _concept: worker_identity_policy }
     comment: { _concept: worker_comment_policy }
     language: { _concept: worker_language_policy }
-    demo_comments: [demo_comment]
     url_options: { _dict: url_option }
 
 # ---------------------------------------------------------------------------
@@ -121,12 +115,9 @@ app:
     notes: >-
       Optional comment under Show up. Field value defaults empty;
       placeholder is quiet invitation copy.
-      Set via the Comment field, ?comment= / ?workerComment=,
-      ?demoCommentIndex=1..4 (Think Different demo quotes), or localStorage.
-      Sent to the platform as
-      { text: "<identity>: <comment>", language, demoCommentIndex? } in
-      dcpWorkerContext. The optional index is inferred when the comment matches
-      one of the standard demo quotes (legacy plain strings remain accepted).
+      Set via the Comment field, ?comment= / ?workerComment=, or localStorage.
+      Sent to the platform as { text: "<identity>: <comment>", language } in
+      dcpWorkerContext.
 
   language:
     _concept: worker_language_policy
@@ -135,29 +126,6 @@ app:
     notes: >-
       BCP 47 tag from the Comment language selector (browser speech voices).
       Passed with each worker comment for transcoder text-to-speech.
-
-  demo_comments:
-    - _concept: demo_comment
-      title: The Non-Conformists
-      quote: >-
-        Here’s to the crazy ones. The misfits. The rebels. The troublemakers.
-        The round pegs in the square holes. The ones who see things differently.
-    - _concept: demo_comment
-      title: The Impact
-      quote: >-
-        They’re not fond of rules. And they have no respect for the status quo.
-        You can quote them, disagree with them, glorify or vilify them.
-        About the only thing you can’t do is ignore them.
-    - _concept: demo_comment
-      title: The Visionaries
-      quote: >-
-        Because they change things. They push the human race forward.
-    - _concept: demo_comment
-      title: The Ones Who Do
-      quote: >-
-        And while some may see them as the crazy ones, we see genius.
-        Because the people who are crazy enough to think they can change the
-        world, are the ones who do.
 
   url_options:
     paymentAddress:
@@ -195,11 +163,6 @@ app:
       name: identity
       description: Worker display name used in logs and as the platform comment prefix
       default: "(anonymous)"
-    demoCommentIndex:
-      _concept: url_option
-      name: demoCommentIndex
-      description: "1..4 selects a Think Different demo quote as the worker comment"
-      default: ""
     language:
       _concept: url_option
       name: language
@@ -214,9 +177,7 @@ _assert:
   - test: "{{ app.comment.exposure == 'sandbox_context_and_results' }}"
     message: Worker comment must be injected into sandbox context for result labeling
   - test: "{{ app.comment.max_length >= 280 }}"
-    message: Comment max length must fit demo quotes
-  - test: "{{ app.demo_comments | length == 4 }}"
-    message: Demo scenario must define exactly four quotes
+    message: Comment max length must be at least 280
   - test: "{{ app.defaults.max_sandboxes >= 1 }}"
     message: Default maxSandboxes must be at least 1
   - test: "{{ app.language.default == 'en-US' }}"

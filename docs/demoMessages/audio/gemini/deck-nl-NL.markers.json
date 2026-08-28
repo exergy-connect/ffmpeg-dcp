@@ -1,0 +1,16 @@
+{
+  "language": "nl-NL",
+  "audio": "audio/gemini/deck-nl-NL.wav",
+  "content_hash": "3f075a42491c09a012a1cc39f161c6ec85b42647ca6248e530b80b5a122bb9bd",
+  "pause_seconds": 3,
+  "voice": "Charon",
+  "model": "gemini-3.1-flash-tts-preview",
+  "markers": [
+    {
+      "id": "non-conformists",
+      "content_hash": "44c522bfed929464ddb67b3a7b13e8537dbea3b616f3e84760e194c8974b16f3",
+      "startSeconds": 0,
+      "endSeconds": 16.48
+    }
+  ]
+}

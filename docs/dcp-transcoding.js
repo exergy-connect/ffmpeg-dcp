@@ -228,6 +228,11 @@ function showRunError(error) {
     remedy = 'Drop a MediaRecorder .webm (VP8/VP9) or an .mp4 (VP9 or H.264). Hard-refresh if a stale worker is still slicing MP4 into MPEG-TS.';
   } else if (/vp8|vp9|opus|decoder|wasm/i.test(message)) {
     remedy = 'Rebuild the xframe WASM package (see xframe/README.md) and publish the package named in package/package.dcp.';
+  } else if (/GitHub API 403|not accessible by personal access token|Contents write/i.test(message)) {
+    remedy =
+      'The PAT cannot write repository contents. Classic token: enable repo scope (workflow alone is insufficient). ' +
+      'Fine-grained token: Contents Read and write + Actions Read and write on the target repo; authorize SSO for exergy-connect if required. ' +
+      'Then clear the cached token in the dialog and paste a new one.';
   } else if (/GitHub API|GitHub runner|JIT listener|workflow|dcpGhRunner|dcp-gh-runner/i.test(message)) {
     remedy =
       'Check the GitHub token (repo + workflow scopes) and repository access. ' +
@@ -1452,6 +1457,28 @@ const DEMO_COMMENT_AUDIO_SLIDES = Array.isArray(CONFIG.worker_invite?.demo_audio
 const DEMO_COMMENT_AUDIO_LOCALES = Array.isArray(CONFIG.worker_invite?.demo_audio_locales)
   ? CONFIG.worker_invite.demo_audio_locales.map(String)
   : ['en-US', 'fr-FR', 'es-ES', 'de-DE', 'nl-NL'];
+const AUDIENCE = CONFIG.audience || {};
+const AUDIENCE_EVERY_NTH = Math.max(1, Number(AUDIENCE.every_nth_segment) || 4);
+const AUDIENCE_AUDIO_BASE =
+  String(AUDIENCE.audio_base || 'demoMessages/audio/gemini').replace(/\/+$/, '');
+const AUDIENCE_MESSAGES = (Array.isArray(AUDIENCE.messages) ? AUDIENCE.messages : [])
+  .map((msg) => {
+    const quotes = {};
+    for (const entry of msg.quotes || []) {
+      const language = String(entry.language || '').trim();
+      const text = String(entry.text || '').replace(/\s+/g, ' ').trim();
+      if (language && text) quotes[language] = text;
+    }
+    return {
+      id: String(msg.id || '').trim(),
+      title: String(msg.title || '').trim(),
+      quotes,
+    };
+  })
+  .filter((msg) => msg.id && Object.keys(msg.quotes).length);
+const AUDIENCE_MESSAGES_BY_ID = new Map(AUDIENCE_MESSAGES.map((msg) => [msg.id, msg]));
+/** Remaining catalog ids for this job; consumed without replacement. */
+let unusedAudienceMessageIds = AUDIENCE_MESSAGES.map((msg) => msg.id);
 const FEMALE_US_VOICE_HINTS = [
   'samantha', 'victoria', 'karen', 'moira', 'tessa', 'fiona', 'allison', 'ava',
   'susan', 'zira', 'jenny', 'aria', 'google us english', 'microsoft zira',
@@ -1481,14 +1508,17 @@ function normalizeWorkerComment(raw, defaultLanguage = 'en-US') {
       && parsedDemoIndex <= DEMO_COMMENT_AUDIO_SLIDES.length
       ? parsedDemoIndex
       : null;
+    const demoCommentId = String(raw.demoCommentId ?? raw.demo_id ?? '').trim()
+      || (demoCommentIndex != null ? DEMO_COMMENT_AUDIO_SLIDES[demoCommentIndex - 1] : '');
     if (!text) return null;
     return {
       text,
       language,
       ...(demoCommentIndex != null ? { demoCommentIndex } : {}),
+      ...(demoCommentId ? { demoCommentId } : {}),
       ...(playbackLanguage ? { playbackLanguage, demoAudioLocale: playbackLanguage } : {}),
       flag: languageFlag(displayLanguage),
-      key: `${language}\0${text}\0${demoCommentIndex || 0}`,
+      key: `${language}\0${text}\0${demoCommentId || demoCommentIndex || 0}`,
       display: `${languageFlag(displayLanguage)} ${text}`,
     };
   }
@@ -1544,12 +1574,47 @@ function reserveDemoAudioLocale(language) {
   return locale || null;
 }
 
+function isCatalogDemoComment(normalized) {
+  return Boolean(normalized?.demoCommentId) || normalized?.demoCommentIndex != null;
+}
+
 function demoCommentAudioUrl(normalized) {
-  const index = normalized?.demoCommentIndex;
-  const slide = Number.isInteger(index) ? DEMO_COMMENT_AUDIO_SLIDES[index - 1] : null;
+  const slide = normalized?.demoCommentId
+    || (Number.isInteger(normalized?.demoCommentIndex)
+      ? DEMO_COMMENT_AUDIO_SLIDES[normalized.demoCommentIndex - 1]
+      : null);
   const locale = normalized?.demoAudioLocale;
   if (!slide || !locale) return null;
-  return assetUrl(`${DEMO_COMMENT_AUDIO_BASE}/${slide}-${locale}.wav`);
+  const base = AUDIENCE_MESSAGES_BY_ID.has(slide) ? AUDIENCE_AUDIO_BASE : DEMO_COMMENT_AUDIO_BASE;
+  return assetUrl(`${base}/${slide}-${locale}.wav`);
+}
+
+function resetAudienceEmulation() {
+  unusedAudienceMessageIds = AUDIENCE_MESSAGES.map((msg) => msg.id);
+}
+
+function takeRandomAudienceMessage() {
+  if (!unusedAudienceMessageIds.length) return null;
+  const pick = Math.floor(Math.random() * unusedAudienceMessageIds.length);
+  const id = unusedAudienceMessageIds.splice(pick, 1)[0];
+  return AUDIENCE_MESSAGES_BY_ID.get(id) || null;
+}
+
+function maybeEmulateAudienceComment(cell, sliceIndex) {
+  if (el('emulateAudienceToggle')?.checked === false) return;
+  if (!cell || cell.dataset.workerComment) return;
+  if (!Number.isInteger(sliceIndex) || sliceIndex < 0) return;
+  if ((sliceIndex + 1) % AUDIENCE_EVERY_NTH !== 0) return;
+  const message = takeRandomAudienceMessage();
+  if (!message) return;
+  const locales = Object.keys(message.quotes);
+  const language = locales[Math.floor(Math.random() * locales.length)];
+  applyWorkerCommentToCell(cell, {
+    text: message.quotes[language],
+    language,
+    demoCommentId: message.id,
+    playbackLanguage: language,
+  });
 }
 
 function playCommentAudio(url) {
@@ -1617,7 +1682,7 @@ function enqueueCommentSpeech(normalized, { force = false } = {}) {
   if (!normalized?.text) return;
   if (!force && !commentAutoplayOpen) return;
   if (!force && el('readOutCommentsToggle')?.checked === false) return;
-  if (normalized.demoCommentIndex != null) {
+  if (isCatalogDemoComment(normalized)) {
     if (!normalized.demoAudioLocale && !force) return;
   } else {
     if (!force && spokenCommentKeys.has(normalized.key)) return;
@@ -1659,6 +1724,7 @@ function workerCommentFromCell(cell) {
     text: cell.dataset.workerComment,
     language: cell.dataset.workerLanguage,
     demoCommentIndex: cell.dataset.workerDemoCommentIndex,
+    demoCommentId: cell.dataset.workerDemoCommentId,
     playbackLanguage: cell.dataset.workerPlaybackLanguage,
   });
 }
@@ -1784,7 +1850,7 @@ function playWorkerCommentFromCell(cell) {
     stopCommentAutoplayPlayback();
     return;
   }
-  if (normalized.demoCommentIndex != null && !normalized.demoAudioLocale) {
+  if (isCatalogDemoComment(normalized) && !normalized.demoAudioLocale) {
     const demoAudioLocale = demoAudioLocaleForLanguage(normalized.language);
     if (demoAudioLocale) {
       normalized = { ...normalized, demoAudioLocale };
@@ -1833,6 +1899,7 @@ function setupGrid(units, formatsMeta) {
   grid.innerHTML = '';
   gridCells = {};
   spokenCommentKeys.clear();
+  resetAudienceEmulation();
   resetCommentSpeechQueue();
   const legend = el('workerCommentLegend');
   if (legend) legend.textContent = '';
@@ -1881,12 +1948,7 @@ function updateSliceProgress(sliceNumber, rawProgress) {
   const n = rawProgress === undefined ? Number.NaN : Number(rawProgress);
   cell.classList.add('active');
   const commentLine = cell.dataset.workerComment
-    ? `\nworker: ${normalizeWorkerComment({
-      text: cell.dataset.workerComment,
-      language: cell.dataset.workerLanguage,
-      demoCommentIndex: cell.dataset.workerDemoCommentIndex,
-      playbackLanguage: cell.dataset.workerPlaybackLanguage,
-    })?.display || cell.dataset.workerComment}`
+    ? `\nworker: ${workerCommentFromCell(cell)?.display || cell.dataset.workerComment}`
     : '';
   if (!Number.isFinite(n)) {
     cell.classList.add('indeterminate');
@@ -1960,8 +2022,8 @@ function applyWorkerCommentToCell(cell, workerComment) {
       });
     }
   } else {
-    const demoAudioLocale = normalized.demoCommentIndex != null
-      ? reserveDemoAudioLocale(normalized.language)
+    const demoAudioLocale = isCatalogDemoComment(normalized)
+      ? (normalized.demoAudioLocale || reserveDemoAudioLocale(normalized.language))
       : null;
     if (demoAudioLocale) {
       presented = normalizeWorkerComment({
@@ -1983,6 +2045,11 @@ function applyWorkerCommentToCell(cell, workerComment) {
     cell.dataset.workerDemoCommentIndex = String(normalized.demoCommentIndex);
   } else {
     delete cell.dataset.workerDemoCommentIndex;
+  }
+  if (normalized.demoCommentId) {
+    cell.dataset.workerDemoCommentId = String(normalized.demoCommentId);
+  } else {
+    delete cell.dataset.workerDemoCommentId;
   }
   cell.classList.add('has-worker-comment');
   ensureLinkedInPicker(cell);
@@ -2013,15 +2080,7 @@ function refreshWorkerCommentLegend(hint) {
   if (!legend) return;
   const comments = new Map();
   for (const cell of Object.values(gridCells)) {
-    const text = cell?.dataset?.workerComment;
-    const language = cell?.dataset?.workerLanguage || 'en-US';
-    if (!text) continue;
-    const normalized = normalizeWorkerComment({
-      text,
-      language,
-      demoCommentIndex: cell.dataset.workerDemoCommentIndex,
-      playbackLanguage: cell.dataset.workerPlaybackLanguage,
-    });
+    const normalized = workerCommentFromCell(cell);
     if (normalized) comments.set(normalized.key, normalized.display);
   }
   if (!comments.size) {
@@ -2549,21 +2608,26 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       : unitIndex;
     unitIndex += 1;
     const cell = gridCells[sliceIndex];
+    let presented = normalizedComment;
     if (cell) {
       applyWorkerCommentToCell(cell, normalizedComment);
+      maybeEmulateAudienceComment(cell, sliceIndex);
       applyComputeSecondsToCell(cell, segments);
       cell.classList.remove('active', 'indeterminate');
       cell.classList.add('done');
       cell.style.setProperty('--slice-progress', '100%');
       cell.dataset.sliceProgress = '100';
       cell.setAttribute('aria-valuenow', '100');
-      const commentLine = cell.dataset.workerComment
-        ? `\nworker: ${normalizeWorkerComment({
-          text: cell.dataset.workerComment,
-          language: cell.dataset.workerLanguage,
-          demoCommentIndex: cell.dataset.workerDemoCommentIndex,
-          playbackLanguage: cell.dataset.workerPlaybackLanguage,
-        })?.display || cell.dataset.workerComment}`
+      presented = workerCommentFromCell(cell) || presented;
+      if (presented) {
+        for (const seg of segments) {
+          if (seg?.signature && workerCommentsBySignature[seg.signature]) {
+            workerCommentsBySignature[seg.signature][programIndex] = presented;
+          }
+        }
+      }
+      const commentLine = presented
+        ? `\nworker: ${presented.display}`
         : '';
       const computeSummary = summarizeSegmentCompute(segments);
       const computeLine = computeSummary?.detail
@@ -2588,7 +2652,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       `Received slice ${ev?.sliceNumber ?? unitIndex}: program ${programIndex}, chunk ${chunkIndex}, ` +
       `${sourceId} source, ${segments.length} segment(s)` +
       `${computeSummary?.label ? `, compute ${computeSummary.label}` : ''}` +
-      `${normalizedComment ? `, worker “${normalizedComment.display}”` : ''}` +
+      `${presented ? `, worker “${presented.display}”` : ''}` +
       ` (${completed}/${totalUnits} format-units)`,
     );
   });

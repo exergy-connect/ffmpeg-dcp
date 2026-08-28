@@ -66,6 +66,16 @@ assert(html.includes('id="cutAddSliceBtn"'), 'HTML must include add-slice contro
 assert(html.includes('id="cutSliceList"'), 'HTML must include cut slice list');
 assert(html.includes('id="cutSaveBtn"'), 'HTML must include cut save control');
 assert(html.includes('id="readOutCommentsToggle"'), 'HTML must include Read out comments toggle');
+assert(html.includes('id="emulateAudienceToggle"'), 'HTML must include Emulate audience toggle');
+assert(cfg.audience?.every_nth_segment === 4, 'audience emulation must target every 4th segment');
+assert(
+  Array.isArray(cfg.audience?.messages) && cfg.audience.messages.length === 4,
+  'audience catalog must include the four demo messages',
+);
+assert(
+  cfg.audience?.audio_base === 'demoMessages/audio/gemini',
+  'audience demo audio must point at generated demoMessages clips',
+);
 assert(
   fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8').includes('DIRECTORS_CUT_STORAGE_PREFIX'),
   'runtime must persist director’s cut programs',
@@ -82,15 +92,10 @@ assert(
   fs.readFileSync(path.join(root, 'ffmpeg-worker.js'), 'utf8').includes('extractTimeRange'),
   'worker must expose extractTimeRange for boundary trims',
 );
-const workerRuntime = fs.readFileSync(path.join(root, 'worker.js'), 'utf8');
-assert(
-  workerRuntime.includes('standardDemoCommentIndex') &&
-    workerRuntime.includes('payload.demoCommentIndex = demoCommentIndex'),
-  'browser worker must include the inferred demo comment index',
-);
 const transcoderRuntime = fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8');
 assert(
-  transcoderRuntime.includes('demoCommentAudioUrl') &&
+  transcoderRuntime.includes('maybeEmulateAudienceComment') &&
+    transcoderRuntime.includes('demoCommentAudioUrl') &&
     transcoderRuntime.includes('reserveDemoAudioLocale') &&
     transcoderRuntime.includes('workerPlaybackLanguage') &&
     transcoderRuntime.includes('playWorkerCommentFromCell') &&

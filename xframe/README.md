@@ -57,10 +57,8 @@ Mobile-first Start/Stop page at [`worker.html`](output/worker.html). Optional
 comment and a Comment language selector (from browser speech voices) are
 persisted locally. URL options: `paymentAddress`, `jobIds`, `computeGroups`,
 `leavePublicGroup`, `maxSandboxes`, `identity` (default `(anonymous)`),
-`comment` (alias `workerComment`), `language` (BCP 47 tag for transcoder TTS),
-`demoCommentIndex` (1–4 Think Different quotes). Platform results carry
-`{ text: "<identity>: <comment>", language, demoCommentIndex? }`. The index is
-inferred whenever the comment matches a standard demo quote. The transcoder
+`comment` (alias `workerComment`), `language` (BCP 47 tag for transcoder TTS).
+Platform results carry `{ text: "<identity>: <comment>", language }`. The transcoder
 plays its generated `crazyOnes` WAV in the selected language when available,
 then rotates through the other generated languages instead of replaying one.
 Each language is played at most once per job; missing WAVs fall back to queued

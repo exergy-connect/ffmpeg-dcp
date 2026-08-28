@@ -60,10 +60,54 @@
     });
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`GitHub API ${response.status}: ${text.slice(0, 280)}`);
+      throw new Error(formatGithubApiError(response.status, text, options.context));
     }
     if (response.status === 204) return null;
     return response.json();
+  }
+
+  function formatGithubApiError(status, bodyText, context = '') {
+    let message = '';
+    try {
+      const parsed = JSON.parse(bodyText);
+      message = String(parsed.message || bodyText).trim();
+    } catch {
+      message = String(bodyText || '').trim();
+    }
+
+    if (status === 403 && /not accessible by personal access token/i.test(message)) {
+      const where = context ? ` (${context})` : '';
+      return (
+        `GitHub API 403${where}: token cannot write repository contents. ` +
+        'Classic PAT: enable the repo scope (workflow alone is not enough). ' +
+        'Fine-grained PAT: grant Contents Read and write, Actions Read and write, and ' +
+        'Administration Read and write on the target repository; authorize SSO for the org if required.'
+      );
+    }
+    if (status === 404 && context === 'repository lookup') {
+      return (
+        `GitHub API 404: repository not found or token cannot access ${context}. ` +
+        'Check owner/repo spelling and that the token includes this repository.'
+      );
+    }
+
+    const suffix = message ? `: ${message.slice(0, 220)}` : '';
+    return `GitHub API ${status}${context ? ` (${context})` : ''}${suffix}`;
+  }
+
+  async function verifyGithubRepoAccess({ token, owner, repo }) {
+    const meta = await githubApi(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+      token,
+      { context: 'repository lookup' },
+    );
+    if (meta?.permissions && meta.permissions.push !== true && meta.permissions.admin !== true) {
+      throw new Error(
+        'GitHub token can read the repository but lacks push (Contents write) permission. ' +
+        'Use a classic PAT with repo scope or a fine-grained PAT with Contents Read and write.',
+      );
+    }
+    return meta;
   }
 
   async function uploadVideoToGithub({
@@ -91,6 +135,8 @@
     const path = `${prefix}/${fileName}`;
     const ref = branch || gh.branch || 'main';
 
+    await verifyGithubRepoAccess({ token, owner, repo });
+
     await githubApi(
       `/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`,
       token,
@@ -102,6 +148,7 @@
         content: bytesToBase64(bytes),
         branch: ref,
       }),
+      context: `upload ${path}`,
     });
 
     return path;
@@ -128,6 +175,7 @@
           ref,
           inputs: { video_path: videoPath },
         }),
+        context: `workflow_dispatch ${workflowFile}`,
       },
     );
   }
@@ -218,6 +266,7 @@
   global.xframeGithubTranscode = {
     githubConfig,
     tokenStorageKey,
+    verifyGithubRepoAccess,
     uploadVideoToGithub,
     dispatchGithubWorkflow,
     openGithubTranscodeDialog,
