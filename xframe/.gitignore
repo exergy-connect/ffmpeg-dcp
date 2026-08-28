@@ -12,3 +12,5 @@ node_modules/
 package.json
 package-lock.json
 !test/package.json
+!github/package.json
+!github/package-lock.json
