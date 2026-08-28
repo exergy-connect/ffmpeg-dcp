@@ -393,7 +393,10 @@ app:
       id: assemble
       label: Assemble + remux MP4
       parallel: true
-      description: Ordered concat per format signature, then faststart MP4 remux. Independent signatures finalize concurrently.
+      description: >-
+        Remux a format as soon as every segment for that signature has been
+        received. Do not wait for remaining fleet slices to finish processing.
+        Independent signatures finalize concurrently.
 
   # ---------------------------------------------------------------------------
   # Format specifications (upload masters from the social guide)

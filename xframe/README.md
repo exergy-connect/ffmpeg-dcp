@@ -2,7 +2,7 @@
 
 Self-contained under `xframe/`. Does **not** modify the root `app.js` / `ffmpeg-wasm/` / `src/` pipeline.
 
-Accepts a browser `MediaRecorder` WebM (VP8/VP9 + Opus), lets the user pick any set of social placements (feed and/or vertical per platform), deduplicates identical format signatures (Instagram/Facebook Meta share), and dispatches `(chunk × unique format)` units on DCP. Finished segments remux to H.264/AAC MP4 upload masters with `+faststart`.
+Accepts a browser `MediaRecorder` WebM (VP8/VP9 + Opus), lets the user pick any set of social placements (feed and/or vertical per platform), deduplicates identical format signatures (Instagram/Facebook Meta share), and dispatches `(chunk × unique format)` units on DCP. Each format remuxes to an H.264/AAC MP4 upload master with `+faststart` as soon as all of its segments have been received, without waiting for the rest of the job.
 
 ## Layout
 

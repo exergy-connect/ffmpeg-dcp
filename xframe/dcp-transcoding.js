@@ -2600,11 +2600,37 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   let resultEvents = 0;
   const bySignature = {};
   const workerCommentsBySignature = {};
+  const outputs = [];
+  const startedSignatures = new Set();
+  let remuxTail = Promise.resolve();
   for (const f of uniqueFormats) {
     const source = sourceById.get(f.sourceId);
     const pieces = source?.programSegments?.length || source?.chunks.length || 0;
     bySignature[f.signature] = new Array(pieces).fill(null);
     workerCommentsBySignature[f.signature] = new Array(pieces).fill(null);
+  }
+
+  function queueReadyMasters() {
+    for (const fmt of uniqueFormats) {
+      if (startedSignatures.has(fmt.signature)) continue;
+      const segs = bySignature[fmt.signature];
+      if (!segs?.length || segs.some((s) => s == null)) continue;
+      startedSignatures.add(fmt.signature);
+      const snapshot = segs.slice();
+      remuxTail = remuxTail.then(async () => {
+        const made = await assembleOneMaster(fmt, snapshot, workerCommentsBySignature);
+        outputs.push(...made);
+        lastOutputs = outputs.slice();
+        el('saveOutputsBtn').classList.toggle('hidden', !lastOutputs.length || !window.showDirectoryPicker);
+        const status = el('preprocessingStatus');
+        if (status) {
+          status.textContent =
+            `Ready ${lastOutputs.length} deliverable(s) · fleet ${completed}/${totalUnits} format-units`;
+        }
+      }).catch((err) => {
+        log(`Remux failed for ${fmt.signature}: ${err.message || err}`);
+      });
+    }
   }
 
   setupGrid(inputSet, formatsMeta);
@@ -2761,7 +2787,8 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     el('statCompleted').textContent = `${completed} / ${totalUnits}`;
     const status = el('preprocessingStatus');
     if (status) {
-      status.textContent = `Fleet: received ${completed}/${totalUnits} format-units…`;
+      const readyNote = lastOutputs.length ? ` · ${lastOutputs.length} deliverable(s) ready` : '';
+      status.textContent = `Fleet: received ${completed}/${totalUnits} format-units${readyNote}…`;
     }
     const computeSummary = summarizeSegmentCompute(segments);
     log(
@@ -2771,6 +2798,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       `${presented ? `, worker “${presented.display}”` : ''}` +
       ` (${completed}/${totalUnits} format-units)`,
     );
+    queueReadyMasters();
   });
 
   const groupsLabel = (job.computeGroups || []).map((g) => g.joinKey || g).join(', ') || '(default)';
@@ -2834,6 +2862,8 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     clearInterval(heartbeat);
     clearInterval(timer);
     finishCommentAutoplay();
+    queueReadyMasters();
+    await remuxTail;
   }
 
   const elapsedSec = (performance.now() - t0) / 1000;
@@ -2853,10 +2883,10 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
   if (completed < totalUnits) {
     throw new Error(
       `Incomplete results: received ${completed}/${totalUnits} format-units. ` +
-      'Some slices failed on the fleet; assemble aborted to avoid corrupt masters.',
+      'Some slices failed on the fleet; complete signatures were still remuxed.',
     );
   }
-  return { bySignature, workerCommentsBySignature };
+  return { bySignature, workerCommentsBySignature, outputs };
 }
 
 function framingLabel() {
@@ -2933,11 +2963,10 @@ async function shareOutputToLinkedIn(out) {
   }
 }
 
-async function assembleMasters(bySignature, uniqueFormats, deliverables, workerCommentsBySignature = {}) {
-  const outputs = [];
-  el('outputsSection').classList.remove('hidden');
+function resetOutputPanel() {
+  lastOutputs = [];
   const host = el('outputs');
-  host.innerHTML = '';
+  if (host) host.innerHTML = '';
   const previewVideo = el('outputPreview');
   if (previewVideo) {
     previewVideo.pause();
@@ -2946,62 +2975,63 @@ async function assembleMasters(bySignature, uniqueFormats, deliverables, workerC
   }
   el('outputPreviewPanel')?.classList.add('hidden');
   el('outputPreviewMeta')?.replaceChildren();
+  el('outputsSection')?.classList.add('hidden');
+  el('saveOutputsBtn')?.classList.add('hidden');
+}
 
-  for (const fmt of uniqueFormats) {
-    const segs = bySignature[fmt.signature];
-    if (!segs || segs.some((s) => s === null)) {
-      log(`Skipping incomplete signature ${fmt.signature}`);
-      continue;
+async function assembleOneMaster(fmt, segs, workerCommentsBySignature = {}) {
+  const parts = segs.map((b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
+  const total = parts.reduce((n, p) => n + p.length, 0);
+  const workerLabels = formatWorkerComments(workerCommentsBySignature[fmt.signature]);
+  log(`Remuxing ${fmt.signature} → MP4 (${formatBytes(total)} TS, ${parts.length} segment(s))…`);
+  const mp4Bytes = await remuxToMp4(parts);
+  const aliases = fmt.aliases || [];
+  const outputs = [];
+  const host = el('outputs');
+  if (host) el('outputsSection').classList.remove('hidden');
+  for (const alias of aliases) {
+    const name = `${inputBaseName}-${alias.deliverableId}.mp4`;
+    const blob = new Blob([mp4Bytes], { type: 'video/mp4' });
+    const url = URL.createObjectURL(blob);
+    const out = { name, blob, url, alias, bytes: mp4Bytes.length, workerComments: workerLabels };
+    outputs.push(out);
+    if (!host) continue;
+    const row = document.createElement('div');
+    row.className = 'output-row';
+    const info = document.createElement('div');
+    const title = document.createElement('strong');
+    title.textContent = `${alias.platformName} · ${alias.placementLabel}`;
+    const sub = document.createElement('div');
+    sub.className = 'muted';
+    sub.textContent =
+      `${name} · ${alias.width}×${alias.height} · ${formatBytes(mp4Bytes.length)}`;
+    info.append(title, sub);
+    const actions = document.createElement('div');
+    actions.className = 'output-actions';
+    const previewBtn = document.createElement('button');
+    previewBtn.type = 'button';
+    previewBtn.className = 'btn';
+    previewBtn.textContent = 'Preview';
+    previewBtn.addEventListener('click', () => showOutputPreview(out));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.textContent = 'Download';
+    a.className = 'btn';
+    actions.append(previewBtn);
+    if (alias.platformId === 'linkedin') {
+      const linkedInBtn = document.createElement('button');
+      linkedInBtn.type = 'button';
+      linkedInBtn.className = 'btn';
+      linkedInBtn.textContent = 'Post to LinkedIn';
+      linkedInBtn.addEventListener('click', () => shareOutputToLinkedIn(out));
+      actions.append(linkedInBtn);
     }
-    const parts = segs.map((b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)));
-    const total = parts.reduce((n, p) => n + p.length, 0);
-    const workerLabels = formatWorkerComments(workerCommentsBySignature[fmt.signature]);
-
-    log(`Remuxing ${fmt.signature} → MP4 (${formatBytes(total)} TS, ${parts.length} segment(s))…`);
-    const mp4Bytes = await remuxToMp4(parts);
-    const aliases = fmt.aliases || deliverables.filter((d) => d.signature === fmt.signature);
-    for (const alias of aliases) {
-      const name = `${inputBaseName}-${alias.deliverableId}.mp4`;
-      const blob = new Blob([mp4Bytes], { type: 'video/mp4' });
-      const url = URL.createObjectURL(blob);
-      const out = { name, blob, url, alias, bytes: mp4Bytes.length, workerComments: workerLabels };
-      outputs.push(out);
-      const row = document.createElement('div');
-      row.className = 'output-row';
-      const info = document.createElement('div');
-      const title = document.createElement('strong');
-      title.textContent = `${alias.platformName} · ${alias.placementLabel}`;
-      const sub = document.createElement('div');
-      sub.className = 'muted';
-      sub.textContent =
-        `${name} · ${alias.width}×${alias.height} · ${formatBytes(mp4Bytes.length)}`;
-      info.append(title, sub);
-      const actions = document.createElement('div');
-      actions.className = 'output-actions';
-      const previewBtn = document.createElement('button');
-      previewBtn.type = 'button';
-      previewBtn.className = 'btn';
-      previewBtn.textContent = 'Preview';
-      previewBtn.addEventListener('click', () => showOutputPreview(out));
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = name;
-      a.textContent = 'Download';
-      a.className = 'btn';
-      actions.append(previewBtn);
-      if (alias.platformId === 'linkedin') {
-        const linkedInBtn = document.createElement('button');
-        linkedInBtn.type = 'button';
-        linkedInBtn.className = 'btn';
-        linkedInBtn.textContent = 'Post to LinkedIn';
-        linkedInBtn.addEventListener('click', () => shareOutputToLinkedIn(out));
-        actions.append(linkedInBtn);
-      }
-      actions.append(a);
-      row.append(info, actions);
-      host.appendChild(row);
-    }
+    actions.append(a);
+    row.append(info, actions);
+    host.appendChild(row);
   }
+  log(`${fmt.signature} ready — ${outputs.length} deliverable(s).`);
   return outputs;
 }
 
@@ -3286,7 +3316,7 @@ el('runBtn').addEventListener('click', async () => {
   hideNofunds();
   el('runBtn').disabled = true;
   if (el('runGithubBtn')) el('runGithubBtn').disabled = true;
-  el('outputsSection').classList.add('hidden');
+  resetOutputPanel();
   el('outputPreview')?.pause();
   el('outputPreviewPanel')?.classList.add('hidden');
   el('fleetBar').style.width = '0%';
@@ -3335,19 +3365,13 @@ el('runBtn').addEventListener('click', async () => {
     updateCostEstimate(exactSliceCount);
     el('preprocessingStatus').textContent = 'Dispatching to DCP…';
 
-    const { bySignature, workerCommentsBySignature } = await dispatchJob(
+    const { outputs } = await dispatchJob(
       sourcePlans,
       uniqueFormats,
       maxDistribution,
       inputBaseName,
     );
-    el('preprocessingStatus').textContent = 'Assembling MP4 masters…';
-    lastOutputs = await assembleMasters(
-      bySignature,
-      uniqueFormats,
-      deliverables,
-      workerCommentsBySignature,
-    );
+    lastOutputs = outputs;
     el('saveOutputsBtn').classList.toggle('hidden', !lastOutputs.length || !window.showDirectoryPicker);
     el('preprocessingStatus').textContent = `Done — ${lastOutputs.length} deliverable(s).`;
     log(`Produced ${lastOutputs.length} MP4 deliverable(s).`);
