@@ -60,8 +60,9 @@ persisted locally. URL options: `paymentAddress`, `jobIds`, `computeGroups`,
 `leavePublicGroup`, `maxSandboxes`, `identity` (default `(anonymous)`),
 `comment` (alias `workerComment`), `language` (BCP 47 tag for transcoder TTS).
 Platform results carry `{ text: "<identity>: <comment>", language }`. The transcoder
-plays its generated `crazyOnes` WAV in the selected language when available,
-then rotates through the other generated languages instead of replaying one.
+plays generated `demoMessages` WAVs (audience catalog) in the selected language
+when available, then rotates through the other generated languages for that
+message instead of replaying one.
 Each language is played at most once per job; missing WAVs fall back to queued
 browser text-to-speech. Slice callouts and the worker legend show the language
 flag for the audio that will actually play. Click a commented slice (or focus it

@@ -1449,14 +1449,6 @@ let commentAutoplayOpen = true;
 /** Grid cell whose comment is playing from a manual click (toggle-to-stop). */
 let activeManualCommentCell = null;
 const playedDemoAudioLocales = new Set();
-const DEMO_COMMENT_AUDIO_BASE =
-  String(CONFIG.worker_invite?.demo_audio_base || 'crazyOnes/audio/gemini').replace(/\/+$/, '');
-const DEMO_COMMENT_AUDIO_SLIDES = Array.isArray(CONFIG.worker_invite?.demo_audio_slides)
-  ? CONFIG.worker_invite.demo_audio_slides.map(String)
-  : ['non-conformists', 'impact', 'visionaries', 'the-ones-who-do'];
-const DEMO_COMMENT_AUDIO_LOCALES = Array.isArray(CONFIG.worker_invite?.demo_audio_locales)
-  ? CONFIG.worker_invite.demo_audio_locales.map(String)
-  : ['en-US', 'fr-FR', 'es-ES', 'de-DE', 'nl-NL'];
 const AUDIENCE = CONFIG.audience || {};
 const AUDIENCE_CHANCE = Math.min(1, Math.max(0, (Number(AUDIENCE.chance_percent) || 25) / 100));
 const AUDIENCE_AUDIO_BASE =
@@ -1477,6 +1469,7 @@ const AUDIENCE_MESSAGES = (Array.isArray(AUDIENCE.messages) ? AUDIENCE.messages 
   })
   .filter((msg) => msg.id && Object.keys(msg.quotes).length);
 const AUDIENCE_MESSAGES_BY_ID = new Map(AUDIENCE_MESSAGES.map((msg) => [msg.id, msg]));
+const AUDIENCE_LOCALES = [...new Set(AUDIENCE_MESSAGES.flatMap((msg) => Object.keys(msg.quotes)))];
 /** Remaining catalog ids for this job; consumed without replacement. */
 let unusedAudienceMessageIds = AUDIENCE_MESSAGES.map((msg) => msg.id);
 const FEMALE_US_VOICE_HINTS = [
@@ -1505,11 +1498,11 @@ function normalizeWorkerComment(raw, defaultLanguage = 'en-US') {
     );
     const demoCommentIndex = Number.isInteger(parsedDemoIndex)
       && parsedDemoIndex >= 1
-      && parsedDemoIndex <= DEMO_COMMENT_AUDIO_SLIDES.length
+      && parsedDemoIndex <= AUDIENCE_MESSAGES.length
       ? parsedDemoIndex
       : null;
     const demoCommentId = String(raw.demoCommentId ?? raw.demo_id ?? '').trim()
-      || (demoCommentIndex != null ? DEMO_COMMENT_AUDIO_SLIDES[demoCommentIndex - 1] : '');
+      || (demoCommentIndex != null ? AUDIENCE_MESSAGES[demoCommentIndex - 1].id : '');
     if (!text) return null;
     return {
       text,
@@ -1555,20 +1548,39 @@ function pickSpeechVoice(language) {
   return matching[0] || voices.find((voice) => String(voice.lang || '').toLowerCase().startsWith(base)) || null;
 }
 
-function demoAudioLocaleForLanguage(language) {
+function audienceMessageForComment(normalized) {
+  if (normalized?.demoCommentId && AUDIENCE_MESSAGES_BY_ID.has(normalized.demoCommentId)) {
+    return AUDIENCE_MESSAGES_BY_ID.get(normalized.demoCommentId);
+  }
+  if (Number.isInteger(normalized?.demoCommentIndex)
+    && normalized.demoCommentIndex >= 1
+    && normalized.demoCommentIndex <= AUDIENCE_MESSAGES.length) {
+    return AUDIENCE_MESSAGES[normalized.demoCommentIndex - 1];
+  }
+  return null;
+}
+
+function localesForDemoComment(normalized) {
+  const message = audienceMessageForComment(normalized);
+  const locales = message ? Object.keys(message.quotes) : AUDIENCE_LOCALES;
+  return locales.length ? locales : AUDIENCE_LOCALES;
+}
+
+function demoAudioLocaleForLanguage(language, locales = AUDIENCE_LOCALES) {
   const tag = String(language || '').trim().toLowerCase();
   const base = tag.split(/[-_]/)[0];
-  return DEMO_COMMENT_AUDIO_LOCALES.find((locale) => locale.toLowerCase() === tag)
-    || DEMO_COMMENT_AUDIO_LOCALES.find((locale) =>
+  return locales.find((locale) => locale.toLowerCase() === tag)
+    || locales.find((locale) =>
       locale.toLowerCase() === base || locale.toLowerCase().startsWith(`${base}-`))
     || null;
 }
 
-function reserveDemoAudioLocale(language) {
-  const preferred = demoAudioLocaleForLanguage(language);
+function reserveDemoAudioLocale(language, normalized) {
+  const locales = localesForDemoComment(normalized);
+  const preferred = demoAudioLocaleForLanguage(language, locales);
   const candidates = preferred
-    ? [preferred, ...DEMO_COMMENT_AUDIO_LOCALES.filter((locale) => locale !== preferred)]
-    : DEMO_COMMENT_AUDIO_LOCALES;
+    ? [preferred, ...locales.filter((locale) => locale !== preferred)]
+    : locales;
   const locale = candidates.find((candidate) => !playedDemoAudioLocales.has(candidate));
   if (locale) playedDemoAudioLocales.add(locale);
   return locale || null;
@@ -1579,18 +1591,20 @@ function isCatalogDemoComment(normalized) {
 }
 
 function demoCommentAudioUrl(normalized) {
-  const slide = normalized?.demoCommentId
-    || (Number.isInteger(normalized?.demoCommentIndex)
-      ? DEMO_COMMENT_AUDIO_SLIDES[normalized.demoCommentIndex - 1]
-      : null);
+  const message = audienceMessageForComment(normalized);
+  const slide = message?.id || normalized?.demoCommentId || '';
   const locale = normalized?.demoAudioLocale;
   if (!slide || !locale) return null;
-  const base = AUDIENCE_MESSAGES_BY_ID.has(slide) ? AUDIENCE_AUDIO_BASE : DEMO_COMMENT_AUDIO_BASE;
-  return assetUrl(`${base}/${slide}-${locale}.wav`);
+  return assetUrl(`${AUDIENCE_AUDIO_BASE}/${slide}-${locale}.wav`);
 }
 
 function resetAudienceEmulation() {
   unusedAudienceMessageIds = AUDIENCE_MESSAGES.map((msg) => msg.id);
+  dbg('audience catalog reset', {
+    messages: unusedAudienceMessageIds.length,
+    chancePercent: Math.round(AUDIENCE_CHANCE * 100),
+    ids: unusedAudienceMessageIds.slice(),
+  });
 }
 
 function takeRandomAudienceMessage() {
@@ -1600,15 +1614,109 @@ function takeRandomAudienceMessage() {
   return AUDIENCE_MESSAGES_BY_ID.get(id) || null;
 }
 
-function maybeEmulateAudienceComment(cell) {
-  if (el('emulateAudienceToggle')?.checked === false) return;
-  if (!cell || cell.dataset.workerComment) return;
-  if (isCommentPlaybackActive()) return;
-  if (Math.random() >= AUDIENCE_CHANCE) return;
+function audienceRollPercent(value) {
+  return `${(Number(value) * 100).toFixed(1)}%`;
+}
+
+/** Empty slices not yet done, including the current result cell. */
+function remainingAudienceSlots(currentCell) {
+  let slots = 0;
+  for (const cell of Object.values(gridCells)) {
+    if (cell !== currentCell && cell.classList.contains('done')) continue;
+    if (cell.dataset.workerComment) continue;
+    slots += 1;
+  }
+  return slots;
+}
+
+function audienceInsertChance(remainingMessages, remainingSlots) {
+  if (remainingMessages <= 0 || remainingSlots <= 0) return 0;
+  const fill = remainingMessages / remainingSlots;
+  return Math.min(1, Math.max(AUDIENCE_CHANCE, fill));
+}
+
+function maybeEmulateAudienceComment(cell, meta = {}) {
+  const slice = meta.sliceNumber != null ? meta.sliceNumber : (meta.sliceIndex != null ? meta.sliceIndex + 1 : '?');
+  const remainingMessages = unusedAudienceMessageIds.length;
+  const remainingSlots = remainingAudienceSlots(cell);
+  const chance = audienceInsertChance(remainingMessages, remainingSlots);
+  const base = {
+    slice,
+    sliceIndex: meta.sliceIndex,
+    dcpSliceNumber: meta.dcpSliceNumber,
+    floorPercent: Math.round(AUDIENCE_CHANCE * 100),
+    remainingMessages,
+    remainingSlots,
+    fillPercent: audienceRollPercent(remainingSlots ? remainingMessages / remainingSlots : 0),
+    chance,
+    chancePercent: audienceRollPercent(chance),
+    catalogLeft: remainingMessages,
+  };
+  if (el('emulateAudienceToggle')?.checked === false) {
+    dbg('audience skip: toggle off', base);
+    return;
+  }
+  if (!cell) {
+    dbg('audience skip: no grid cell', base);
+    return;
+  }
+  if (cell.dataset.workerComment) {
+    dbg('audience skip: slice already has a comment', {
+      ...base,
+      comment: String(cell.dataset.workerComment).slice(0, 80),
+    });
+    return;
+  }
+  if (remainingMessages <= 0) {
+    dbg('audience skip: catalog empty', base);
+    return;
+  }
+  const mustFill = chance >= 1;
+  if (!mustFill && isCommentPlaybackActive()) {
+    dbg('audience skip: comment playback already active', {
+      ...base,
+      commentSpeechActive,
+      hasAudio: Boolean(currentCommentAudio),
+      queueLength: commentSpeechQueue.length,
+      speechSynthesisSpeaking: (() => {
+        try {
+          return Boolean('speechSynthesis' in window && speechSynthesis.speaking);
+        } catch {
+          return null;
+        }
+      })(),
+    });
+    return;
+  }
+  const roll = Math.random();
+  const hit = roll < chance;
+  const rollDetail = {
+    ...base,
+    roll: Number(roll.toFixed(4)),
+    rollPercent: audienceRollPercent(roll),
+    threshold: chance,
+    thresholdPercent: audienceRollPercent(chance),
+    mustFill,
+    hit,
+    rule: `insert when roll < ${audienceRollPercent(chance)} (floor ${audienceRollPercent(AUDIENCE_CHANCE)}, fill ${base.fillPercent})`,
+  };
+  if (!hit) {
+    dbg(`audience roll miss ${audienceRollPercent(roll)} ≥ ${audienceRollPercent(chance)}`, rollDetail);
+    return;
+  }
   const message = takeRandomAudienceMessage();
-  if (!message) return;
+  if (!message) {
+    dbg('audience roll hit but catalog empty', rollDetail);
+    return;
+  }
   const locales = Object.keys(message.quotes);
   const language = locales[Math.floor(Math.random() * locales.length)];
+  dbg(`audience roll hit ${audienceRollPercent(roll)} < ${audienceRollPercent(chance)}`, {
+    ...rollDetail,
+    messageId: message.id,
+    language,
+    catalogLeft: unusedAudienceMessageIds.length,
+  });
   applyWorkerCommentToCell(cell, {
     text: message.quotes[language],
     language,
@@ -1851,7 +1959,10 @@ function playWorkerCommentFromCell(cell) {
     return;
   }
   if (isCatalogDemoComment(normalized) && !normalized.demoAudioLocale) {
-    const demoAudioLocale = demoAudioLocaleForLanguage(normalized.language);
+    const demoAudioLocale = demoAudioLocaleForLanguage(
+      normalized.language,
+      localesForDemoComment(normalized),
+    );
     if (demoAudioLocale) {
       normalized = { ...normalized, demoAudioLocale };
     }
@@ -2023,7 +2134,7 @@ function applyWorkerCommentToCell(cell, workerComment) {
     }
   } else {
     const demoAudioLocale = isCatalogDemoComment(normalized)
-      ? (normalized.demoAudioLocale || reserveDemoAudioLocale(normalized.language))
+      ? (normalized.demoAudioLocale || reserveDemoAudioLocale(normalized.language, normalized))
       : null;
     if (demoAudioLocale) {
       presented = normalizeWorkerComment({
@@ -2609,9 +2720,14 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     unitIndex += 1;
     const cell = gridCells[sliceIndex];
     let presented = normalizedComment;
+    const audienceMeta = {
+      sliceIndex,
+      sliceNumber: sliceIndex + 1,
+      dcpSliceNumber: ev?.sliceNumber,
+    };
+    if (cell) applyWorkerCommentToCell(cell, normalizedComment);
+    maybeEmulateAudienceComment(cell, audienceMeta);
     if (cell) {
-      applyWorkerCommentToCell(cell, normalizedComment);
-      maybeEmulateAudienceComment(cell);
       applyComputeSecondsToCell(cell, segments);
       cell.classList.remove('active', 'indeterminate');
       cell.classList.add('done');

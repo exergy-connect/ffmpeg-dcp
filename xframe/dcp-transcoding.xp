@@ -3,6 +3,8 @@
 # Compiles to a functional HTML app that accepts MediaRecorder WebM
 # (VP8/VP9 + Opus) and dispatches H.264/AAC MP4 masters via DCP.
 
+{% include "file://./demo/demoMessages.xp" as demo %}
+
 _id: dcp-transcoding
 
 _document:
@@ -150,9 +152,6 @@ github_transcode_policy:
 browser_worker_invite:
   _attributes:
     url: { _type: _string, _required: true }
-    demo_audio_base: _string
-    demo_audio_slides: [_string]
-    demo_audio_locales: [_string]
     notes: _string
 
 demo_message_quote:
@@ -220,18 +219,6 @@ app:
   worker_invite:
     _concept: browser_worker_invite
     url: https://exergy-connect.github.io/ffmpeg-dcp/worker.html
-    demo_audio_base: crazyOnes/audio/gemini
-    demo_audio_slides:
-      - non-conformists
-      - impact
-      - visionaries
-      - the-ones-who-do
-    demo_audio_locales:
-      - en-US
-      - fr-FR
-      - es-ES
-      - de-DE
-      - nl-NL
     notes: Public GitHub Pages browser worker encoded by the account QR code (replaces dcp.live).
 
   audience:
@@ -239,68 +226,15 @@ app:
     enabled_default: true
     chance_percent: 25
     audio_base: demoMessages/audio/gemini
+    messages: "{{ demo.messages }}"
     notes: >-
       When Emulate audience is on, each DCP slice that arrives with no worker
-      comment has a 25% chance of receiving a unique demo message from this
-      catalog, played from generated Gemini WAV clips. Messages are never reused
-      in the same job, and a new demo is not inserted while a previous comment
-      is still playing.
-    messages:
-      - _concept: demo_message
-        id: non-conformists
-        title: The Non-Conformists
-        quotes:
-          - language: en-US
-            text: >-
-              Here’s to the crazy ones. The misfits. The rebels. The troublemakers.
-              The round pegs in the square holes. The ones who see things differently.
-          - language: fr-FR
-            text: >-
-              Hommage aux fous. Aux marginaux. Aux rebelles. Aux fauteurs de troubles.
-              Aux chevilles rondes dans les trous carrés. À ceux qui voient les choses
-              différemment.
-          - language: es-ES
-            text: >-
-              Esto es para los locos. Los inadaptados. Los rebeldes. Los alborotadores.
-              Las clavijas redondas en los agujeros cuadrados. Los que ven las cosas de
-              forma diferente.
-          - language: de-DE
-            text: >-
-              Ein Hoch auf die Verrückten. Die Außenseiter. Die Rebellen. Die Unruhestifter.
-              Die runden Stifte in den eckigen Löchern. Diejenigen, die die Dinge anders sehen.
-          - language: nl-NL
-            text: >-
-              Een ode aan de dwazen. De buitenbeentjes. De rebellen. De onruststokers.
-              De ronde pinnen in de vierkante gaten. Degenen die de dingen anders zien.
-      - _concept: demo_message
-        id: dcp-boring
-        title: DCP is boring
-        quotes:
-          - language: en-US
-            text: >-
-              J: I think DCP is kind of boring.
-              Sent handsfree from my second Tesla.
-          - language: fr-CA
-            text: >-
-              J : Je trouve que le DCP est un peu plate.
-              Envoyé mains libres depuis ma deuxième Tesla.
-      - _concept: demo_message
-        id: from-target
-        title: From Target
-        quotes:
-          - language: en-CA
-            text: >-
-              From Target: Dan, you owe us 100 compute credits, not to mention the
-              compounding damage caused by implying to our customers that we would be
-              giving away anything for free!
-      - _concept: demo_message
-        id: desjardins-fridge
-        title: From Desjardin’s fridge
-        quotes:
-          - language: en-CA
-            text: >-
-              From Desjardin’s fridge. Dan, your son is running out of milk.
-              Be sure to bring some when you’re done. Concentrated, not distributed this time - please
+      comment is considered for a unique catalog quote (Gemini WAV). The insert
+      chance starts at chance_percent and rises as remaining empty slices shrink
+      (remaining messages / remaining empty slices), reaching 100% once no spare
+      slices remain, so the full catalog is placed by the end of the job with
+      high probability. Messages are never reused in the same job. Playback of
+      an earlier comment only skips a roll while spare slices remain.
 
   codecs:
     vp8:

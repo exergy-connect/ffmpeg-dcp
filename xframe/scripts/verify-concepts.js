@@ -41,18 +41,15 @@ assert(
   'app.worker_invite.url must point at public worker.html',
 );
 assert(
-  cfg.worker_invite?.demo_audio_base === 'crazyOnes/audio/gemini',
-  'worker demo audio base must point at generated Crazy Ones clips',
+  cfg.worker_invite?.demo_audio_base == null
+    && cfg.worker_invite?.demo_audio_slides == null
+    && cfg.worker_invite?.demo_audio_locales == null,
+  'worker invite must not carry Crazy Ones demo audio catalog',
 );
 assert(
-  JSON.stringify(cfg.worker_invite?.demo_audio_slides) ===
-    JSON.stringify(['non-conformists', 'impact', 'visionaries', 'the-ones-who-do']),
-  'worker demo audio slide order must match demoCommentIndex 1..4',
-);
-assert(
-  JSON.stringify(cfg.worker_invite?.demo_audio_locales) ===
-    JSON.stringify(['en-US', 'fr-FR', 'es-ES', 'de-DE', 'nl-NL']),
-  'worker demo audio locales must list each generated language once',
+  JSON.stringify(cfg.audience?.messages?.map((msg) => msg.id)) ===
+    JSON.stringify(['non-conformists', 'dcp-boring', 'from-target', 'desjardins-fridge']),
+  'audience catalog ids must come from demoMessages.xp',
 );
 assert(
   fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8').includes(
@@ -67,7 +64,7 @@ assert(html.includes('id="cutSliceList"'), 'HTML must include cut slice list');
 assert(html.includes('id="cutSaveBtn"'), 'HTML must include cut save control');
 assert(html.includes('id="readOutCommentsToggle"'), 'HTML must include Read out comments toggle');
 assert(html.includes('id="emulateAudienceToggle"'), 'HTML must include Emulate audience toggle');
-assert(cfg.audience?.chance_percent === 25, 'audience emulation must insert demo messages at 25% chance');
+assert(cfg.audience?.chance_percent === 25, 'audience emulation floor chance must be 25%');
 assert(
   Array.isArray(cfg.audience?.messages) && cfg.audience.messages.length === 4,
   'audience catalog must include the four demo messages',
@@ -95,6 +92,10 @@ assert(
 const transcoderRuntime = fs.readFileSync(path.join(root, 'dcp-transcoding.js'), 'utf8');
 assert(
   transcoderRuntime.includes('maybeEmulateAudienceComment') &&
+    transcoderRuntime.includes('audience roll miss') &&
+    transcoderRuntime.includes('audience roll hit') &&
+    transcoderRuntime.includes('audienceInsertChance') &&
+    transcoderRuntime.includes('remainingAudienceSlots') &&
     transcoderRuntime.includes('demoCommentAudioUrl') &&
     transcoderRuntime.includes('reserveDemoAudioLocale') &&
     transcoderRuntime.includes('workerPlaybackLanguage') &&

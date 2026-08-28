@@ -211,9 +211,11 @@
       }
       if (errorEl) errorEl.textContent = '';
 
+      const form = el('githubTranscodeForm');
+
       const cleanup = () => {
         el('githubDialogCancelBtn')?.removeEventListener('click', onCancel);
-        el('githubDialogRunBtn')?.removeEventListener('click', onRun);
+        form?.removeEventListener('submit', onSubmit);
         dialog.removeEventListener('cancel', onCancel);
       };
 
@@ -221,6 +223,11 @@
         cleanup();
         dialog.close();
         resolve(null);
+      };
+
+      const onSubmit = (event) => {
+        event.preventDefault();
+        onRun();
       };
 
       const onRun = () => {
@@ -257,7 +264,7 @@
       };
 
       el('githubDialogCancelBtn')?.addEventListener('click', onCancel);
-      el('githubDialogRunBtn')?.addEventListener('click', onRun);
+      form?.addEventListener('submit', onSubmit);
       dialog.addEventListener('cancel', onCancel);
       dialog.showModal();
     });

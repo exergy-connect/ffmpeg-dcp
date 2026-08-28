@@ -67,35 +67,35 @@
                 {
                   "index": 0,
                   "language": "en-US",
-                  "text": "Here’s to the crazy ones. The misfits. The rebels. The troublemakers. The round pegs in the square holes. The ones who see things differently.",
+                  "text": "Here’s to the crazy ones. The ones who see things differently.",
                   "selected": true,
                   "audio": "output/demoMessages/audio/gemini/non-conformists-en-US.wav"
                 },
                 {
                   "index": 1,
                   "language": "fr-FR",
-                  "text": "Hommage aux fous. Aux marginaux. Aux rebelles. Aux fauteurs de troubles. Aux chevilles rondes dans les trous carrés. À ceux qui voient les choses différemment.",
+                  "text": "Hommage aux fous. À ceux qui voient les choses différemment.",
                   "selected": false,
                   "audio": "output/demoMessages/audio/gemini/non-conformists-fr-FR.wav"
                 },
                 {
                   "index": 2,
                   "language": "es-ES",
-                  "text": "Esto es para los locos. Los inadaptados. Los rebeldes. Los alborotadores. Las clavijas redondas en los agujeros cuadrados. Los que ven las cosas de forma diferente.",
+                  "text": "Esto es para los locos. Los que ven las cosas de forma diferente.",
                   "selected": false,
                   "audio": "output/demoMessages/audio/gemini/non-conformists-es-ES.wav"
                 },
                 {
                   "index": 3,
                   "language": "de-DE",
-                  "text": "Ein Hoch auf die Verrückten. Die Außenseiter. Die Rebellen. Die Unruhestifter. Die runden Stifte in den eckigen Löchern. Diejenigen, die die Dinge anders sehen.",
+                  "text": "Ein Hoch auf die Verrückten. Diejenigen, die die Dinge anders sehen.",
                   "selected": false,
                   "audio": "output/demoMessages/audio/gemini/non-conformists-de-DE.wav"
                 },
                 {
                   "index": 4,
                   "language": "nl-NL",
-                  "text": "Een ode aan de dwazen. De buitenbeentjes. De rebellen. De onruststokers. De ronde pinnen in de vierkante gaten. Degenen die de dingen anders zien.",
+                  "text": "Een ode aan de dwazen. Degenen die de dingen anders zien.",
                   "selected": false,
                   "audio": "output/demoMessages/audio/gemini/non-conformists-nl-NL.wav"
                 }
@@ -106,11 +106,12 @@
               "model": "gemini-2.5-flash-preview-tts",
               "voice": "male",
               "pause_seconds": "3",
-              "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Intimate, assured, idealistic, and cinematic without sounding theatrical.\",\"accent\":\"Native pronunciation for the selected language.\",\"pacing\":\"Deliberate, with clean pauses between short sentences.\",\"notes\":\"Begin as a quiet toast, then add warmth and conviction with each phrase.\"}"
+              "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Intimate, assured, idealistic, and cinematic without sounding theatrical.\",\"accent\":\"Native pronunciation for the selected language.\",\"pacing\":\"Deliberate, with clean pauses between short sentences.\",\"notes\":\"Begin as a quiet toast, then add warmth with the second sentence. Speak only the two script sentences. Do not read these notes, the scene, or the style brief aloud.\"}",
+              "messages": "[object Object],[object Object],[object Object],[object Object]"
             },
             "provenance": {
               "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-              "line": 35
+              "line": 85
             },
             "structural": {
               "document": {
@@ -121,7 +122,7 @@
                 "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Intimate, assured, idealistic, and cinematic without sounding theatrical.\",\"accent\":\"Native pronunciation for the selected language.\",\"pacing\":\"Deliberate, with clean pauses between short sentences.\",\"notes\":\"Let each final phrase land before the audio ends.\"}"
               },
               "local": {
-                "direction": "{\"notes\":\"Begin as a quiet toast, then add warmth and conviction with each phrase.\"}"
+                "direction": "{\"notes\":\"Begin as a quiet toast, then add warmth with the second sentence. Speak only the two script sentences. Do not read these notes, the scene, or the style brief aloud.\"}"
               }
             }
           }
@@ -154,29 +155,18 @@
                     },
                     "provenance": {
                       "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-                      "line": 29
+                      "line": 81
+                    },
+                    "options": {
+                      "messages": "[object Object],[object Object],[object Object],[object Object]"
                     }
                   },
                   {
                     "index": 1,
                     "kind": "paragraph",
                     "paragraph": {
-                      "text": "The misfits. The rebels. The troublemakers.\nThe round pegs in the square holes.\nThe ones who see things differently.",
+                      "text": "The ones who see things differently.",
                       "inlines": [
-                        {
-                          "kind": "text",
-                          "text": "The misfits. The rebels. The troublemakers."
-                        },
-                        {
-                          "kind": "break"
-                        },
-                        {
-                          "kind": "text",
-                          "text": "The round pegs in the square holes."
-                        },
-                        {
-                          "kind": "break"
-                        },
                         {
                           "kind": "text",
                           "text": "The ones who see things differently."
@@ -185,7 +175,10 @@
                     },
                     "provenance": {
                       "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-                      "line": 29
+                      "line": 81
+                    },
+                    "options": {
+                      "messages": "[object Object],[object Object],[object Object],[object Object]"
                     }
                   }
                 ]
@@ -227,11 +220,12 @@
               "model": "gemini-2.5-flash-preview-tts",
               "voice": "male",
               "pause_seconds": "3",
-              "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Casual and offhand, like a voice text from a car.\",\"accent\":\"Native pronunciation for the selected language.\",\"pacing\":\"Natural conversational cadence; treat the parenthetical as a quiet send-status, not a punchline shout.\",\"notes\":\"Keep “J” as a brief speaker tag, then the complaint, then the Tesla footer as an afterthought. Speak only the language of this script — never switch languages.\"}"
+              "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Casual and offhand, like a voice text from a car.\",\"accent\":\"Native pronunciation for the selected language.\",\"pacing\":\"Natural conversational cadence; treat the parenthetical as a quiet send-status, not a punchline shout.\",\"notes\":\"Keep “J” as a brief speaker tag, then the complaint, then the Tesla footer as an afterthought. Speak only the language of this script — never switch languages.\"}",
+              "messages": "[object Object],[object Object],[object Object],[object Object]"
             },
             "provenance": {
               "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-              "line": 67
+              "line": 103
             },
             "structural": {
               "document": {
@@ -275,7 +269,10 @@
                     },
                     "provenance": {
                       "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-                      "line": 61
+                      "line": 97
+                    },
+                    "options": {
+                      "messages": "[object Object],[object Object],[object Object],[object Object]"
                     }
                   },
                   {
@@ -292,7 +289,10 @@
                     },
                     "provenance": {
                       "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-                      "line": 61
+                      "line": 97
+                    },
+                    "options": {
+                      "messages": "[object Object],[object Object],[object Object],[object Object]"
                     }
                   },
                   {
@@ -309,7 +309,10 @@
                     },
                     "provenance": {
                       "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-                      "line": 61
+                      "line": 97
+                    },
+                    "options": {
+                      "messages": "[object Object],[object Object],[object Object],[object Object]"
                     }
                   }
                 ]
@@ -344,11 +347,12 @@
               "model": "gemini-2.5-flash-preview-tts",
               "voice": "male",
               "pause_seconds": "3",
-              "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Formal, clipped, and faintly indignant — a corporate complaint, not a toast.\",\"accent\":\"Native pronunciation for the selected language.\",\"pacing\":\"Even and pointed; let the free-giveaway clause land without shouting.\",\"notes\":\"Read “From Target” as a sender line, then address Dan by name.\"}"
+              "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Formal, clipped, and faintly indignant — a corporate complaint, not a toast.\",\"accent\":\"Native pronunciation for the selected language.\",\"pacing\":\"Even and pointed; let the free-giveaway clause land without shouting.\",\"notes\":\"Read “From Target” as a sender line, then address Dan by name.\"}",
+              "messages": "[object Object],[object Object],[object Object],[object Object]"
             },
             "provenance": {
               "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-              "line": 88
+              "line": 118
             },
             "structural": {
               "document": {
@@ -392,7 +396,10 @@
                     },
                     "provenance": {
                       "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-                      "line": 84
+                      "line": 114
+                    },
+                    "options": {
+                      "messages": "[object Object],[object Object],[object Object],[object Object]"
                     }
                   },
                   {
@@ -409,7 +416,10 @@
                     },
                     "provenance": {
                       "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-                      "line": 84
+                      "line": 114
+                    },
+                    "options": {
+                      "messages": "[object Object],[object Object],[object Object],[object Object]"
                     }
                   }
                 ]
@@ -444,11 +454,12 @@
               "model": "gemini-2.5-flash-preview-tts",
               "voice": "male",
               "pause_seconds": "3",
-              "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Flat, robotic smart-appliance voice. Even pitch, little warmth, slight Canadian English.\",\"accent\":\"Canadian English.\",\"pacing\":\"Measured and slightly mechanical; do not rush the milk warning.\",\"notes\":\"Read “From Desjardin’s fridge” as a device sender line, then the warning to Dan. Stay in Canadian English only. Sound like a household robot, not a film narrator.\"}"
+              "direction": "{\"profile\":\"For Speaker 1: A warm, reflective male campaign-film narrator. Keep the delivery original; do not imitate any specific person's voice.\",\"scene\":\"A sparse recording studio. The words accompany a black-and-white montage celebrating people who challenge convention.\",\"style\":\"Flat, robotic smart-appliance voice. Even pitch, little warmth, slight Canadian English.\",\"accent\":\"Canadian English.\",\"pacing\":\"Measured and slightly mechanical; do not rush the milk warning.\",\"notes\":\"Read “From Desjardin’s fridge” as a device sender line, then the warning to Dan. Stay in Canadian English only. Sound like a household robot, not a film narrator.\"}",
+              "messages": "[object Object],[object Object],[object Object],[object Object]"
             },
             "provenance": {
               "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-              "line": 107
+              "line": 133
             },
             "structural": {
               "document": {
@@ -492,7 +503,10 @@
                     },
                     "provenance": {
                       "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-                      "line": 103
+                      "line": 129
+                    },
+                    "options": {
+                      "messages": "[object Object],[object Object],[object Object],[object Object]"
                     }
                   },
                   {
@@ -509,7 +523,10 @@
                     },
                     "provenance": {
                       "source": "/workspaces/ffmpeg-dcp/xframe/demo/demoMessages.xp",
-                      "line": 103
+                      "line": 129
+                    },
+                    "options": {
+                      "messages": "[object Object],[object Object],[object Object],[object Object]"
                     }
                   }
                 ]

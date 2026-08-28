@@ -549,7 +549,7 @@
   </dialog>
 
   <dialog id="githubDialog" class="github-dialog">
-    <div class="github-dialog-body">
+    <form class="github-dialog-body" id="githubTranscodeForm" autocomplete="off">
       <h2>Transcode via GitHub</h2>
       <p class="muted" style="margin:0">
         Uploads the current recording to <code>docs/uploads/</code>, triggers the
@@ -594,9 +594,9 @@
       <div class="cut-dialog-actions" style="margin-top:0.85rem">
         <span class="spacer"></span>
         <button type="button" id="githubDialogCancelBtn">Cancel</button>
-        <button type="button" class="primary" id="githubDialogRunBtn">Upload &amp; run</button>
+        <button type="submit" class="primary" id="githubDialogRunBtn">Upload &amp; run</button>
       </div>
-    </div>
+    </form>
   </dialog>
 
   <script id="app-config" type="application/json">
