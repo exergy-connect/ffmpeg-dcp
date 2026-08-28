@@ -312,6 +312,32 @@
     .cut-dialog-actions { display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center; }
     .cut-dialog-actions .spacer { flex: 1 1 auto; }
     .cut-error { color: #ff7b72; font-size: 0.82rem; margin: 0.35rem 0 0; min-height: 1.1em; }
+    dialog.github-dialog {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--card);
+      color: var(--text);
+      padding: 0;
+      max-width: min(520px, calc(100vw - 2rem));
+      width: 100%;
+    }
+    dialog.github-dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+    .github-dialog-body { padding: 1.1rem 1.25rem 1.25rem; }
+    .github-dialog-body h2 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+    .github-dialog-fields { display: grid; gap: 0.65rem; margin: 0.85rem 0 0.5rem; }
+    .github-dialog-fields label { display: grid; gap: 0.25rem; font-size: 0.82rem; }
+    .github-dialog-fields input {
+      width: 100%;
+      padding: 0.45rem 0.55rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0d141d;
+      color: var(--text);
+      font: inherit;
+    }
+    .github-dialog-fields input.github-token {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
   </style>
 </head>
 <body>
@@ -436,8 +462,9 @@
     <div class="row" style="margin-bottom:0.75rem">
       <label class="inline"><input type="checkbox" id="readOutCommentsToggle" checked /> Read out comments</label>
     </div>
-    <div class="row" style="align-items:flex-end">
+    <div class="row" style="align-items:flex-end;flex-wrap:wrap;gap:0.55rem">
       <button type="button" class="primary" id="runBtn" disabled>Transcode on DCP</button>
+      <button type="button" id="runGithubBtn" disabled>Transcode via GitHub</button>
       <span id="readyStateBadge" class="badge">idle</span>
       <div class="run-meta" id="runMeta">
         <div class="stat">
@@ -518,10 +545,60 @@
     </div>
   </dialog>
 
+  <dialog id="githubDialog" class="github-dialog">
+    <div class="github-dialog-body">
+      <h2>Transcode via GitHub</h2>
+      <p class="muted" style="margin:0">
+        Uploads the current recording to <code>docs/uploads/</code>, triggers the
+        self-hosted runner workflow, and dispatches one DCP slice that runs the
+        browser <code>dcpGhRunner</code> package (JIT register → transcode → LinkedIn).
+        Requires a token with <code>repo</code> and <code>workflow</code> scopes.
+      </p>
+      <div class="github-dialog-fields">
+        <label>GitHub personal access token
+          <input type="password" id="githubTokenInput" class="github-token" autocomplete="off" spellcheck="false" placeholder="ghp_…" />
+        </label>
+        <label>Repository owner
+          <input type="text" id="githubOwnerInput" autocomplete="off" spellcheck="false" />
+        </label>
+        <label>Repository name
+          <input type="text" id="githubRepoInput" autocomplete="off" spellcheck="false" />
+        </label>
+      </div>
+      <details class="github-dialog-fields" style="margin-top:0.65rem">
+        <summary class="muted" style="cursor:pointer;font-size:0.88rem">LinkedIn (optional — direct API)</summary>
+        <p class="muted" style="margin:0.45rem 0 0.55rem;font-size:0.82rem">
+          When both token and author URN are set, the worker posts via LinkedIn REST.
+          Otherwise it commits the MP4 + metadata JSON and triggers
+          <code>post-to-linkedin.yml</code>.
+        </p>
+        <label>LinkedIn access token
+          <input type="password" id="linkedinTokenInput" class="github-token" autocomplete="off" spellcheck="false" placeholder="AQV…" />
+        </label>
+        <label>LinkedIn author URN
+          <input type="text" id="linkedinAuthorUrnInput" autocomplete="off" spellcheck="false" placeholder="urn:li:person:…" />
+        </label>
+        <label>Post caption (≤1200 chars)
+          <textarea id="linkedinPostTextInput" rows="3" spellcheck="true" placeholder="Optional caption for the LinkedIn post"></textarea>
+        </label>
+      </details>
+      <p class="muted" style="margin:0.55rem 0 0;font-size:0.82rem">
+        Token is cached in this browser only (localStorage).
+      </p>
+      <p id="githubDialogError" class="cut-error"></p>
+      <div class="cut-dialog-actions" style="margin-top:0.85rem">
+        <span class="spacer"></span>
+        <button type="button" id="githubDialogCancelBtn">Cancel</button>
+        <button type="button" class="primary" id="githubDialogRunBtn">Upload &amp; run</button>
+      </div>
+    </div>
+  </dialog>
+
   <script id="app-config" type="application/json">
 {{ app | _resolve(unwrap=true) | to_json }}
   </script>
   <script src="./dcp-bank-account.js"></script>
+  <script src="./github-transcode-client.js"></script>
   <script src="./dcp-transcoding.js"></script>
 </body>
 </html>

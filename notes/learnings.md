@@ -30,3 +30,19 @@ path is always `name/file.js`.
 
 When fleet workers must load a new WASM (e.g. `extract_time_range`), publish
 under a **new name** (e.g. `ffmpeg-dcp-social-v2`) and update `app.dcp_package`.
+
+## 9. dcpGhRunner browser GitHub runner (CORS)
+
+**Recorded:** 27 August 2026
+
+| Endpoint | Browser from GitHub Pages | DCP worker sandbox | Notes |
+| --- | --- | --- | --- |
+| `api.github.com` | Works with `Authorization` | Works | Already used for Contents API + workflow dispatch |
+| Actions broker (`*.actions.githubusercontent.com` or regional host from JIT config) | Often **blocked by CORS** | Unknown — may behave like browser or like server | JIT listener uses long-poll `GET /message` |
+| Run-service acquire/complete URLs | Same as broker | Same | Returned in job reference body |
+| `api.linkedin.com/rest` | Often **blocked** for POST | Unknown | Direct LinkedIn path may fail from Pages |
+| LinkedIn multipart `uploadUrl` (Azure/blob) | Usually **works** (PUT, no api.linkedin.com) | Works | Part bytes uploaded to pre-signed URL |
+
+**Mitigation:** `dcp-gh-runner` implements both LinkedIn paths — direct API when token+URN provided, else GitHub commit of MP4 + `xframe/posts/linkedin/*.json` + `post-to-linkedin.yml` dispatch (no LinkedIn token in worker).
+
+Require path: `dcp-gh-runner/dcpGhRunner.js` (same rule as §8.3 — no `@version` in the path). **No `deployPackage` step needed** for this bundle: `job.requires(['dcp-gh-runner/dcpGhRunner.js'])` attaches the package to the slice. Use `scripts/publish.js` only for optional global registration. The ~8 MB ffmpeg WASM package may still be published once under `ffmpeg-dcp-social-v2` if workers should reuse it across jobs without re-attaching.

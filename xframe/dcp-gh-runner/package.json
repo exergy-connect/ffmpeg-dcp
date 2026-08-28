@@ -1,0 +1,17 @@
+{
+  "name": "@xframe/dcp-gh-runner",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Browser DCP package: GitHub JIT runner + transcode + LinkedIn",
+  "type": "module",
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "scripts": {
+    "build": "node scripts/build-dcp-bundle.js",
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.9"
+  }
+}

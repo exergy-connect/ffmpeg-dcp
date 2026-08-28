@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-28T00:00:04.046Z",
-    "modifiedAt": "2026-08-28T00:00:04.046Z",
+    "createdAt": "2026-08-28T01:55:08.735Z",
+    "modifiedAt": "2026-08-28T01:55:08.735Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp",
-      "hash": "sha256:d19300989c6398e0a5c5e089ae627cd7809f349b605cc06b2e2ef63960d3e0a6",
+      "hash": "sha256:e877884a531447607c4a2eced216df647597873c82be4bd01a4a2207fdda7770",
       "createdAt": "2026-08-24T19:23:37.516Z",
-      "modifiedAt": "2026-08-27T21:20:34.860Z"
+      "modifiedAt": "2026-08-28T01:55:05.794Z"
     }
   ],
   "_concepts": {
@@ -199,6 +199,20 @@
         "notes": "_string"
       }
     },
+    "github_transcode_policy": {
+      "_attributes": {
+        "owner": "_string",
+        "repo": "_string",
+        "branch": "_string",
+        "upload_prefix": "_string",
+        "workflow_file": "_string",
+        "runner_bundle_url": "_string",
+        "dcp_package": "_string",
+        "token_storage_key": "_string",
+        "max_upload_bytes": "_integer",
+        "notes": "_string"
+      }
+    },
     "browser_worker_invite": {
       "_attributes": {
         "url": {
@@ -243,6 +257,7 @@
         "input": "browser_recording_input",
         "dispatch": "dcp_dispatch_policy",
         "bank": "dcp_bank_query",
+        "github": "github_transcode_policy",
         "pipeline": {
           "_dict": "pipeline_stage"
         },
@@ -412,6 +427,19 @@
         "balance_field": "payload.balance",
         "unit": "⊇",
         "notes": "Identity must be set before opening the teller connection (EHAVEIDENTITY is non-fatal). The queried account key may also be the identity. Request viewAccount with { address }, authorize with that account's PrivateKey or Keystore, then read payload.balance.\n"
+      },
+      "github": {
+        "_concept": "github_transcode_policy",
+        "owner": "exergy-connect",
+        "repo": "ffmpeg-dcp",
+        "branch": "main",
+        "upload_prefix": "docs/uploads",
+        "workflow_file": "self-hosted-runner-test.yml",
+        "runner_bundle_url": "https://raw.githubusercontent.com/exergy-connect/ffmpeg-dcp/main/xframe/github/dist/github-runner.min.js",
+        "dcp_package": "dcp-gh-runner/dcpGhRunner.js",
+        "token_storage_key": "xframe-social:githubToken",
+        "max_upload_bytes": 95000000,
+        "notes": "Browser uploads via GitHub Contents API, dispatches the self-hosted runner test workflow, then pays for one DCP slice whose work function lists dcp-gh-runner/dcpGhRunner.js and ffmpeg-dcp-social-v2/ffmpeg-wasm.js in job.requires (packages ship with the job). The slice JIT-registers as a GitHub Actions runner, transcodes to li_feed MP4, then publishes via LinkedIn REST (when token + URN provided) or GitHub commit + post-to-linkedin workflow.\n"
       },
       "pipeline": {
         "probe": {
@@ -624,7 +652,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 501,
+                    "line": 534,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -659,7 +687,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 508,
+                    "line": 541,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -702,7 +730,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 521,
+                    "line": 554,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -737,7 +765,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 528,
+                    "line": 561,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -780,7 +808,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 541,
+                    "line": 574,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -815,7 +843,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 548,
+                    "line": 581,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -858,7 +886,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 561,
+                    "line": 594,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -893,7 +921,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 568,
+                    "line": 601,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -941,7 +969,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 585,
+                    "line": 618,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -976,7 +1004,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 592,
+                    "line": 625,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1023,7 +1051,7 @@
             "_resolved": {
               "_provenance": {
                 "source": 0,
-                "line": 598,
+                "line": 631,
                 "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
               }
             }

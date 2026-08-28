@@ -5,10 +5,11 @@ on:
     paths:
       - xframe/uploads/*.mp4
       - xframe/uploads/**/*.mp4
+      - docs/uploads/**
   workflow_dispatch:
     inputs:
       video_path:
-        description: Relative path under xframe/uploads/ (optional for manual runs)
+        description: Relative path under xframe/uploads/ or docs/uploads/ (optional for manual runs)
         required: false
         default: ""
 
@@ -36,15 +37,21 @@ jobs:
             printf '%s' "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${ref_name}/${rel}"
           }
 
+          pick_video() {
+            find xframe/uploads docs/uploads -type f \
+              \( -name '*.mp4' -o -name '*.webm' -o -name '*.mkv' -o -name '*.mov' \) 2>/dev/null \
+              | head -n 1
+          }
+
           pick_from_push() {
             local before="${{ github.event.before }}"
             local after="${{ github.sha }}"
             if [ "$before" = "0000000000000000000000000000000000000000" ]; then
-              find xframe/uploads -type f -name '*.mp4' | head -n 1
+              pick_video
               return
             fi
-            git diff --name-only "$before" "$after" -- xframe/uploads \
-              | grep -E '\.mp4$' \
+            git diff --name-only "$before" "$after" -- xframe/uploads docs/uploads \
+              | grep -E '\.(mp4|webm|mkv|mov)$' \
               | head -n 1
           }
 
@@ -54,14 +61,14 @@ jobs:
             if [ -n "$INPUT_PATH" ]; then
               REL="$INPUT_PATH"
             else
-              REL="$(find xframe/uploads -type f -name '*.mp4' 2>/dev/null | head -n 1 || true)"
+              REL="$(pick_video || true)"
             fi
           else
             REL="$(pick_from_push || true)"
           fi
 
           if [ -z "$REL" ]; then
-            echo "No .mp4 found under xframe/uploads/ for this run." >&2
+            echo "No video found under xframe/uploads/ or docs/uploads/ for this run." >&2
             exit 1
           fi
 

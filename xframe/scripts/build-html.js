@@ -56,7 +56,7 @@ html = html.replace(
   } catch { /* not a git checkout */ }
   const bust = encodeURIComponent(rev);
   html = html.replace(
-    /(<script\s+src="\.\/(?:dcp-bank-account|dcp-transcoding|worker)\.js)(?:\?[^"]*)?(")/g,
+    /(<script\s+src="\.\/(?:dcp-bank-account|dcp-transcoding|github-transcode-client|worker)\.js)(?:\?[^"]*)?(")/g,
     `$1?v=${bust}$2`,
   );
 }
@@ -87,6 +87,7 @@ if (basename === 'worker') {
 
 const runtimeScript = app.runtime_script || 'dcp-transcoding.js';
 stageAsset(path.join(root, runtimeScript), runtimeScript);
+stageAsset(path.join(root, 'github-transcode-client.js'), 'github-transcode-client.js');
 stageAsset(path.join(root, app.bank_script || 'dcp-bank-account.js'), app.bank_script || 'dcp-bank-account.js');
 stageAsset(path.join(root, app.worker_script || 'ffmpeg-worker.js'), app.worker_script || 'ffmpeg-worker.js');
 stageAsset(path.join(root, app.deploy_worker_script || 'dcp-deploy-worker.js'), app.deploy_worker_script || 'dcp-deploy-worker.js');

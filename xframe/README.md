@@ -16,6 +16,9 @@ Accepts a browser `MediaRecorder` WebM (VP8/VP9 + Opus), lets the user pick any 
 | [`worker.js`](worker.js) | Browser worker runtime |
 | [`ffmpeg-worker.js`](ffmpeg-worker.js) | Local WASM: `slice_webm`, `remux_to_mp4` |
 | [`dcp-deploy-worker.js`](dcp-deploy-worker.js) | Base64 input-set prep |
+| [`github-transcode-client.js`](github-transcode-client.js) | GitHub upload + workflow dispatch for **Transcode via GitHub** |
+| [`dcp-gh-runner/`](dcp-gh-runner/) | Browser DCP package: JIT GitHub runner + transcode + LinkedIn |
+| [`github/`](github/) | JIT GitHub Actions self-hosted runner (Node CLI for local dev / CI) |
 | [`src/dcp-transcode.c`](src/dcp-transcode.c) | Forked work-function + social APIs |
 | [`build.sh`](build.sh) | WASM build with VP8/VP9/Opus |
 | [`package/`](package/) | Distinct DCP package `ffmpeg-dcp-social-v2` |
@@ -108,6 +111,39 @@ the browser. Boundary pieces set `needsTrim` so fleet workers call
 once. Fleet WASM must export `extract_time_range` — rebuild with
 `bash ffmpeg-wasm/build.sh` and republish under a **new** package name (see
 `package/package.dcp`) after changing `src/dcp-transcode.c`.
+
+## Transcode via GitHub
+
+The **Transcode via GitHub** button (next to **Transcode on DCP**) opens a dialog
+for a GitHub personal access token (cached in `localStorage`). Optional LinkedIn
+token, author URN, and caption enable direct REST posting; otherwise the worker
+falls back to committing MP4 + metadata and dispatching `post-to-linkedin.yml`.
+
+1. Uploads the current recording to `docs/uploads/` via the GitHub Contents API.
+2. Dispatches [Self-hosted runner test](../.github/workflows/self-hosted-runner-test.yml) with the uploaded path.
+3. Pays for one DCP slice whose work function lists
+   [`dcp-gh-runner/dcpGhRunner.js`](dcp-gh-runner/dcpGhRunner.js) and
+   `ffmpeg-dcp-social-v2/ffmpeg-wasm.js` in **`job.requires`** (packages ship with
+   the job — no separate publish step for dcp-gh-runner). The slice JIT-registers as
+   a GitHub Actions runner on a **browser WASM worker**, downloads `VIDEO_URL`,
+   transcodes to LinkedIn feed MP4 (`li_feed`), then publishes.
+
+Rebuild the bundle after source changes:
+
+```bash
+cd xframe/dcp-gh-runner
+npm install
+npm run build          # writes dist/dcpGhRunner.js + dcpGhRunner.js
+```
+
+Optional: `node scripts/publish.js --apiKey=0x…` only if you want a globally
+registered copy under the package manager name; **`job.requires` is sufficient**
+for the transcoder path.
+
+Token needs `repo` and `workflow` scopes. Uploads are capped at ~95 MB (GitHub Contents API limit).
+
+The Node CLI in [`github/`](github/) remains for local dev and CI; the browser path
+uses the esbuild bundle under [`dcp-gh-runner/`](dcp-gh-runner/).
 
 ## Parallelism
 

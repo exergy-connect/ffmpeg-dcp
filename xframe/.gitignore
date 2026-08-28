@@ -14,3 +14,5 @@ package-lock.json
 !test/package.json
 !github/package.json
 !github/package-lock.json
+!dcp-gh-runner/package.json
+!dcp-gh-runner/package-lock.json

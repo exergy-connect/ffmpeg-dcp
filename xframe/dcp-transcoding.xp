@@ -133,6 +133,19 @@ dcp_bank_query:
     unit: _string
     notes: _string
 
+github_transcode_policy:
+  _attributes:
+    owner: _string
+    repo: _string
+    branch: _string
+    upload_prefix: _string
+    workflow_file: _string
+    runner_bundle_url: _string
+    dcp_package: _string
+    token_storage_key: _string
+    max_upload_bytes: _integer
+    notes: _string
+
 # Public browser-worker landing page encoded by the account QR code.
 browser_worker_invite:
   _attributes:
@@ -162,6 +175,7 @@ dcp_transcoding_app:
     input: { _concept: browser_recording_input }
     dispatch: { _concept: dcp_dispatch_policy }
     bank: { _concept: dcp_bank_query }
+    github: { _concept: github_transcode_policy }
     pipeline: { _dict: pipeline_stage }
     formats: { _dict: video_format_specification }
     platforms: { _dict: social_media_platform }
@@ -313,6 +327,25 @@ app:
       viewAccount with { address }, authorize with that account's PrivateKey or
       Keystore, then read payload.balance.
 
+  github:
+    _concept: github_transcode_policy
+    owner: exergy-connect
+    repo: ffmpeg-dcp
+    branch: main
+    upload_prefix: docs/uploads
+    workflow_file: self-hosted-runner-test.yml
+    runner_bundle_url: https://raw.githubusercontent.com/exergy-connect/ffmpeg-dcp/main/xframe/github/dist/github-runner.min.js
+    dcp_package: dcp-gh-runner/dcpGhRunner.js
+    token_storage_key: xframe-social:githubToken
+    max_upload_bytes: 95000000
+    notes: >
+      Browser uploads via GitHub Contents API, dispatches the self-hosted runner
+      test workflow, then pays for one DCP slice whose work function lists
+      dcp-gh-runner/dcpGhRunner.js and ffmpeg-dcp-social-v2/ffmpeg-wasm.js in
+      job.requires (packages ship with the job). The slice JIT-registers as a
+      GitHub Actions runner, transcodes to li_feed MP4, then publishes via
+      LinkedIn REST (when token + URN provided) or GitHub commit +
+      post-to-linkedin workflow.
 
   pipeline:
     probe:

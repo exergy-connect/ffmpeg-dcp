@@ -228,6 +228,11 @@ function showRunError(error) {
     remedy = 'Drop a MediaRecorder .webm (VP8/VP9) or an .mp4 (VP9 or H.264). Hard-refresh if a stale worker is still slicing MP4 into MPEG-TS.';
   } else if (/vp8|vp9|opus|decoder|wasm/i.test(message)) {
     remedy = 'Rebuild the xframe WASM package (see xframe/README.md) and publish the package named in package/package.dcp.';
+  } else if (/GitHub API|GitHub runner|JIT listener|workflow|dcpGhRunner|dcp-gh-runner/i.test(message)) {
+    remedy =
+      'Check the GitHub token (repo + workflow scopes) and repository access. ' +
+      'The slice lists dcp-gh-runner/dcpGhRunner.js via job.requires (no separate publish step). ' +
+      'Workers also need ffmpeg-dcp-social-v2/ffmpeg-wasm.js from job.requires.';
   }
   el('runErrorMessage').textContent = message;
   el('runErrorRemedy').textContent = remedy;
@@ -554,6 +559,8 @@ function updateSelectionSummary() {
   el('statUnique').textContent = String(unique.length);
   el('statAliases').textContent = String(selected.length);
   el('runBtn').disabled = !inputBytes || selected.length === 0;
+  const runGithubBtn = el('runGithubBtn');
+  if (runGithubBtn) runGithubBtn.disabled = !inputBytes || runInProgress;
   clearExactCostBasis();
   updateCostEstimate();
 }
@@ -2924,6 +2931,167 @@ function attachDirectorsCutProgram(source, sourceDurationSec) {
   return source;
 }
 
+async function dispatchGithubRunnerJob({
+  owner,
+  repo,
+  token,
+  videoPath,
+  branch,
+  inputBaseName,
+  linkedinAccessToken,
+  linkedinAuthorUrn,
+  linkedinPostText,
+}) {
+  const githubClient = window.xframeGithubTranscode;
+  if (!githubClient) {
+    throw new Error('GitHub transcode client is not loaded.');
+  }
+
+  const { compute, wallet } = window.dcp;
+  const gh = githubClient.githubConfig(CONFIG);
+  const dcpGhRunnerPackage = gh.dcp_package || 'dcp-gh-runner/dcpGhRunner.js';
+  const ffmpegPackage = CONFIG.dcp_package || 'ffmpeg-dcp-social-v2/ffmpeg-wasm.js';
+
+  dbg('dispatchGithubRunnerJob start', {
+    owner,
+    repo,
+    videoPath,
+    branch,
+    dcpGhRunnerPackage,
+    ffmpegPackage,
+  });
+  await ensureIdentity();
+  const pay = await wallet.get();
+  await wallet.add(pay);
+  await fetchAccountBalance(pay);
+
+  const unit = {
+    githubToken: token,
+    githubOwner: owner,
+    githubRepo: repo,
+    token,
+    owner,
+    repo,
+    videoPath,
+    branch: branch || gh.branch || 'main',
+    linkedinAccessToken: linkedinAccessToken || '',
+    linkedinAuthorUrn: linkedinAuthorUrn || '',
+    linkedinPostText: linkedinPostText || '',
+    uploadPrefix: gh.upload_prefix || 'docs/uploads',
+    postMetadataPrefix: 'xframe/posts/linkedin',
+  };
+
+  async function githubRunnerWork(unitArg) {
+    const slice = typeof unitArg === 'string' ? JSON.parse(unitArg) : unitArg;
+    const wlog = (...args) => {
+      try { console.log('[dcpGhRunner]', ...args); } catch (_) { /* ignore */ }
+    };
+
+    progress(0);
+    wlog('starting browser JIT listener', {
+      owner: slice.githubOwner || slice.owner,
+      repo: slice.githubRepo || slice.repo,
+      videoPath: slice.videoPath,
+      branch: slice.branch,
+      linkedInDirect: !!(slice.linkedinAccessToken && slice.linkedinAuthorUrn),
+    });
+
+    const { runPipeline } = require('dcp-gh-runner/dcpGhRunner.js');
+    const { createFfmpegModule } = require('ffmpeg-dcp-social-v2/ffmpeg-wasm.js');
+
+    return runPipeline({
+      github: {
+        token: slice.githubToken || slice.token,
+        owner: slice.githubOwner || slice.owner,
+        repo: slice.githubRepo || slice.repo,
+        branch: slice.branch,
+      },
+      linkedin: {
+        accessToken: slice.linkedinAccessToken,
+        authorUrn: slice.linkedinAuthorUrn,
+        postText: slice.linkedinPostText,
+      },
+      githubPublish: {
+        branch: slice.branch,
+        uploadPrefix: slice.uploadPrefix,
+        postMetadataPrefix: slice.postMetadataPrefix,
+      },
+      transcode: { format: 'li_feed' },
+      createFfmpegModule,
+      progress,
+      log: wlog,
+    });
+  }
+
+  const job = compute.for([unit], githubRunnerWork, []);
+  job.requires([dcpGhRunnerPackage, ffmpegPackage]);
+  job.computeGroups = getComputeGroups();
+  job.public = {
+    name: `GitHub runner: ${inputBaseName || videoPath}`,
+    description: `JIT self-hosted runner for ${videoPath}`,
+  };
+  job.greedyEstimation = true;
+  job.estimationSlices = 1;
+
+  attachJobDebug(job);
+
+  let lastStatus = null;
+  job.on('accepted', () => {
+    log(
+      `GitHub runner job accepted id=${job.id || '(unknown)'} — waiting for a browser WASM worker.`,
+    );
+  });
+  job.on('status', (ev) => {
+    const s = (ev && typeof ev === 'object' && ('distributed' in ev || 'computed' in ev))
+      ? ev
+      : (job.status || ev || {});
+    lastStatus = s;
+    const statusEl = el('preprocessingStatus');
+    if (statusEl) {
+      statusEl.textContent =
+        `GitHub runner ${s.runStatus || el('readyStateBadge')?.textContent || '?'} · ` +
+        `distributed ${s.distributed ?? '?'}/1 · computed ${s.computed ?? 0}`;
+    }
+  });
+  job.on('nofunds', (ev) => {
+    showNofunds(ev);
+    showRunError(new Error(
+      `Insufficient DCP funds: need ${ev?.fundsRequired ?? '?'} ${CREDIT_SYMBOL} ` +
+      `for ${ev?.remainingSlices ?? '?'} remaining slice(s).`,
+    ));
+  });
+  job.on('result', (ev) => {
+    log(`GitHub runner slice finished: ${safeJson(ev?.result ?? ev)}`);
+  });
+
+  const groupsLabel = (job.computeGroups || []).map((g) => g.joinKey || g).join(', ') || '(default)';
+  log(`Dispatching GitHub runner slice for ${videoPath} → groups: ${groupsLabel}`);
+  updateCostEstimate(1);
+
+  const t0 = performance.now();
+  const heartbeat = setInterval(() => {
+    const sec = ((performance.now() - t0) / 1000).toFixed(1);
+    const st = lastStatus || job.status || {};
+    const statusEl = el('preprocessingStatus');
+    if (statusEl) {
+      statusEl.textContent =
+        `GitHub runner ${st.runStatus || el('readyStateBadge')?.textContent || '?'} · ${sec}s · ` +
+        `dist ${st.distributed ?? 0}/1 · computed ${st.computed ?? 0}`;
+    }
+  }, 5000);
+
+  try {
+    await job.exec(slicePaymentDcc);
+  } finally {
+    clearInterval(heartbeat);
+  }
+
+  const elapsedSec = (performance.now() - t0) / 1000;
+  el('fleetTime').textContent = `${elapsedSec.toFixed(1)}s`;
+  log(`GitHub runner job finished in ${elapsedSec.toFixed(1)}s`);
+  return job;
+}
+
 el('runBtn').addEventListener('click', async () => {
   if (runInProgress) return;
   if (!hasValidApiKey()) {
@@ -2937,6 +3105,7 @@ el('runBtn').addEventListener('click', async () => {
   hideRunError();
   hideNofunds();
   el('runBtn').disabled = true;
+  if (el('runGithubBtn')) el('runGithubBtn').disabled = true;
   el('outputsSection').classList.add('hidden');
   el('outputPreview')?.pause();
   el('outputPreviewPanel')?.classList.add('hidden');
@@ -3004,6 +3173,76 @@ el('runBtn').addEventListener('click', async () => {
     log(`Produced ${lastOutputs.length} MP4 deliverable(s).`);
   } catch (err) {
     log(`Run failed: ${err.message || err}`);
+    showRunError(err);
+  } finally {
+    runInProgress = false;
+    updateSelectionSummary();
+  }
+});
+
+el('runGithubBtn')?.addEventListener('click', async () => {
+  if (runInProgress || !inputBytes) return;
+  const githubClient = window.xframeGithubTranscode;
+  if (!githubClient) {
+    showRunError(new Error('GitHub transcode client failed to load.'));
+    return;
+  }
+
+  const creds = await githubClient.openGithubTranscodeDialog(CONFIG, el);
+  if (!creds) return;
+
+  if (!hasValidApiKey()) {
+    showRunError(new Error('Enter a valid DCP identity API key first.'));
+    return;
+  }
+
+  runInProgress = true;
+  hideRunError();
+  hideNofunds();
+  el('runBtn').disabled = true;
+  el('runGithubBtn').disabled = true;
+  el('preprocessingStatus').classList.remove('hidden');
+  el('preprocessingStatus').textContent = 'Uploading video to GitHub…';
+
+  try {
+    const videoPath = await githubClient.uploadVideoToGithub({
+      config: CONFIG,
+      token: creds.token,
+      owner: creds.owner,
+      repo: creds.repo,
+      branch: creds.branch,
+      bytes: inputBytes,
+      baseName: inputBaseName,
+    });
+    log(`Uploaded ${videoPath} to ${creds.owner}/${creds.repo}`);
+
+    el('preprocessingStatus').textContent = 'Triggering GitHub Actions workflow…';
+    await githubClient.dispatchGithubWorkflow({
+      config: CONFIG,
+      token: creds.token,
+      owner: creds.owner,
+      repo: creds.repo,
+      branch: creds.branch,
+      videoPath,
+    });
+    log(`Workflow dispatched for ${videoPath}`);
+
+    el('preprocessingStatus').textContent = 'Dispatching DCP GitHub runner slice…';
+    await dispatchGithubRunnerJob({
+      owner: creds.owner,
+      repo: creds.repo,
+      token: creds.token,
+      videoPath,
+      branch: creds.branch,
+      inputBaseName,
+      linkedinAccessToken: creds.linkedinAccessToken,
+      linkedinAuthorUrn: creds.linkedinAuthorUrn,
+      linkedinPostText: creds.linkedinPostText,
+    });
+    el('preprocessingStatus').textContent =
+      `GitHub path complete — uploaded ${videoPath} and finished runner slice.`;
+  } catch (err) {
+    log(`GitHub transcode failed: ${err.message || err}`);
     showRunError(err);
   } finally {
     runInProgress = false;
