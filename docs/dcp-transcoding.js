@@ -2052,6 +2052,14 @@ function setupGrid(units, formatsMeta) {
   }
 }
 
+function setSliceTitle(cell, text, { force = false } = {}) {
+  if (!cell || cell.title === text) return;
+  // Native tooltips restart whenever `title` changes; leave the label alone
+  // while the pointer is on the cell so progress ticks cannot flicker it.
+  if (!force && cell.matches(':hover')) return;
+  cell.title = text;
+}
+
 function updateSliceProgress(sliceNumber, rawProgress) {
   const index = Number(sliceNumber) - 1; // DCP slice numbers are one-based.
   const cell = gridCells[index];
@@ -2063,7 +2071,7 @@ function updateSliceProgress(sliceNumber, rawProgress) {
     : '';
   if (!Number.isFinite(n)) {
     cell.classList.add('indeterminate');
-    cell.title = `${cell.dataset.baseTitle}${commentLine}\ntranscoding…`;
+    setSliceTitle(cell, `${cell.dataset.baseTitle}${commentLine}\ntranscoding…`);
     return;
   }
   cell.classList.remove('indeterminate');
@@ -2072,7 +2080,7 @@ function updateSliceProgress(sliceNumber, rawProgress) {
   cell.style.setProperty('--slice-progress', `${percent}%`);
   cell.dataset.sliceProgress = String(percent);
   cell.setAttribute('aria-valuenow', String(percent));
-  cell.title = `${cell.dataset.baseTitle}${commentLine}\n${percent}% transcoded`;
+  setSliceTitle(cell, `${cell.dataset.baseTitle}${commentLine}\n${percent}% transcoded`);
 }
 
 function formatComputeSeconds(sec) {
@@ -2171,14 +2179,19 @@ function applyWorkerCommentToCell(cell, workerComment) {
     callout = document.createElement('div');
     callout.className = 'slice-callout';
     callout.setAttribute('aria-hidden', 'true');
+    callout.addEventListener('animationend', () => {
+      callout.classList.add('is-settled');
+    }, { once: true });
     cell.appendChild(callout);
   }
-  callout.textContent = presented.display;
+  if (callout.textContent !== presented.display) {
+    callout.textContent = presented.display;
+  }
   const commentLine = `\nworker: ${presented.display}`;
   const state = cell.classList.contains('done')
     ? 'complete'
     : (cell.classList.contains('indeterminate') ? 'transcoding…' : `${now}%`);
-  cell.title = `${cell.dataset.baseTitle}${commentLine}\n${state}`;
+  setSliceTitle(cell, `${cell.dataset.baseTitle}${commentLine}\n${state}`);
   cell.setAttribute(
     'aria-label',
     `${cell.dataset.baseTitle}; play worker comment ${presented.display}; ${state}`,
@@ -2775,7 +2788,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
       const computeLine = computeSummary?.detail
         ? `\ncompute ${computeSummary.detail.replace(/\n/g, '; ')}`
         : '';
-      cell.title = `${cell.dataset.baseTitle}${commentLine}${computeLine}\ncomplete`;
+      setSliceTitle(cell, `${cell.dataset.baseTitle}${commentLine}${computeLine}\ncomplete`, { force: true });
       if (computeSummary?.label) {
         cell.setAttribute(
           'aria-label',
