@@ -22,37 +22,73 @@ narrative:
     accent: Native pronunciation for the selected language.
     pacing: Deliberate, with clean pauses between short sentences.
     notes: Let each final phrase land before the audio ends.
+
+# Audience catalog included by dcp-transcoding.xp (app.audience.messages → messages).
+# Slide order must match messages[0]… — @narrative entries reference these quotes.
+messages:
+  - _concept: demo_message
+    id: non-conformists
+    title: The Non-Conformists
+    quotes:
+      - language: en-US
+        text: >-
+          Here’s to the crazy ones. The ones who see things differently.
+      - language: fr-FR
+        text: >-
+          Hommage aux fous. À ceux qui voient les choses différemment.
+      - language: es-ES
+        text: >-
+          Esto es para los locos. Los que ven las cosas de forma diferente.
+      - language: de-DE
+        text: >-
+          Ein Hoch auf die Verrückten. Diejenigen, die die Dinge anders sehen.
+      - language: nl-NL
+        text: >-
+          Een ode aan de dwazen. Degenen die de dingen anders zien.
+  - _concept: demo_message
+    id: dcp-boring
+    title: DCP is boring
+    quotes:
+      - language: en-US
+        text: >-
+          J: I think DCP is kind of boring.
+          Sent handsfree from my second Tesla.
+      - language: fr-CA
+        text: >-
+          J : Je trouve que le DCP est un peu plate.
+          Envoyé mains libres depuis ma deuxième Tesla.
+  - _concept: demo_message
+    id: from-target
+    title: From Target
+    quotes:
+      - language: en-CA
+        text: >-
+          From Target: Dan, you owe us 100 compute credits, not to mention the
+          compounding damage caused by implying to our customers that we would be
+          giving away anything for free!
+  - _concept: demo_message
+    id: desjardins-fridge
+    title: From Desjardin’s fridge
+    quotes:
+      - language: en-CA
+        text: >-
+          From Desjardin’s fridge. Dan, your son is running out of milk.
+          Be sure to bring some when you’re done. Concentrated, not distributed this time - please
 ---
 @id non-conformists
 @layout cover
 
 # Here’s to the crazy ones.
 
-The misfits. The rebels. The troublemakers.  
-The round pegs in the square holes.  
 The ones who see things differently.
 
 @narrative
   direction:
-    notes: Begin as a quiet toast, then add warmth and conviction with each phrase.
-  entries:
-    - en-US: >-
-        Here’s to the crazy ones. The misfits. The rebels. The troublemakers.
-        The round pegs in the square holes. The ones who see things differently.
-    - fr-FR: >-
-        Hommage aux fous. Aux marginaux. Aux rebelles. Aux fauteurs de troubles.
-        Aux chevilles rondes dans les trous carrés. À ceux qui voient les choses
-        différemment.
-    - es-ES: >-
-        Esto es para los locos. Los inadaptados. Los rebeldes. Los alborotadores.
-        Las clavijas redondas en los agujeros cuadrados. Los que ven las cosas de
-        forma diferente.
-    - de-DE: >-
-        Ein Hoch auf die Verrückten. Die Außenseiter. Die Rebellen. Die Unruhestifter.
-        Die runden Stifte in den eckigen Löchern. Diejenigen, die die Dinge anders sehen.
-    - nl-NL: >-
-        Een ode aan de dwazen. De buitenbeentjes. De rebellen. De onruststokers.
-        De ronde pinnen in de vierkante gaten. Degenen die de dingen anders zien.
+    notes: >-
+      Begin as a quiet toast, then add warmth with the second sentence.
+      Speak only the two script sentences. Do not read these notes, the scene,
+      or the style brief aloud.
+  entries: '{{ messages[0].quotes }}'
 
 ---
 @id dcp-boring
@@ -69,13 +105,7 @@ I think DCP is kind of boring.
     style: Casual and offhand, like a voice text from a car.
     pacing: Natural conversational cadence; treat the parenthetical as a quiet send-status, not a punchline shout.
     notes: Keep “J” as a brief speaker tag, then the complaint, then the Tesla footer as an afterthought. Speak only the language of this script — never switch languages.
-  entries:
-    - en-US: >-
-        J: I think DCP is kind of boring.
-        Sent handsfree from my second Tesla.
-    - fr-CA: >-
-        J : Je trouve que le DCP est un peu plate.
-        Envoyé mains libres depuis ma deuxième Tesla.
+  entries: '{{ messages[1].quotes }}'
 
 ---
 @id from-target
@@ -90,11 +120,7 @@ Dan, you owe us 100 compute credits, not to mention the compounding damage cause
     style: Formal, clipped, and faintly indignant — a corporate complaint, not a toast.
     pacing: Even and pointed; let the free-giveaway clause land without shouting.
     notes: Read “From Target” as a sender line, then address Dan by name.
-  entries:
-    - en-CA: >-
-        From Target: Dan, you owe us 100 compute credits, not to mention the
-        compounding damage caused by implying to our customers that we would be
-        giving away anything for free!
+  entries: '{{ messages[2].quotes }}'
 
 ---
 @id desjardins-fridge
@@ -112,8 +138,4 @@ Dan, your son is running out of milk! Be sure to bring some when you’re done.
     notes: >-
       Read “From Desjardin’s fridge” as a device sender line, then the warning to Dan.
       Stay in Canadian English only. Sound like a household robot, not a film narrator.
-  entries:
-    - en-CA: >-
-        From Desjardin’s fridge. Dan, your son is running out of milk.
-        Be sure to bring some when you’re done. Concentrated, not distributed this time - please
-
+  entries: '{{ messages[3].quotes }}'
