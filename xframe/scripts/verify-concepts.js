@@ -67,7 +67,7 @@ assert(html.includes('id="cutSliceList"'), 'HTML must include cut slice list');
 assert(html.includes('id="cutSaveBtn"'), 'HTML must include cut save control');
 assert(html.includes('id="readOutCommentsToggle"'), 'HTML must include Read out comments toggle');
 assert(html.includes('id="emulateAudienceToggle"'), 'HTML must include Emulate audience toggle');
-assert(cfg.audience?.every_nth_segment === 4, 'audience emulation must target every 4th segment');
+assert(cfg.audience?.chance_percent === 25, 'audience emulation must insert demo messages at 25% chance');
 assert(
   Array.isArray(cfg.audience?.messages) && cfg.audience.messages.length === 4,
   'audience catalog must include the four demo messages',

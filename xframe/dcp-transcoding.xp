@@ -169,7 +169,7 @@ demo_message:
 audience_emulation:
   _attributes:
     enabled_default: _boolean
-    every_nth_segment: _integer
+    chance_percent: _integer
     audio_base: _string
     messages: [demo_message]
     notes: _string
@@ -237,12 +237,13 @@ app:
   audience:
     _concept: audience_emulation
     enabled_default: true
-    every_nth_segment: 4
+    chance_percent: 25
     audio_base: demoMessages/audio/gemini
     notes: >-
-      When Emulate audience is on, every 4th DCP slice with no worker comment
-      receives a unique demo message from this catalog, played from generated
-      Gemini WAV clips. Messages are never reused in the same job.
+      When Emulate audience is on, each DCP slice that arrives with no worker
+      comment has a 25% chance of receiving a unique demo message from this
+      catalog, played from generated Gemini WAV clips. Messages are never reused
+      in the same job.
     messages:
       - _concept: demo_message
         id: non-conformists

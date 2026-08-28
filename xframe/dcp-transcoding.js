@@ -1458,7 +1458,7 @@ const DEMO_COMMENT_AUDIO_LOCALES = Array.isArray(CONFIG.worker_invite?.demo_audi
   ? CONFIG.worker_invite.demo_audio_locales.map(String)
   : ['en-US', 'fr-FR', 'es-ES', 'de-DE', 'nl-NL'];
 const AUDIENCE = CONFIG.audience || {};
-const AUDIENCE_EVERY_NTH = Math.max(1, Number(AUDIENCE.every_nth_segment) || 4);
+const AUDIENCE_CHANCE = Math.min(1, Math.max(0, (Number(AUDIENCE.chance_percent) || 25) / 100));
 const AUDIENCE_AUDIO_BASE =
   String(AUDIENCE.audio_base || 'demoMessages/audio/gemini').replace(/\/+$/, '');
 const AUDIENCE_MESSAGES = (Array.isArray(AUDIENCE.messages) ? AUDIENCE.messages : [])
@@ -1600,11 +1600,10 @@ function takeRandomAudienceMessage() {
   return AUDIENCE_MESSAGES_BY_ID.get(id) || null;
 }
 
-function maybeEmulateAudienceComment(cell, sliceIndex) {
+function maybeEmulateAudienceComment(cell) {
   if (el('emulateAudienceToggle')?.checked === false) return;
   if (!cell || cell.dataset.workerComment) return;
-  if (!Number.isInteger(sliceIndex) || sliceIndex < 0) return;
-  if ((sliceIndex + 1) % AUDIENCE_EVERY_NTH !== 0) return;
+  if (Math.random() >= AUDIENCE_CHANCE) return;
   const message = takeRandomAudienceMessage();
   if (!message) return;
   const locales = Object.keys(message.quotes);
@@ -2611,7 +2610,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     let presented = normalizedComment;
     if (cell) {
       applyWorkerCommentToCell(cell, normalizedComment);
-      maybeEmulateAudienceComment(cell, sliceIndex);
+      maybeEmulateAudienceComment(cell);
       applyComputeSecondsToCell(cell, segments);
       cell.classList.remove('active', 'indeterminate');
       cell.classList.add('done');
