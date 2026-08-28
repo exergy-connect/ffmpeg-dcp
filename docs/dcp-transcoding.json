@@ -1,16 +1,16 @@
 {
   "_meta": {
-    "createdAt": "2026-08-28T17:03:46.373Z",
-    "modifiedAt": "2026-08-28T17:03:46.373Z",
+    "createdAt": "2026-08-28T17:10:10.514Z",
+    "modifiedAt": "2026-08-28T17:10:10.514Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
   "_sources": [
     {
       "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp",
-      "hash": "sha256:62cfbdeb94ee42641f214284f9fed4cb359a984c5b71ecdaffb0288d26e3c536",
+      "hash": "sha256:21dc82188a2ca066787adb159585578826293bdd48a5dd3f0fa7bd334f507cd5",
       "createdAt": "2026-08-24T19:23:37.516Z",
-      "modifiedAt": "2026-08-28T17:03:35.904Z"
+      "modifiedAt": "2026-08-28T17:10:02.210Z"
     }
   ],
   "_concepts": {
@@ -341,7 +341,7 @@
         "enabled_default": true,
         "chance_percent": 25,
         "audio_base": "demoMessages/audio/gemini",
-        "notes": "When Emulate audience is on, each DCP slice that arrives with no worker comment has a 25% chance of receiving a unique demo message from this catalog, played from generated Gemini WAV clips. Messages are never reused in the same job.",
+        "notes": "When Emulate audience is on, each DCP slice that arrives with no worker comment has a 25% chance of receiving a unique demo message from this catalog, played from generated Gemini WAV clips. Messages are never reused in the same job, and a new demo is not inserted while a previous comment is still playing.",
         "messages": [
           {
             "_concept": "demo_message",
@@ -761,7 +761,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 621,
+                    "line": 622,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -796,7 +796,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 628,
+                    "line": 629,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -839,7 +839,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 641,
+                    "line": 642,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -874,7 +874,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 648,
+                    "line": 649,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -917,7 +917,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 661,
+                    "line": 662,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -952,7 +952,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 668,
+                    "line": 669,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -995,7 +995,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 681,
+                    "line": 682,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1030,7 +1030,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 688,
+                    "line": 689,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1078,7 +1078,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 705,
+                    "line": 706,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1113,7 +1113,7 @@
                   },
                   "_provenance": {
                     "source": 0,
-                    "line": 712,
+                    "line": 713,
                     "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
                   }
                 }
@@ -1160,7 +1160,7 @@
             "_resolved": {
               "_provenance": {
                 "source": 0,
-                "line": 718,
+                "line": 719,
                 "path": "file:///workspaces/ffmpeg-dcp/xframe/dcp-transcoding.xp"
               }
             }

@@ -1603,6 +1603,7 @@ function takeRandomAudienceMessage() {
 function maybeEmulateAudienceComment(cell) {
   if (el('emulateAudienceToggle')?.checked === false) return;
   if (!cell || cell.dataset.workerComment) return;
+  if (isCommentPlaybackActive()) return;
   if (Math.random() >= AUDIENCE_CHANCE) return;
   const message = takeRandomAudienceMessage();
   if (!message) return;

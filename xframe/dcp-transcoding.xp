@@ -243,7 +243,8 @@ app:
       When Emulate audience is on, each DCP slice that arrives with no worker
       comment has a 25% chance of receiving a unique demo message from this
       catalog, played from generated Gemini WAV clips. Messages are never reused
-      in the same job.
+      in the same job, and a new demo is not inserted while a previous comment
+      is still playing.
     messages:
       - _concept: demo_message
         id: non-conformists
