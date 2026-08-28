@@ -1895,6 +1895,51 @@ function updateSliceProgress(sliceNumber, rawProgress) {
   cell.title = `${cell.dataset.baseTitle}${commentLine}\n${percent}% transcoded`;
 }
 
+function formatComputeSeconds(sec) {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n < 0) return null;
+  if (n < 10) return `${n.toFixed(2)}s`;
+  if (n < 100) return `${n.toFixed(1)}s`;
+  return `${Math.round(n)}s`;
+}
+
+function summarizeSegmentCompute(segments) {
+  const parts = [];
+  let total = 0;
+  let counted = 0;
+  for (const seg of segments || []) {
+    const n = Number(seg?.computeSeconds);
+    if (!Number.isFinite(n) || n < 0) continue;
+    total += n;
+    counted += 1;
+    const label = formatComputeSeconds(n);
+    if (label && seg?.signature) parts.push(`${seg.signature}: ${label}`);
+    else if (label) parts.push(label);
+  }
+  if (!counted) return null;
+  return {
+    total,
+    label: formatComputeSeconds(total),
+    detail: parts.length > 1 ? parts.join('\n') : (parts[0] || formatComputeSeconds(total)),
+  };
+}
+
+function applyComputeSecondsToCell(cell, segments) {
+  if (!cell) return;
+  const summary = summarizeSegmentCompute(segments);
+  if (!summary?.label) return;
+  cell.dataset.computeSeconds = String(summary.total);
+  let badge = cell.querySelector('.slice-compute');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.className = 'slice-compute';
+    badge.setAttribute('aria-hidden', 'true');
+    cell.appendChild(badge);
+  }
+  badge.textContent = summary.label;
+  badge.title = summary.detail || summary.label;
+}
+
 function applyWorkerCommentToCell(cell, workerComment) {
   if (!cell) return;
   const normalized = normalizeWorkerComment(workerComment);
@@ -2499,6 +2544,7 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     const cell = gridCells[sliceIndex];
     if (cell) {
       applyWorkerCommentToCell(cell, normalizedComment);
+      applyComputeSecondsToCell(cell, segments);
       cell.classList.remove('active', 'indeterminate');
       cell.classList.add('done');
       cell.style.setProperty('--slice-progress', '100%');
@@ -2512,7 +2558,17 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
           playbackLanguage: cell.dataset.workerPlaybackLanguage,
         })?.display || cell.dataset.workerComment}`
         : '';
-      cell.title = `${cell.dataset.baseTitle}${commentLine}\ncomplete`;
+      const computeSummary = summarizeSegmentCompute(segments);
+      const computeLine = computeSummary?.detail
+        ? `\ncompute ${computeSummary.detail.replace(/\n/g, '; ')}`
+        : '';
+      cell.title = `${cell.dataset.baseTitle}${commentLine}${computeLine}\ncomplete`;
+      if (computeSummary?.label) {
+        cell.setAttribute(
+          'aria-label',
+          `${cell.dataset.baseTitle}; compute ${computeSummary.label}; complete`,
+        );
+      }
     }
     el('fleetBar').style.width = `${(completed / totalUnits) * 100}%`;
     el('statCompleted').textContent = `${completed} / ${totalUnits}`;
@@ -2520,9 +2576,11 @@ async function dispatchJob(sourcePlans, uniqueFormats, maxDistribution, inputBas
     if (status) {
       status.textContent = `Fleet: received ${completed}/${totalUnits} format-units…`;
     }
+    const computeSummary = summarizeSegmentCompute(segments);
     log(
       `Received slice ${ev?.sliceNumber ?? unitIndex}: program ${programIndex}, chunk ${chunkIndex}, ` +
       `${sourceId} source, ${segments.length} segment(s)` +
+      `${computeSummary?.label ? `, compute ${computeSummary.label}` : ''}` +
       `${normalizedComment ? `, worker “${normalizedComment.display}”` : ''}` +
       ` (${completed}/${totalUnits} format-units)`,
     );

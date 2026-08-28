@@ -149,6 +149,27 @@
       margin: 0;
       accent-color: #0a66c2;
     }
+    .slice-compute {
+      position: absolute;
+      right: 0.35rem;
+      top: 0.35rem;
+      z-index: 6;
+      padding: 0.15rem 0.4rem;
+      border-radius: 6px;
+      background: rgba(13, 17, 23, 0.82);
+      color: #f0f3f6;
+      font-size: clamp(0.62rem, 3.5cqi, 0.78rem);
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.01em;
+      line-height: 1.2;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    .grid-cell.has-worker-comment .slice-compute {
+      font-size: clamp(0.72rem, 3.2cqi, 0.9rem);
+      padding: 0.22rem 0.5rem;
+    }
     .slice-callout {
       position: absolute;
       left: 50%;
