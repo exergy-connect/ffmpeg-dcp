@@ -1,7 +1,7 @@
 {
   "_meta": {
-    "createdAt": "2026-08-28T16:21:26.384Z",
-    "modifiedAt": "2026-08-28T16:21:26.384Z",
+    "createdAt": "2026-08-31T14:18:52.048Z",
+    "modifiedAt": "2026-08-31T14:18:52.048Z",
     "version": "0.1.0",
     "base": "file:///workspaces/ffmpeg-dcp/xframe/"
   },
@@ -10,7 +10,7 @@
       "path": "file:///workspaces/ffmpeg-dcp/xframe/worker.xp",
       "hash": "sha256:8d3edc3710580b4b242e69fe54e2630026288a0bdfff383f6c3c17a4ec7194d5",
       "createdAt": "2026-08-27T13:25:30.585Z",
-      "modifiedAt": "2026-08-28T16:21:04.199Z"
+      "modifiedAt": "2026-08-28T16:34:08.446Z"
     }
   ],
   "_concepts": {

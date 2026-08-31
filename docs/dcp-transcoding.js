@@ -2035,7 +2035,7 @@ function setupGrid(units, formatsMeta) {
     cell.style.setProperty('--slice-progress', '0%');
     cell.dataset.sliceProgress = '0';
     cell.dataset.baseTitle = baseTitle;
-    cell.title = `${baseTitle}\npending`;
+    setSliceTitle(cell, `${baseTitle}\npending`, { force: true });
     cell.setAttribute('role', 'progressbar');
     cell.setAttribute('aria-label', baseTitle);
     cell.setAttribute('aria-valuemin', '0');
@@ -2052,12 +2052,24 @@ function setupGrid(units, formatsMeta) {
   }
 }
 
+function ensureSliceTip(cell) {
+  let tip = cell.querySelector('.slice-tip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.className = 'slice-tip';
+    tip.setAttribute('role', 'tooltip');
+    cell.appendChild(tip);
+  }
+  return tip;
+}
+
 function setSliceTitle(cell, text, { force = false } = {}) {
-  if (!cell || cell.title === text) return;
-  // Native tooltips restart whenever `title` changes; leave the label alone
-  // while the pointer is on the cell so progress ticks cannot flicker it.
-  if (!force && cell.matches(':hover')) return;
-  cell.title = text;
+  if (!cell) return;
+  const tip = ensureSliceTip(cell);
+  if (!force && tip.textContent === text) return;
+  // In-page tip (not HTML title): native tooltips are browser chrome and
+  // are omitted from tab/window capture used for the web recording.
+  tip.textContent = text;
 }
 
 function updateSliceProgress(sliceNumber, rawProgress) {
@@ -2125,7 +2137,6 @@ function applyComputeSecondsToCell(cell, segments) {
     cell.appendChild(badge);
   }
   badge.textContent = summary.label;
-  badge.title = summary.detail || summary.label;
 }
 
 function applyWorkerCommentToCell(cell, workerComment) {

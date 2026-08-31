@@ -128,6 +128,41 @@
       outline: 3px solid var(--accent);
       outline-offset: 3px;
     }
+    .grid-cell:hover,
+    .grid-cell:focus-visible {
+      z-index: 12;
+    }
+    .slice-tip {
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 0.45rem);
+      transform: translateX(-50%);
+      z-index: 14;
+      box-sizing: border-box;
+      width: max-content;
+      max-width: min(18rem, 70vw);
+      padding: 0.4rem 0.55rem;
+      border-radius: 8px;
+      background: rgba(13, 17, 23, 0.94);
+      color: #f0f3f6;
+      border: 1px solid #2d3f52;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+      font-size: 0.72rem;
+      font-weight: 500;
+      line-height: 1.35;
+      letter-spacing: 0.01em;
+      white-space: pre-line;
+      text-align: left;
+      pointer-events: none;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.12s ease 0.35s, visibility 0s linear 0.35s;
+    }
+    .grid-cell:hover .slice-tip,
+    .grid-cell:focus-visible .slice-tip {
+      opacity: 1;
+      visibility: visible;
+    }
     .grid-cell.has-worker-comment.done {
       box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
     }
@@ -255,6 +290,7 @@
       .grid-cell.has-worker-comment::after { transition: none; }
       .grid-cell.indeterminate { animation: none; }
       .slice-callout { animation: none; }
+      .slice-tip { transition: none; }
     }
     .bar-track { flex: 1; height: 14px; background: #1c2733; border-radius: 7px; overflow: hidden; min-width: 120px; }
     .bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #3fb950, #2ea043); transition: width 0.2s ease; }
